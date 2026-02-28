@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-annotation-marker",
+  "name": "Obsidian Annotation Marker",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "在不改动原始Markdown文件的前提下，为Markdown文件添加标注、高亮和批注",
+  "author": "uuq007",
+  "isDesktopOnly": false
+}

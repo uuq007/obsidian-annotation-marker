@@ -11,18 +11,30 @@ export interface ExtractedRubyInfo {
   rubyTexts: Array<{ startIndex: number; length: number; ruby: string }>;
 }
 
+export interface OriginalRuby {
+  startIndex: number;
+  length: number;
+  rt: string;
+  rubyHTML: string;
+}
+
 export interface Annotation {
   id: string;
   text: string;
   contextBefore: string;
   contextAfter: string;
-  positionPercent: number;
   color: AnnotationColor;
   note: string;
   rubyText?: string;
   rubyTexts?: AnnotationRuby[];
+  originalRubies?: OriginalRuby[];
   createdAt: string;
   updatedAt: string;
+  startLine: number;
+  endLine: number;
+  startOffset: number;
+  endOffset: number;
+  isValid: number;
 }
 
 export interface FileAnnotationData {
@@ -58,7 +70,8 @@ export const COLOR_LABELS: Record<AnnotationColor, string> = {
   none: "无色",
 };
 
-export const CONTEXT_LENGTH = 50;
+export const CONTEXT_LENGTH_BEFORE = 50;
+export const CONTEXT_LENGTH_AFTER = 50;
 export const MATCH_THRESHOLD = 0.5;
 
 export interface PartialAnnotationInfo {

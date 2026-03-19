@@ -24,6 +24,10 @@ export class DataManager {
     return normalizePath(`${this.getAnnotationsDir()}/${safeName}.json`);
   }
 
+  clearCache(): void {
+    this.cache.clear();
+  }
+
   async ensureAnnotationsDir(): Promise<void> {
     const dir = this.getAnnotationsDir();
     const exists = await this.app.vault.adapter.exists(dir);
@@ -33,61 +37,55 @@ export class DataManager {
   }
 
   async loadAnnotations(filePath: string): Promise<FileAnnotationData | null> {
+
+
     if (this.cache.has(filePath)) {
+
       return this.cache.get(filePath) ?? null;
     }
 
     const annotationFilePath = this.getAnnotationFilePath(filePath);
+
+
     const exists = await this.app.vault.adapter.exists(annotationFilePath);
 
     if (!exists) {
+
       return null;
     }
 
     try {
       const content = await this.app.vault.adapter.read(annotationFilePath);
+
+
       const data = JSON.parse(content) as FileAnnotationData;
 
-      data.annotations = this.migrateAnnotations(data.annotations);
+
       this.cache.set(filePath, data);
+
       return data;
     } catch (e) {
-      console.error("加载标注数据失败:", e);
+      console.error('[❌ DataManager] 加载标注数据失败:', e);
       return null;
     }
   }
 
-  private migrateAnnotations(annotations: any[]): any[] {
-    let migrated = false;
-    const result = annotations.map((annotation) => {
-      if (annotation.rubyText && !annotation.rubyTexts) {
-        migrated = true;
-        return {
-          ...annotation,
-          rubyTexts: [{
-            startIndex: 0,
-            length: annotation.text.length,
-            ruby: annotation.rubyText
-          }],
-          rubyText: undefined
-        };
-      }
-      return annotation;
-    });
 
-    if (migrated) {
-      console.log("已迁移旧版本的注音数据到新格式");
-    }
-
-    return result;
-  }
 
   async saveAnnotations(filePath: string, data: FileAnnotationData): Promise<void> {
+
+
+
     await this.ensureAnnotationsDir();
     const annotationFilePath = this.getAnnotationFilePath(filePath);
     const content = JSON.stringify(data, null, 2);
+
+
+
+
     await this.app.vault.adapter.write(annotationFilePath, content);
     this.cache.set(filePath, data);
+
   }
 
   async migrateAnnotation(oldPath: string, newPath: string): Promise<boolean> {
@@ -136,29 +134,17 @@ export class DataManager {
   }
 
   async addAnnotation(filePath: string, annotation: Omit<Annotation, "id" | "createdAt" | "updatedAt">): Promise<Annotation | null> {
+
+
+
     let data = await this.loadAnnotations(filePath);
 
     if (!data) {
+
       data = {
         filePath,
         annotations: [],
       };
-    }
-
-    const existingIndex = data.annotations.findIndex(a => {
-      const textMatch = a.text.trim().toLowerCase() === annotation.text.trim().toLowerCase();
-      const positionMatch = Math.abs(a.positionPercent - annotation.positionPercent) < 5;
-      return textMatch && positionMatch;
-    });
-
-    if (existingIndex !== -1) {
-      const existing = data.annotations[existingIndex];
-      if (existing && existing.id && existing.id.trim()) {
-        await this.deleteAnnotation(filePath, existing.id);
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
-
-      data = await this.loadAnnotations(filePath) || data;
     }
 
     const newAnnotation: Annotation = {
@@ -166,57 +152,94 @@ export class DataManager {
       text: annotation.text,
       contextBefore: annotation.contextBefore,
       contextAfter: annotation.contextAfter,
-      positionPercent: annotation.positionPercent,
       color: annotation.color,
       note: annotation.note,
       rubyTexts: annotation.rubyTexts,
+      originalRubies: annotation.originalRubies,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      startLine: annotation.startLine,
+      endLine: annotation.endLine,
+      startOffset: annotation.startOffset,
+      endOffset: annotation.endOffset,
+      isValid: annotation.isValid,
     };
+
+
 
     data.annotations.push(newAnnotation);
     await this.saveAnnotations(filePath, data);
+
     return newAnnotation;
   }
 
   async updateAnnotation(filePath: string, annotationId: string, updates: Partial<Omit<Annotation, "id" | "createdAt">>): Promise<Annotation | null> {
+
+
+
     const data = await this.loadAnnotations(filePath);
-    if (!data) return null;
+    if (!data) {
+
+      return null;
+    }
 
     const index = data.annotations.findIndex((a) => a.id === annotationId);
-    if (index === -1) return null;
+    if (index === -1) {
+
+      return null;
+    }
 
     const existing = data.annotations[index];
     if (!existing) return null;
 
+
+
     const updated: Annotation = {
       id: existing.id,
-      text: existing.text,
+      text: updates.text ?? existing.text,
       contextBefore: updates.contextBefore ?? existing.contextBefore,
       contextAfter: updates.contextAfter ?? existing.contextAfter,
-      positionPercent: updates.positionPercent ?? existing.positionPercent,
       color: updates.color ?? existing.color,
       note: updates.note ?? existing.note,
       rubyTexts: updates.rubyTexts ?? existing.rubyTexts,
+      originalRubies: updates.originalRubies ?? existing.originalRubies,
       createdAt: existing.createdAt,
       updatedAt: new Date().toISOString(),
+      startLine: updates.startLine ?? existing.startLine,
+      endLine: updates.endLine ?? existing.endLine,
+      startOffset: updates.startOffset ?? existing.startOffset,
+      endOffset: updates.endOffset ?? existing.endOffset,
+      isValid: updates.isValid ?? existing.isValid,
     };
+
+
 
     data.annotations[index] = updated;
 
     await this.saveAnnotations(filePath, data);
+
     return updated;
   }
 
   async deleteAnnotation(filePath: string, annotationId: string): Promise<boolean> {
+
+
     const data = await this.loadAnnotations(filePath);
-    if (!data) return false;
+    if (!data) {
+
+      return false;
+    }
 
     const index = data.annotations.findIndex((a) => a.id === annotationId);
-    if (index === -1) return false;
+    if (index === -1) {
+
+      return false;
+    }
+
 
     data.annotations.splice(index, 1);
     await this.saveAnnotations(filePath, data);
+
     return true;
   }
 
@@ -228,9 +251,5 @@ export class DataManager {
         a.contextBefore === contextBefore &&
         a.contextAfter === contextAfter
     );
-  }
-
-  clearCache(): void {
-    this.cache.clear();
   }
 }

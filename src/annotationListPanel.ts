@@ -10,17 +10,21 @@ export class AnnotationListPanel {
   private filePath: string | null = null;
   private onUpdate: (() => void) | null = null;
   private previewContainer: HTMLElement | null = null;
+  private currentView: MarkdownView | null = null;
   private sortOption: "position-asc" | "position-desc" | "time-asc" | "time-desc" = "position-asc";
+  private panelClickHandler: ((e: MouseEvent) => void) | null = null;
+  private contextMenuClickHandler: ((e: MouseEvent) => void) | null = null;
 
   constructor(app: App, dataManager: DataManager) {
     this.app = app;
     this.dataManager = dataManager;
   }
 
-  show(filePath: string, previewContainer: HTMLElement, onUpdate: () => void): void {
+  show(filePath: string, previewContainer: HTMLElement, onUpdate: () => void, view: MarkdownView): void {
     this.filePath = filePath;
     this.previewContainer = previewContainer;
     this.onUpdate = onUpdate;
+    this.currentView = view;
     this.hide();
 
     this.createListButton();
@@ -56,6 +60,8 @@ export class AnnotationListPanel {
   private async showPanel(): Promise<void> {
     if (!this.filePath || !this.previewContainer) return;
 
+    this.hidePanel();
+
     this.panelEl = document.createElement("div");
     this.panelEl.className = "annotation-list-panel";
 
@@ -90,14 +96,17 @@ export class AnnotationListPanel {
     this.panelEl.style.top = "50%";
     this.panelEl.style.transform = "translateY(-50%)";
 
-    const clickHandler = (e: MouseEvent) => {
+    this.panelClickHandler = (e: MouseEvent) => {
       if (this.panelEl && !this.panelEl.contains(e.target as Node) &&
           (!this.listBtn || !this.listBtn.contains(e.target as Node))) {
         this.hidePanel();
-        document.removeEventListener("click", clickHandler);
       }
     };
-    setTimeout(() => document.addEventListener("click", clickHandler), 10);
+    setTimeout(() => {
+      if (this.panelClickHandler) {
+        document.addEventListener("click", this.panelClickHandler);
+      }
+    }, 10);
   }
 
   private async renderContent(content: HTMLElement): Promise<void> {
@@ -123,16 +132,44 @@ export class AnnotationListPanel {
     let annotations = [...data.annotations];
     switch (this.sortOption) {
       case "position-asc":
-        annotations.sort((a, b) => a.positionPercent - b.positionPercent);
+        annotations.sort((a, b) => {
+          if (a.startLine !== b.startLine) {
+            return a.startLine - b.startLine;
+          }
+          if (a.startOffset !== b.startOffset) {
+            return a.startOffset - b.startOffset;
+          }
+          return a.id.localeCompare(b.id);
+        });
         break;
       case "position-desc":
-        annotations.sort((a, b) => b.positionPercent - a.positionPercent);
+        annotations.sort((a, b) => {
+          if (a.startLine !== b.startLine) {
+            return b.startLine - a.startLine;
+          }
+          if (a.startOffset !== b.startOffset) {
+            return b.startOffset - a.startOffset;
+          }
+          return b.id.localeCompare(a.id);
+        });
         break;
       case "time-asc":
-        annotations.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        annotations.sort((a, b) => {
+          const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          if (timeDiff !== 0) {
+            return timeDiff;
+          }
+          return a.id.localeCompare(b.id);
+        });
         break;
       case "time-desc":
-        annotations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        annotations.sort((a, b) => {
+          const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          if (timeDiff !== 0) {
+            return timeDiff;
+          }
+          return b.id.localeCompare(a.id);
+        });
         break;
     }
 
@@ -178,6 +215,11 @@ export class AnnotationListPanel {
   }
 
   private showContextMenu(annotation: Annotation, x: number, y: number): void {
+    if (this.contextMenuClickHandler) {
+      document.removeEventListener("click", this.contextMenuClickHandler);
+      this.contextMenuClickHandler = null;
+    }
+
     const menu = document.createElement("div");
     menu.className = "annotation-context-menu";
 
@@ -185,12 +227,20 @@ export class AnnotationListPanel {
     detailBtn.addEventListener("click", () => {
       this.showAnnotationDetail(annotation);
       menu.remove();
+      if (this.contextMenuClickHandler) {
+        document.removeEventListener("click", this.contextMenuClickHandler);
+        this.contextMenuClickHandler = null;
+      }
     });
 
     const deleteBtn = menu.createEl("button", { text: "删除标注", cls: "annotation-context-menu-item annotation-context-menu-danger" });
     deleteBtn.addEventListener("click", async () => {
       await this.deleteAnnotation(annotation);
       menu.remove();
+      if (this.contextMenuClickHandler) {
+        document.removeEventListener("click", this.contextMenuClickHandler);
+        this.contextMenuClickHandler = null;
+      }
     });
 
     document.body.appendChild(menu);
@@ -212,13 +262,20 @@ export class AnnotationListPanel {
     menu.style.left = `${Math.max(10, menuX)}px`;
     menu.style.top = `${Math.max(10, menuY)}px`;
 
-    const clickHandler = (e: MouseEvent) => {
+    this.contextMenuClickHandler = (e: MouseEvent) => {
       if (!menu.contains(e.target as Node)) {
         menu.remove();
-        document.removeEventListener("click", clickHandler);
+        if (this.contextMenuClickHandler) {
+          document.removeEventListener("click", this.contextMenuClickHandler);
+          this.contextMenuClickHandler = null;
+        }
       }
     };
-    setTimeout(() => document.addEventListener("click", clickHandler), 10);
+    setTimeout(() => {
+      if (this.contextMenuClickHandler) {
+        document.addEventListener("click", this.contextMenuClickHandler);
+      }
+    }, 10);
   }
 
   private showAnnotationDetail(annotation: Annotation): void {
@@ -256,20 +313,63 @@ export class AnnotationListPanel {
     return highlightEl;
   }
 
-  private scrollToAnnotation(annotation: Annotation): void {
+  private highlightAnnotation(highlightEl: HTMLElement): void {
+    highlightEl.style.transition = "box-shadow 0.3s ease";
+    highlightEl.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+
+    setTimeout(() => {
+      highlightEl.style.boxShadow = "";
+    }, 2000);
+  }
+
+  private async scrollToAnnotation(annotation: Annotation): Promise<void> {
+
+
+    if (!this.currentView || !this.currentView.previewMode) {
+
+      return;
+    }
+
+    const previewMode = this.currentView.previewMode;
+
+
+
+    (previewMode as any).renderer.applyScroll(annotation.startLine, {
+      center: true
+    });
+
+
+
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     const highlightEl = this.findAnnotationElement(annotation.id);
     if (highlightEl) {
-      highlightEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      highlightEl.style.transition = "box-shadow 0.3s ease";
-      highlightEl.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-      setTimeout(() => {
-        highlightEl.style.boxShadow = "";
-      }, 2000);
+
+      this.highlightAnnotation(highlightEl);
+    } else {
+
+
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const retryHighlight = this.findAnnotationElement(annotation.id);
+      if (retryHighlight) {
+
+        this.highlightAnnotation(retryHighlight);
+      } else {
+
+        new Notice('未能定位到标注，可能文档内容已更改');
+      }
     }
+
     this.hidePanel();
   }
 
   private hidePanel(): void {
+    if (this.panelClickHandler) {
+      document.removeEventListener("click", this.panelClickHandler);
+      this.panelClickHandler = null;
+    }
+
     if (this.panelEl) {
       this.panelEl.remove();
       this.panelEl = null;
@@ -277,6 +377,10 @@ export class AnnotationListPanel {
   }
 
   hide(): void {
+    if (this.contextMenuClickHandler) {
+      document.removeEventListener("click", this.contextMenuClickHandler);
+      this.contextMenuClickHandler = null;
+    }
     this.hidePanel();
     if (this.listBtn) {
       this.listBtn.remove();

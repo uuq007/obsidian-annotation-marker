@@ -1,6 +1,7 @@
 import { App, Notice } from "obsidian";
-import { AnnotationColor, COLOR_LABELS, ExtractedRubyInfo, PartialAnnotationInfo } from "./types";
+import { AnnotationColor, COLOR_LABELS, ExtractedRubyInfo, PartialAnnotationInfo, OriginalRuby } from "./types";
 import { DataManager } from "./dataManager";
+import { calculateRangeOffsetInElement } from "./utils/helpers";
 
 export class SelectionMenu {
   private app: App;
@@ -9,9 +10,6 @@ export class SelectionMenu {
   private selectedColor: AnnotationColor = "yellow";
   private currentFilePath: string | null = null;
   private selectedText: string = "";
-  private contextBefore: string = "";
-  private contextAfter: string = "";
-  private positionPercent: number = 0;
   private onAddCallback: (() => void) | null = null;
   private pendingNote: string = "";
   private noteInput: HTMLTextAreaElement | null = null;
@@ -29,6 +27,16 @@ export class SelectionMenu {
   private fullText: string = "";
   private startIndexInFullText: number = 0;
   private endIndexInFullText: number = 0;
+  private startLineInstance: number = 0;
+  private endLineInstance: number = 0;
+  private startOffsetInstance: number = 0;
+  private endOffsetInstance: number = 0;
+  private previewEl: HTMLElement | null = null;
+  private renderer: any = null;
+  private contextBeforeInstance: string = "";
+  private contextAfterInstance: string = "";
+  private containedAnnotationIds: string[] = [];
+  private originalRubies: OriginalRuby[] = [];
 
   constructor(app: App, dataManager: DataManager) {
     this.app = app;
@@ -39,23 +47,51 @@ export class SelectionMenu {
     x: number,
     y: number,
     selectedText: string,
-    contextBefore: string,
-    contextAfter: string,
-    positionPercent: number,
+    startLine: number,
+    endLine: number,
+    startOffset: number,
+    endOffset: number,
     filePath: string,
     onAdd: () => void,
     extractedRubyInfo?: ExtractedRubyInfo,
-    partialAnnotationInfo?: PartialAnnotationInfo
+    partialAnnotationInfo?: PartialAnnotationInfo,
+    previewEl?: HTMLElement,
+    renderer?: any,
+    contextBefore?: string,
+    contextAfter?: string,
+    containedAnnotationIds?: string[],
+    originalRubies?: OriginalRuby[]
   ): void {
     this.currentFilePath = filePath;
     this.selectedText = selectedText;
-    this.contextBefore = contextBefore;
-    this.contextAfter = contextAfter;
-    this.positionPercent = positionPercent;
     this.onAddCallback = onAdd;
     this.extractedRubyInfo = extractedRubyInfo || null;
     this.partialAnnotationInfo = partialAnnotationInfo || null;
+    this.previewEl = previewEl || null;
+    this.renderer = renderer || null;
+    this.contextBeforeInstance = contextBefore || "";
+    this.contextAfterInstance = contextAfter || "";
+    this.containedAnnotationIds = containedAnnotationIds || [];
+    this.originalRubies = originalRubies || [];
+
+
+
+
+    this.startLineInstance = startLine;
+    this.endLineInstance = endLine;
+    this.startOffsetInstance = startOffset;
+    this.endOffsetInstance = endOffset;
     this.hide();
+
+    this.menuEl = document.createElement("div");
+    this.menuEl.className = "annotation-card-menu annotation-selection-menu";
+
+    this.menuEl.dataset.startLine = startLine.toString();
+    this.menuEl.dataset.endLine = endLine.toString();
+    this.menuEl.dataset.startOffset = startOffset.toString();
+    this.menuEl.dataset.endOffset = endOffset.toString();
+
+
 
     const isUpdatingAnnotation = !!this.partialAnnotationInfo;
 
@@ -178,11 +214,15 @@ export class SelectionMenu {
       setTimeout(() => {
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed) {
-          const selectedRubyText = selection.toString();
-          const fullText = this.rubyTextPreview!.textContent || "";
-          const startIndex = fullText.indexOf(selectedRubyText);
-          if (startIndex !== -1) {
-            this.selectedRubyRange = { start: startIndex, end: startIndex + selectedRubyText.length };
+          const range = selection.getRangeAt(0);
+          const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
+
+          if (rubyTextOffset) {
+            this.selectedRubyRange = {
+              start: rubyTextOffset.start,
+              end: rubyTextOffset.end
+            };
+
           }
         }
       }, 10);
@@ -209,29 +249,32 @@ export class SelectionMenu {
     addRubyBtn.addEventListener("click", () => {
       const selection = window.getSelection();
       let selectedRubyText = "";
+      let rubyStart = 0;
 
       if (selection && !selection.isCollapsed) {
         selectedRubyText = selection.toString();
+        const range = selection.getRangeAt(0);
+        const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
+        if (rubyTextOffset) {
+          rubyStart = rubyTextOffset.start;
+        }
       } else if (this.selectedRubyRange) {
         selectedRubyText = selectedText.substring(this.selectedRubyRange.start, this.selectedRubyRange.end);
+        rubyStart = this.selectedRubyRange.start;
       }
 
       if (selectedRubyText && this.rubyTextInput!.value.trim()) {
-        const fullText = this.rubyTextPreview!.textContent || "";
-        const startIndex = fullText.indexOf(selectedRubyText);
-        if (startIndex !== -1) {
-          this.rubyTexts.push({
-            startIndex,
-            length: selectedRubyText.length,
-            ruby: this.rubyTextInput!.value.trim()
-          });
-          this.rubyTextInput!.value = "";
-          this.selectedRubyRange = null;
-          if (selection) {
-            selection.removeAllRanges();
-          }
-          this.updateRubyList?.();
+        this.rubyTexts.push({
+          startIndex: rubyStart,
+          length: selectedRubyText.length,
+          ruby: this.rubyTextInput!.value.trim()
+        });
+        this.rubyTextInput!.value = "";
+        this.selectedRubyRange = null;
+        if (selection) {
+          selection.removeAllRanges();
         }
+        this.updateRubyList?.();
       } else {
         if (!selectedRubyText) {
           if (selectedText.length === 1) {
@@ -304,27 +347,27 @@ export class SelectionMenu {
     requestAnimationFrame(() => {
       const menuWidth = 280;
       const menuHeight = this.menuEl!.offsetHeight || 200;
-
+  
       let menuX = x + 10;
       let menuY = y + 10;
-
+ 
       if (menuX + menuWidth > window.innerWidth) {
         menuX = x - menuWidth - 10;
       }
-
+ 
       const threshold = window.innerHeight * 0.4;
       if (y > threshold) {
         menuY = y - menuHeight - 10;
       }
-
+ 
       if (menuY + menuHeight > window.innerHeight) {
         menuY = window.innerHeight - menuHeight - 10;
       }
-
+  
       if (menuY < 10) {
         menuY = 10;
       }
-
+  
       this.menuEl!.style.left = `${Math.max(10, menuX)}px`;
       this.menuEl!.style.top = `${menuY}px`;
     });
@@ -369,8 +412,59 @@ export class SelectionMenu {
         );
 
         await this.dataManager.updateAnnotation(this.currentFilePath, annotationId, {
-          rubyTexts: updatedRubyTexts.length > 0 ? updatedRubyTexts : undefined
+          rubyTexts: updatedRubyTexts.length > 0 ? updatedRubyTexts : undefined,
+          originalRubies: existingAnnotation.originalRubies
         });
+
+        const markElement = document.querySelector(`mark[data-annotation-id="${annotationId}"]`);
+        if (markElement) {
+          if (this.renderer) {
+            const renderedAnnotations = this.renderer.getRenderedAnnotations();
+            renderedAnnotations.delete(annotationId);
+            this.renderer['processedAnnotations'].delete(annotationId);
+          }
+
+          const parent = markElement.parentNode;
+          if (parent) {
+            let textContent = "";
+            const walker = document.createTreeWalker(markElement, NodeFilter.SHOW_TEXT, null);
+            let node = walker.nextNode();
+            while (node) {
+              const textNode = node as Text;
+              const parentElement = textNode.parentElement;
+              if (parentElement && parentElement.tagName !== "RT") {
+                textContent += textNode.textContent;
+              }
+              node = walker.nextNode();
+            }
+            const textNode = document.createTextNode(textContent);
+            parent.replaceChild(textNode, markElement);
+
+            if (this.renderer && this.previewEl) {
+              this.dataManager.clearCache();
+              await new Promise(resolve => setTimeout(resolve, 100));
+
+              const data = await this.dataManager.loadAnnotations(this.currentFilePath);
+              if (data && data.annotations.length > 0) {
+                this.renderer.setAnnotations(data.annotations);
+                const result = this.renderer.renderByText(this.previewEl);
+
+                if (result.updatedContexts.length > 0) {
+                  for (const update of result.updatedContexts) {
+                    await this.dataManager.updateAnnotation(this.currentFilePath, update.id, {
+                      contextBefore: update.contextBefore,
+                      contextAfter: update.contextAfter,
+                      startLine: update.startLine,
+                      endLine: update.endLine,
+                      startOffset: update.startOffset,
+                      endOffset: update.endOffset,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
 
         this.partialAnnotationInfo = null;
         this.hide();
@@ -379,6 +473,61 @@ export class SelectionMenu {
           await this.onAddCallback();
         }
         new Notice("注音已添加");
+        return;
+      }
+
+      const partialInfo = this.partialAnnotationInfo as PartialAnnotationInfo | null;
+      if (partialInfo && partialInfo.annotationId) {
+
+        const annotationId = partialInfo.annotationId;
+
+        const data = await this.dataManager.loadAnnotations(this.currentFilePath);
+        if (!data) {
+
+          return;
+        }
+
+        const annotation = data.annotations.find(a => a.id === annotationId);
+        if (!annotation) {
+
+          return;
+        }
+
+
+
+        const rubyTexts = annotation.rubyTexts || [];
+
+
+        const newRubyTexts = this.mergeRubyTexts(rubyTexts, this.rubyTexts);
+
+
+        const startIndex = partialInfo.startIndex;
+        const length = partialInfo.length;
+
+        const existingRubyIndex = rubyTexts.findIndex(r =>
+          r.startIndex <= startIndex && r.startIndex + r.length > startIndex
+        );
+
+        if (existingRubyIndex !== -1) {
+          rubyTexts.splice(existingRubyIndex, 1);
+        }
+
+        await this.dataManager.updateAnnotation(this.currentFilePath, annotationId, {
+          rubyTexts: newRubyTexts,
+          originalRubies: annotation.originalRubies
+        });
+
+        this.pendingNote = "";
+        this.rubyTextEnabled = false;
+        this.rubyTexts = [];
+        this.extractedRubyInfo = null;
+        this.partialAnnotationInfo = null;
+        this.hide();
+        if (this.onAddCallback) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+          await this.onAddCallback();
+        }
+        new Notice("注音已更新");
         return;
       }
 
@@ -393,21 +542,50 @@ export class SelectionMenu {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
+      if (this.containedAnnotationIds && this.containedAnnotationIds.length > 0) {
+
+        for (const annotationId of this.containedAnnotationIds) {
+          await this.dataManager.deleteAnnotation(this.currentFilePath, annotationId);
+        }
+
+        this.dataManager.clearCache();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
       const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : undefined;
+
+      const startLine = this.startLineInstance;
+      const endLine = this.endLineInstance;
+      const startOffset = this.startOffsetInstance;
+      const endOffset = this.endOffsetInstance;
+
+
+
+
+
+
+
+
       const result = await this.dataManager.addAnnotation(this.currentFilePath, {
         text: this.selectedText,
-        contextBefore: this.contextBefore,
-        contextAfter: this.contextAfter,
-        positionPercent: this.positionPercent,
+        contextBefore: this.contextBeforeInstance,
+        contextAfter: this.contextAfterInstance,
         color: this.selectedColor,
         note,
         rubyTexts,
+        originalRubies: this.originalRubies.length > 0 ? this.originalRubies : undefined,
+        startLine,
+        endLine,
+        startOffset,
+        endOffset,
+        isValid: 1,
       });
 
       if (result) {
         this.pendingNote = "";
         this.rubyTextEnabled = false;
         this.rubyTexts = [];
+        this.originalRubies = [];
         this.extractedRubyInfo = null;
         this.hide();
         if (this.onAddCallback) {

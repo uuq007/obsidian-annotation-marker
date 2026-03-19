@@ -1,10 +1,26 @@
 import { MarkdownView } from "obsidian";
-import { Annotation, COLOR_MAP, MATCH_THRESHOLD } from "./types";
+import { Annotation, COLOR_MAP, MATCH_THRESHOLD, CONTEXT_LENGTH_BEFORE, CONTEXT_LENGTH_AFTER } from "./types";
 import { calculateSimilarity } from "./utils/helpers";
+import { MarkdownPostProcessorContext } from "obsidian";
 
 export interface RenderResult {
   lostAnnotations: Annotation[];
-  updatedContexts: { id: string; contextBefore: string; contextAfter: string; positionPercent: number }[];
+  updatedContexts: { id: string; contextBefore: string; contextAfter: string; startLine: number; endLine: number; startOffset: number; endOffset: number }[];
+}
+
+export interface MatchResult {
+  found: boolean;
+  textPosition: { start: number; end: number };
+  contextBefore?: string;
+  contextAfter?: string;
+  element?: HTMLElement;
+}
+
+export interface AnnotationPosition {
+  startOffset: number;
+  endOffset: number;
+  lineStart: number;
+  lineEnd: number;
 }
 
 export class AnnotationRenderer {
@@ -13,412 +29,202 @@ export class AnnotationRenderer {
   private annotationElements: Map<string, HTMLElement[]> = new Map();
   private tooltipEl: HTMLElement | null = null;
   private hideTooltipTimeout: number | null = null;
+  private renderedAnnotations: Set<string> = new Set();
+  private processedAnnotations: Set<string> = new Set();
+  private domTextCache: Map<string, string> = new Map();
+  private elementContextMap: WeakMap<HTMLElement, MarkdownPostProcessorContext>;
+  private extractedElementTexts: Map<HTMLElement, string>;
 
-  constructor(view: MarkdownView) {
+  constructor(
+    view: MarkdownView, 
+    elementContextMap?: WeakMap<HTMLElement, MarkdownPostProcessorContext>,
+    extractedElementTexts?: Map<HTMLElement, string>
+  ) {
     this.view = view;
+    this.elementContextMap = elementContextMap || new WeakMap();
+    this.extractedElementTexts = extractedElementTexts || new Map();
   }
 
   public destroy(): void {
+    this.clearProcessedAnnotations();
+  }
+
+  public clearProcessedAnnotations(): void {
+    this.processedAnnotations.clear();
+    this.renderedAnnotations.clear();
+    this.domTextCache.clear();
   }
 
   setAnnotations(annotations: Annotation[]): void {
     this.annotations = annotations;
   }
 
-  renderByText(container: Element): RenderResult {
-    this.clear();
-    const lostAnnotations: Annotation[] = [];
-    const updatedContexts: { id: string; contextBefore: string; contextAfter: string; positionPercent: number }[] = [];
+  setRenderedAnnotations(renderedIds: Set<string>): void {
+    this.renderedAnnotations = renderedIds;
+  }
 
-    this.annotations.forEach((annotation) => {
-      const result = this.findAndHighlight(annotation, container);
-      if (!result) {
-        lostAnnotations.push(annotation);
-      } else if (result.updated) {
+  getRenderedAnnotations(): Set<string> {
+    return this.renderedAnnotations;
+  }
+
+  renderByText(container: Element): RenderResult {
+
+
+
+    const { elements, lineRange } = this.getVisibleElementsInfo(container);
+
+
+    const lostAnnotations: Annotation[] = [];
+    const updatedContexts: {
+      id: string;
+      contextBefore: string;
+      contextAfter: string;
+      startLine: number;
+      endLine: number;
+      startOffset: number;
+      endOffset: number;
+    }[] = [];
+
+    for (const element of elements) {
+      const context = this.elementContextMap.get(element);
+      if (!context) continue;
+
+      const sectionInfo = context.getSectionInfo(element);
+      if (!sectionInfo) continue;
+
+      const annotationsInElement = this.annotations.filter(annotation =>
+        annotation.isValid === 1 &&
+        annotation.startLine >= sectionInfo.lineStart &&
+        annotation.endLine <= sectionInfo.lineEnd &&
+        !this.processedAnnotations.has(annotation.id)
+      );
+
+      if (annotationsInElement.length === 0) continue;
+
+
+
+      for (const annotation of annotationsInElement) {
+
+
+
+        let result = this.findTextInElement(element, annotation);
+
+        if (!result || !result.found) {
+
+          result = this.findInAdjacentElements(elements, elements.indexOf(element), annotation);
+        }
+
+        if (!result || !result.found) {
+
+          lostAnnotations.push(annotation);
+          continue;
+        }
+
+
+
+        const context = result.element ? this.elementContextMap.get(result.element) : this.elementContextMap.get(element);
+        const sectionInfo = context ? context.getSectionInfo(result.element || element) : null;
+
         updatedContexts.push({
           id: annotation.id,
-          contextBefore: result.newContextBefore!,
-          contextAfter: result.newContextAfter!,
-          positionPercent: result.newPositionPercent!,
+          contextBefore: result.contextBefore || "",
+          contextAfter: result.contextAfter || "",
+          startLine: sectionInfo ? sectionInfo.lineStart : annotation.startLine,
+          endLine: sectionInfo ? sectionInfo.lineEnd : annotation.endLine,
+          startOffset: result.textPosition.start,
+          endOffset: result.textPosition.end
         });
+
+
+
+
+
+        const renderTarget = result.element || element;
+
+        this.renderAnnotationInElement(renderTarget, annotation, result.textPosition.start, result.textPosition.end);
+
+        this.processedAnnotations.add(annotation.id);
       }
-    });
+    }
+
+
 
     return { lostAnnotations, updatedContexts };
   }
 
-  private findAndHighlight(
-    annotation: Annotation,
-    container: Element
-  ): { updated: boolean; newContextBefore?: string; newContextAfter?: string; newPositionPercent?: number } | null {
-    const textNodes = this.getAllTextNodes(container);
-    const fullText = textNodes.map((n) => n.textContent ?? "").join("");
-    const searchText = annotation.text;
+  private getVisibleElementsInfo(container: Element): { 
+    elements: HTMLElement[]; 
+    lineRange: { minLine: number; maxLine: number } 
+  } {
+    const contentContainer = container.querySelector(
+      '.markdown-preview-sizer.markdown-preview-section'
+    ) as HTMLElement | null;
 
-    const exactResult = this.findExactMatch(annotation, fullText, textNodes);
-    if (exactResult) {
-      return { updated: false };
+    const scrollView = container.querySelector(
+      '.markdown-preview-view'
+    ) as HTMLElement | null;
+
+    if (!contentContainer || !scrollView) {
+      return { elements: [], lineRange: { minLine: 0, maxLine: 0 } };
     }
 
-    const fuzzyResult = this.findFuzzyMatch(annotation, fullText, textNodes);
-    if (fuzzyResult) {
-      return {
-        updated: true,
-        newContextBefore: fuzzyResult.newContextBefore,
-        newContextAfter: fuzzyResult.newContextAfter,
-        newPositionPercent: fuzzyResult.newPositionPercent,
-      };
-    }
+    const excludeSelectors = [
+      '.mod-frontmatter',
+      '.mod-footer',
+      '.mod-header',
+      '.markdown-preview-pusher'
+    ];
 
-    return null;
-  }
+    const allChildren = Array.from(contentContainer.children);
 
-  private findExactMatch(
-    annotation: Annotation,
-    fullText: string,
-    textNodes: Text[]
-  ): boolean {
-    const { text, contextBefore, contextAfter, positionPercent } = annotation;
+    const allElements = allChildren.filter((el) => {
+      const className = el.className;
+      if (typeof className !== 'string') return true;
 
-    // 1. 计算初始范围：以positionPercent为中心，text长度为范围
-    const centerPosition = (positionPercent / 100) * fullText.length;
-    const halfTextLength = text.length / 2;
-    const initialStart = Math.max(0, Math.floor(centerPosition - halfTextLength));
-    const initialEnd = Math.min(fullText.length, Math.ceil(centerPosition + halfTextLength));
-
-    // 2. 扩展到包含上下文
-    const contextStart = Math.max(0, initialStart - contextBefore.length);
-    const contextEnd = Math.min(fullText.length, initialEnd + contextAfter.length);
-
-    // 3. 计算第一次搜索范围：增加全文5%
-    const extension5Percent = Math.max(50, Math.floor(fullText.length * 0.05));
-    let searchStart = Math.max(0, contextStart - extension5Percent);
-    let searchEnd = Math.min(fullText.length, contextEnd + extension5Percent);
-
-    // 4-6. 渐进式扩展搜索，每次增加50字符，最多250字符
-    const maxExtension = 250;
-    const extensionStep = 50;
-
-      for (let currentExtension = 0; currentExtension <= maxExtension; currentExtension += extensionStep) {
-      // 在当前搜索范围内查找
-      const searchArea = fullText.substring(searchStart, searchEnd);
-      const searchText = contextBefore + text + contextAfter;
-
-      let searchIndex = 0;
-      while (searchIndex < searchArea.length) {
-        const index = searchArea.indexOf(searchText, searchIndex);
-        if (index === -1) break;
-
-        const actualIndex = searchStart + index;
-
-        // 找到匹配，只高亮 text 部分（跳过上下文）
-        const textIndex = actualIndex + contextBefore.length;
-        const matchResult = this.findNodesForPosition(textNodes, textIndex, text.length);
-        if (matchResult) {
-          this.wrapMatchedNodes(annotation, matchResult);
-          return true;
-        }
-
-        searchIndex = index + 1;
+      for (const selector of excludeSelectors) {
+        if (el.matches(selector)) return false;
       }
-
-      // 扩展搜索范围
-      searchStart = Math.max(0, searchStart - extensionStep);
-      searchEnd = Math.min(fullText.length, searchEnd + extensionStep);
-    }
-
-    return false;
-  }
-
-  private findFuzzyMatch(
-    annotation: Annotation,
-    fullText: string,
-    textNodes: Text[]
-  ): { newContextBefore: string; newContextAfter: string; newPositionPercent: number } | null {
-    const { text, contextBefore, contextAfter, positionPercent } = annotation;
-
-    // 1. 计算初始范围：以positionPercent为中心，text长度为范围
-    const centerPosition = (positionPercent / 100) * fullText.length;
-    const halfTextLength = text.length / 2;
-    const initialStart = Math.max(0, Math.floor(centerPosition - halfTextLength));
-    const initialEnd = Math.min(fullText.length, Math.ceil(centerPosition + halfTextLength));
-
-    // 2. 计算第一次搜索范围：增加全文5%
-    const extension5Percent = Math.max(50, Math.floor(fullText.length * 0.05));
-    let searchStart = Math.max(0, initialStart - extension5Percent);
-    let searchEnd = Math.min(fullText.length, initialEnd + extension5Percent);
-
-    // 3-5. 渐进式扩展搜索
-    const maxExtension = 250;
-    const extensionStep = 50;
-    let bestMatch: { index: number; score: number; contextBefore: string; contextAfter: string } | null = null;
-
-    for (let currentExtension = 0; currentExtension <= maxExtension; currentExtension += extensionStep) {
-      // 在当前搜索范围内查找所有匹配text的位置
-      const searchArea = fullText.substring(searchStart, searchEnd);
-
-      let searchIndex = 0;
-      while (searchIndex < searchArea.length) {
-        const index = searchArea.indexOf(text, searchIndex);
-        if (index === -1) break;
-
-        const actualIndex = searchStart + index;
-
-        // 6. 计算相似度
-        const actualBefore = fullText.substring(
-          Math.max(0, actualIndex - contextBefore.length),
-          actualIndex
-        );
-        const actualAfter = fullText.substring(
-          actualIndex + text.length,
-          Math.min(fullText.length, actualIndex + text.length + contextAfter.length)
-        );
-
-        const beforeScore = contextBefore.length > 0
-          ? calculateSimilarity(contextBefore, actualBefore)
-          : 1;
-        const afterScore = contextAfter.length > 0
-          ? calculateSimilarity(contextAfter, actualAfter)
-          : 1;
-        const totalScore = (beforeScore + afterScore) / 2;
-
-        // 选择相似度最高的（>0.5）
-        if (totalScore > MATCH_THRESHOLD) {
-          if (!bestMatch || totalScore > bestMatch.score) {
-            bestMatch = {
-              index: actualIndex,
-              score: totalScore,
-              contextBefore: actualBefore,
-              contextAfter: actualAfter,
-            };
-          }
-        }
-
-        searchIndex = index + 1;
-      }
-
-      // 如果已找到高相似度匹配，可以提前结束
-      if (bestMatch && bestMatch.score > 0.8) {
-        break;
-      }
-
-      // 扩展搜索范围
-      searchStart = Math.max(0, searchStart - extensionStep);
-      searchEnd = Math.min(fullText.length, searchEnd + extensionStep);
-    }
-
-    // 5. 若仍未找到，全文搜索
-    if (!bestMatch) {
-      searchStart = 0;
-      searchEnd = fullText.length;
-
-      let searchIndex = 0;
-      while (searchIndex < searchEnd) {
-        const index = fullText.indexOf(text, searchIndex);
-        if (index === -1) break;
-
-        const actualBefore = fullText.substring(
-          Math.max(0, index - contextBefore.length),
-          index
-        );
-        const actualAfter = fullText.substring(
-          index + text.length,
-          Math.min(fullText.length, index + text.length + contextAfter.length)
-        );
-
-        const beforeScore = contextBefore.length > 0
-          ? calculateSimilarity(contextBefore, actualBefore)
-          : 1;
-        const afterScore = contextAfter.length > 0
-          ? calculateSimilarity(contextAfter, actualAfter)
-          : 1;
-        const totalScore = (beforeScore + afterScore) / 2;
-
-        if (totalScore > MATCH_THRESHOLD) {
-          if (!bestMatch || totalScore > bestMatch.score) {
-            bestMatch = {
-              index,
-              score: totalScore,
-              contextBefore: actualBefore,
-              contextAfter: actualAfter,
-            };
-          }
-        }
-
-        searchIndex = index + 1;
-      }
-    }
-
-    // 7. 最终判定
-    if (!bestMatch || bestMatch.score <= MATCH_THRESHOLD) {
-      return null;
-    }
-
-    // 包装成高亮元素
-    const matchResult = this.findNodesForPosition(textNodes, bestMatch.index, text.length);
-    if (matchResult) {
-      const textLength = fullText.length;
-      const newPositionPercent = textLength > 0
-        ? ((bestMatch.index + bestMatch.index + text.length) / 2 / textLength) * 100
-        : 50;
-
-      this.wrapMatchedNodes(annotation, matchResult);
-      return {
-        newContextBefore: bestMatch.contextBefore,
-        newContextAfter: bestMatch.contextAfter,
-        newPositionPercent,
-      };
-    }
-
-    return null;
-  }
-
-  private findNodesForPosition(
-    textNodes: Text[],
-    globalStart: number,
-    length: number
-  ): { node: Text; start: number; length: number }[] | null {
-    let currentOffset = 0;
-    let remaining = length;
-    const result: { node: Text; start: number; length: number }[] = [];
-
-    for (const textNode of textNodes) {
-      const nodeText = textNode.textContent ?? "";
-      const nodeLength = nodeText.length;
-      const offsetInDocument = textNode.parentElement?.closest("mark[data-annotation-id]") ? -1 : currentOffset;
-
-      if (currentOffset + nodeLength <= globalStart) {
-        currentOffset += nodeLength;
-        continue;
-      }
-
-      if (remaining <= 0) break;
-
-      const startInNode = globalStart - currentOffset;
-      const availableInNode = nodeLength - Math.max(0, startInNode);
-      const takeLength = Math.min(availableInNode, remaining);
-
-      result.push({
-        node: textNode,
-        start: Math.max(0, startInNode),
-        length: takeLength,
-      });
-
-       remaining -= takeLength;
-      currentOffset += nodeLength;
-
-      if (remaining <= 0) break;
-    }
-
-    return result.length > 0 ? result : null;
-  }
-
-  private wrapMatchedNodes(annotation: Annotation, matches: { node: Text; start: number; length: number }[]): void {
-    const colorStyle = COLOR_MAP[annotation.color];
-    const rubyTexts = annotation.rubyTexts;
-
-    if (matches.length === 0) return;
-
-    let fullHighlightedText = "";
-
-    matches.forEach((match, index) => {
-      if (!document.contains(match.node)) {
-        return;
-      }
-
-      const text = match.node.textContent ?? "";
-      const highlighted = text.substring(match.start, match.start + match.length);
-      fullHighlightedText += highlighted;
+      return true;
     });
 
-    const markElement = this.createHighlightSpan(annotation, fullHighlightedText, colorStyle);
+    const scrollRect = scrollView.getBoundingClientRect();
 
-    if (matches.length === 1) {
-      const match = matches[0]!;
-      const text = match.node.textContent ?? "";
-      const before = text.substring(0, match.start);
-      const after = text.substring(match.start + match.length);
+    const visibleElements = allElements.filter((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.top < scrollRect.bottom && rect.bottom > scrollRect.top;
+    }) as HTMLElement[];
 
-      const parent = match.node.parentNode;
-      if (parent) {
-        const fragment = document.createDocumentFragment();
-        if (before) fragment.appendChild(document.createTextNode(before));
-        fragment.appendChild(markElement);
-        if (after) fragment.appendChild(document.createTextNode(after));
-        parent.replaceChild(fragment, match.node);
-      }
-    } else {
-      const firstMatch = matches[0]!;
-      const lastMatch = matches[matches.length - 1]!;
+    let minLine = Infinity;
+    let maxLine = -Infinity;
 
-      const firstParent = firstMatch.node.parentNode;
-      const lastParent = lastMatch.node.parentNode;
-
-      if (!firstParent || !lastParent) return;
-
-      const firstText = firstMatch.node.textContent ?? "";
-      const before = firstText.substring(0, firstMatch.start);
-
-      const lastText = lastMatch.node.textContent ?? "";
-      const after = lastText.substring(lastMatch.start + lastMatch.length);
-
-      const fragment = document.createDocumentFragment();
-      if (before) fragment.appendChild(document.createTextNode(before));
-      fragment.appendChild(markElement);
-      if (after) fragment.appendChild(document.createTextNode(after));
-
-      const allNodesBetween: Node[] = [];
-
-      let current: Node | null = firstMatch.node.nextSibling;
-      while (current) {
-        allNodesBetween.push(current);
-        if (current === lastMatch.node) {
-          break;
+    for (const el of visibleElements) {
+      const context = this.elementContextMap.get(el);
+      if (context) {
+        const sectionInfo = context.getSectionInfo(el);
+        if (sectionInfo) {
+          minLine = Math.min(minLine, sectionInfo.lineStart);
+          maxLine = Math.max(maxLine, sectionInfo.lineEnd);
         }
-        current = current.nextSibling;
-      }
-
-      firstParent.insertBefore(fragment, firstMatch.node);
-
-      allNodesBetween.forEach(node => {
-        if (node.parentNode) {
-          node.parentNode.removeChild(node);
-        }
-      });
-
-      if (firstMatch.node.parentNode) {
-        firstMatch.node.parentNode.removeChild(firstMatch.node);
       }
     }
 
-    this.annotationElements.set(annotation.id, [markElement]);
+    const lineRange = {
+      minLine: minLine === Infinity ? 0 : minLine,
+      maxLine: maxLine === -Infinity ? 0 : maxLine
+    };
+
+    return { elements: visibleElements, lineRange };
   }
 
-  private getAllTextNodes(container: Element): Text[] {
-    const textNodes: Text[] = [];
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-
-    let node = walker.nextNode();
-    while (node) {
-      const textNode = node as Text;
-      if (textNode.textContent && textNode.textContent.trim().length > 0) {
-        const parent = textNode.parentElement;
-        // 排除 RT 标签、标注元素、文件名、笔记属性、多选标签、标题栏
-        if (parent && parent.tagName !== "RT" &&
-            !parent.closest("mark[data-annotation-id]") &&
-            !parent.closest("div.inline-title") &&
-            !parent.closest("[class*='metadata-']") &&
-            !parent.closest("div.multi-select-pill-content") &&
-            !parent.closest("div.metadata-content") &&
-            !parent.closest("div.mod-header") &&
-            !parent.closest("div.mod-ui")) {
-          textNodes.push(textNode);
-        }
-      }
-      node = walker.nextNode();
-    }
-
-    return textNodes;
+  private shouldSkipElement(element: Element): boolean {
+    return !!(
+      element.closest("pre.frontmatter") ||
+      element.closest("div.frontmatter") ||
+      element.closest("div.metadata-content") ||
+      element.closest("div.mod-header") ||
+      element.closest("div.mod-ui") ||
+      element.closest("div.el-pre")
+    );
   }
 
   private createHighlightSpan(annotation: Annotation, text: string, colorStyle: { bg: string; border: string }): HTMLElement {
@@ -433,6 +239,9 @@ export class AnnotationRenderer {
     }
 
     const hasRubies = rubyTexts && rubyTexts.length > 0;
+    const hasOriginalRubies = annotation.originalRubies && annotation.originalRubies.length > 0;
+
+
 
     const container = document.createElement("mark");
     container.dataset.annotationId = annotation.id;
@@ -445,33 +254,78 @@ export class AnnotationRenderer {
       container.style.borderBottom = `2px solid ${colorStyle.border}`;
     }
 
-    if (!hasRubies) {
+    if (!hasRubies && !hasOriginalRubies) {
       container.textContent = text;
     } else {
-      let currentIndex = 0;
-      const sortedRubies = [...rubyTexts!].sort((a, b) => a.startIndex - b.startIndex);
+      const allRubies: Array<{ type: 'plugin' | 'original'; startIndex: number; length: number; ruby?: string; rubyHTML?: string }> = [];
 
-      for (const ruby of sortedRubies) {
-        if (ruby.startIndex > currentIndex) {
-          const beforeText = text.substring(currentIndex, ruby.startIndex);
+      if (hasOriginalRubies) {
+        annotation.originalRubies!.forEach(r => {
+          allRubies.push({
+            type: 'original',
+            startIndex: r.startIndex,
+            length: r.length,
+            rubyHTML: r.rubyHTML
+          });
+        });
+      }
+
+      if (hasRubies) {
+        rubyTexts!.forEach(r => {
+          allRubies.push({
+            type: 'plugin',
+            startIndex: r.startIndex,
+            length: r.length,
+            ruby: r.ruby
+          });
+        });
+      }
+
+      allRubies.sort((a, b) => a.startIndex - b.startIndex);
+
+
+
+      let currentIndex = 0;
+
+      for (const item of allRubies) {
+
+
+        if (item.startIndex > currentIndex) {
+          const beforeText = text.substring(currentIndex, item.startIndex);
+
           container.appendChild(document.createTextNode(beforeText));
         }
 
-        const rubyEl = document.createElement("ruby");
-        const spanEl = document.createElement("span");
-        spanEl.textContent = text.substring(ruby.startIndex, ruby.startIndex + ruby.length);
-        rubyEl.appendChild(spanEl);
+        if (item.type === 'plugin') {
+          const rubyEl = document.createElement("ruby");
+          rubyEl.setAttribute("data-annotation-ruby", "true");
+          const spanEl = document.createElement("span");
+          const rubyText = text.substring(item.startIndex, item.startIndex + item.length);
 
-        const rtEl = document.createElement("rt");
-        rtEl.textContent = ruby.ruby;
-        rubyEl.appendChild(rtEl);
+          spanEl.textContent = rubyText;
+          rubyEl.appendChild(spanEl);
 
-        container.appendChild(rubyEl);
-        currentIndex = ruby.startIndex + ruby.length;
+          const rtEl = document.createElement("rt");
+          rtEl.textContent = item.ruby!;
+          rubyEl.appendChild(rtEl);
+
+          container.appendChild(rubyEl);
+        } else {
+          const tempDiv = document.createElement("div");
+          tempDiv.innerHTML = item.rubyHTML!;
+          const rubyEl = tempDiv.firstChild as Element;
+          if (rubyEl) {
+
+            container.appendChild(rubyEl);
+          }
+        }
+
+        currentIndex = item.startIndex + item.length;
       }
 
       if (currentIndex < text.length) {
         const afterText = text.substring(currentIndex);
+
         container.appendChild(document.createTextNode(afterText));
       }
     }
@@ -558,32 +412,695 @@ export class AnnotationRenderer {
     return div.innerHTML;
   }
 
-  clear(): void {
-    this.hideTooltip();
-    this.annotationElements.forEach((elements) => {
-      elements.forEach((el) => {
-        const parent = el.parentNode;
-        if (parent) {
-          let textContent = "";
-          if (el.tagName === "MARK") {
-            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-            let node = walker.nextNode();
-            while (node) {
-              const textNode = node as Text;
-              const parentElement = textNode.parentElement;
-              if (parentElement && parentElement.tagName !== "RT") {
-                textContent += textNode.textContent;
-              }
-              node = walker.nextNode();
-            }
-          } else {
-            textContent = el.textContent ?? "";
-          }
-          const textNode = document.createTextNode(textContent);
-          parent.replaceChild(textNode, el);
-        }
-      });
-    });
-    this.annotationElements.clear();
+  private extractTextFromElement(element: HTMLElement): string {
+    const textNodes: Text[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+    let node = walker.nextNode();
+
+    while (node) {
+      const textNode = node as Text;
+      const parent = textNode.parentElement;
+
+      if (parent &&
+          parent.tagName !== "RT" &&
+          !parent.closest("div.inline-title") &&
+          !parent.closest("[class*='metadata-']") &&
+          !parent.closest("div.mod-header") &&
+          !parent.closest("div.mod-ui")) {
+        textNodes.push(textNode);
+      }
+
+      node = walker.nextNode();
+    }
+
+    return textNodes.map(n => n.textContent ?? "").join("");
   }
+
+  private extractContextFromDOM(
+    element: HTMLElement,
+    textPosition: { start: number; end: number },
+    beforeLength: number,
+    afterLength: number
+  ): { contextBefore: string; contextAfter: string } {
+
+
+
+    if (this.extractedElementTexts.size === 0) {
+
+      const elementText = this.extractTextFromElement(element);
+      const contextBefore = elementText.substring(Math.max(0, textPosition.start - beforeLength), textPosition.start);
+      const contextAfter = elementText.substring(textPosition.end, Math.min(elementText.length, textPosition.end + afterLength));
+
+      return { contextBefore, contextAfter };
+    }
+
+    const elements = Array.from(this.extractedElementTexts.keys());
+    const currentIndex = elements.indexOf(element);
+
+    if (currentIndex === -1) {
+
+      const elementText = this.extractTextFromElement(element);
+      const contextBefore = elementText.substring(Math.max(0, textPosition.start - beforeLength), textPosition.start);
+      const contextAfter = elementText.substring(textPosition.end, Math.min(elementText.length, textPosition.end + afterLength));
+
+      return { contextBefore, contextAfter };
+    }
+
+
+
+    const currentText = this.extractedElementTexts.get(element) || '';
+
+    let contextBefore = '';
+    let contextAfter = '';
+
+    const startOffset = textPosition.start;
+    const endOffset = textPosition.end;
+
+    if (startOffset <= currentText.length) {
+      const beforeInCurrent = currentText.substring(
+        Math.max(0, startOffset - beforeLength),
+        startOffset
+      );
+      contextBefore = beforeInCurrent;
+
+    }
+
+    if (contextBefore.length < beforeLength) {
+
+      let needed = beforeLength - contextBefore.length;
+      for (let i = currentIndex - 1; i >= 0 && needed > 0; i--) {
+        const prevElement = elements[i];
+        if (!prevElement) continue;
+
+        if (this.shouldSkipElement(prevElement)) {
+
+          continue;
+        }
+
+        const prevText = this.extractedElementTexts.get(prevElement) || '';
+        const prevTextFromEnd = prevText.substring(Math.max(0, prevText.length - needed));
+        contextBefore = prevTextFromEnd + contextBefore;
+        needed = beforeLength - contextBefore.length;
+
+      }
+
+    }
+
+    if (endOffset <= currentText.length) {
+      const afterInCurrent = currentText.substring(
+        endOffset,
+        Math.min(currentText.length, endOffset + afterLength)
+      );
+      contextAfter = afterInCurrent;
+
+    }
+
+    if (contextAfter.length < afterLength) {
+
+      let needed = afterLength - contextAfter.length;
+      for (let i = currentIndex + 1; i < elements.length && needed > 0; i++) {
+        const nextElement = elements[i];
+        if (!nextElement) continue;
+
+        if (this.shouldSkipElement(nextElement)) {
+
+          continue;
+        }
+
+        const nextText = this.extractedElementTexts.get(nextElement) || '';
+        const nextTextPortion = nextText.substring(0, needed);
+        contextAfter = contextAfter + nextTextPortion;
+        needed = afterLength - contextAfter.length;
+
+      }
+
+    }
+
+
+
+    return { contextBefore, contextAfter };
+  }
+
+  private findTextInElement(
+    element: HTMLElement,
+    annotation: Annotation,
+    searchRange: number = 100
+  ): MatchResult | null {
+
+
+    const elementText = this.extractTextFromElement(element);
+
+
+
+    const startOffset = annotation.startOffset;
+    const endOffset = annotation.endOffset;
+
+
+    const searchText = annotation.text;
+
+
+
+    if (startOffset >= 0 && endOffset <= elementText.length) {
+
+      if (endOffset > startOffset) {
+        const textInElement = elementText.substring(startOffset, endOffset);
+
+
+        if (textInElement === searchText) {
+
+          const { contextBefore, contextAfter } = this.extractContextFromDOM(
+            element,
+            { start: startOffset, end: endOffset },
+            CONTEXT_LENGTH_BEFORE,
+            CONTEXT_LENGTH_AFTER
+          );
+
+
+
+          const contextMatch =
+            (annotation.contextBefore === "" || contextBefore === annotation.contextBefore) &&
+            (annotation.contextAfter === "" || contextAfter === annotation.contextAfter);
+
+          if (contextMatch) {
+
+            return {
+              found: true,
+              textPosition: { start: startOffset, end: endOffset },
+              contextBefore,
+              contextAfter,
+              element
+            };
+          } else {
+
+          }
+        } else {
+
+        }
+      }
+    } else {
+
+    }
+
+
+
+
+    const fuzzyResult = this.fuzzyMatchInElement(
+      element,
+      annotation,
+      searchRange
+    );
+
+    if (fuzzyResult) {
+
+      return fuzzyResult;
+    }
+
+
+    return null;
+  }
+
+  private fuzzyMatchInElement(
+    element: HTMLElement,
+    annotation: Annotation,
+    searchRange: number
+  ): MatchResult | null {
+    const elementText = this.extractTextFromElement(element);
+    const searchText = annotation.text;
+    const startOffset = annotation.startOffset;
+    const endOffset = annotation.endOffset;
+
+
+
+    const searchStart = Math.max(0, startOffset - searchRange);
+    const searchEnd = Math.min(elementText.length, endOffset + searchRange);
+    const searchArea = elementText.substring(searchStart, searchEnd);
+
+
+
+    const matches = this.findAllOccurrences(searchArea, searchText, searchStart);
+
+
+
+    if (matches.length === 0) {
+
+      return null;
+    }
+
+    if (matches.length === 1) {
+
+
+      const match = matches[0]!;
+      const similarity = this.calculateContextSimilarity(
+        annotation,
+        match,
+        element
+      );
+
+
+
+      if (similarity > 0.5) {
+
+        return this.createMatchResult(match, element);
+      } else {
+
+        return null;
+      }
+    }
+
+
+
+    let bestMatch = null;
+    let bestSimilarity = 0;
+
+    for (let i = 0; i < matches.length; i++) {
+      const match = matches[i]!;
+      const similarity = this.calculateContextSimilarity(
+        annotation,
+        match,
+        element
+      );
+
+
+
+      if (similarity > bestSimilarity) {
+        bestSimilarity = similarity;
+        bestMatch = match;
+      } else if (similarity === bestSimilarity && bestMatch) {
+        if (match.start < bestMatch.start) {
+          bestMatch = match;
+
+        }
+      }
+    }
+
+    if (bestMatch && bestSimilarity > 0.5) {
+
+      return this.createMatchResult(bestMatch, element);
+    } else {
+
+      return null;
+    }
+  }
+
+  private findAllOccurrences(
+    searchArea: string,
+    searchText: string,
+    offset: number
+  ): Array<{ start: number; end: number }> {
+    const matches: Array<{ start: number; end: number }> = [];
+    let pos = 0;
+
+    while (pos < searchArea.length) {
+      const index = searchArea.indexOf(searchText, pos);
+      if (index === -1) break;
+
+      matches.push({
+        start: offset + index,
+        end: offset + index + searchText.length
+      });
+
+      pos = index + 1;
+    }
+
+    return matches;
+  }
+
+  private calculateContextSimilarity(
+    annotation: Annotation,
+    match: { start: number; end: number },
+    element: HTMLElement
+  ): number {
+    const { contextBefore: currentContextBefore, contextAfter: currentContextAfter } = this.extractContextFromDOM(
+      element,
+      { start: match.start, end: match.end },
+      CONTEXT_LENGTH_BEFORE,
+      CONTEXT_LENGTH_AFTER
+    );
+
+    const originalContextBefore = annotation.contextBefore || "";
+    const originalContextAfter = annotation.contextAfter || "";
+
+    const beforeSimilarity = calculateSimilarity(currentContextBefore, originalContextBefore);
+    const afterSimilarity = calculateSimilarity(currentContextAfter, originalContextAfter);
+
+    const avgSimilarity = (beforeSimilarity + afterSimilarity) / 2;
+
+
+
+    return avgSimilarity;
+  }
+
+  private createMatchResult(
+    match: { start: number; end: number },
+    element: HTMLElement
+  ): MatchResult {
+    const { contextBefore, contextAfter } = this.extractContextFromDOM(
+      element,
+      { start: match.start, end: match.end },
+      CONTEXT_LENGTH_BEFORE,
+      CONTEXT_LENGTH_AFTER
+    );
+
+    return {
+      found: true,
+      textPosition: { start: match.start, end: match.end },
+      contextBefore,
+      contextAfter,
+      element
+    };
+  }
+
+  private findInAdjacentElements(
+    elements: HTMLElement[],
+    currentIndex: number,
+    annotation: Annotation
+  ): MatchResult | null {
+    const adjacentOffsets = [-1, 1, -2, 2];
+
+    for (const offset of adjacentOffsets) {
+      const adjacentIndex = currentIndex + offset;
+
+      if (adjacentIndex >= 0 && adjacentIndex < elements.length) {
+        const adjacentElement = elements[adjacentIndex];
+
+
+        const result = this.findTextInElement(adjacentElement!, annotation);
+
+        if (result && result.found) {
+
+          return result;
+        }
+      }
+    }
+
+
+    return null;
+  }
+
+
+
+  private renderAnnotationInElement(
+    element: HTMLElement,
+    annotation: Annotation,
+    startPosition: number,
+    endPosition: number
+  ): void {
+    try {
+      const textNodes: Text[] = [];
+      const nodePositions: Map<Text, number> = new Map();
+
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+      let currentNodeStartPos = 0;
+      let node = walker.nextNode();
+
+      while (node) {
+        const textNode = node as Text;
+        const parent = textNode.parentElement;
+
+        if (parent && parent.tagName !== "RT" &&
+            !parent.closest("div.inline-title") &&
+            !parent.closest("[class*='metadata-']") &&
+            !parent.closest("div.multi-select-pill-content") &&
+            !parent.closest("div.metadata-content") &&
+            !parent.closest("div.mod-header") &&
+            !parent.closest("div.mod-ui")) {
+          nodePositions.set(textNode, currentNodeStartPos);
+          textNodes.push(textNode);
+          currentNodeStartPos += textNode.textContent?.length || 0;
+        }
+
+        node = walker.nextNode();
+      }
+
+      let currentPos = 0;
+      let remainingLength = endPosition - startPosition;
+      const matches: { node: Text; start: number; length: number }[] = [];
+
+      for (const textNode of textNodes) {
+        const nodePos = nodePositions.get(textNode) || 0;
+        const nodeLength = textNode.textContent?.length || 0;
+
+        if (nodePos + nodeLength <= startPosition) {
+          currentPos = nodePos + nodeLength;
+          continue;
+        }
+
+        if (currentPos >= endPosition || remainingLength <= 0) break;
+
+        const startInNode = Math.max(0, startPosition - currentPos);
+        const availableLength = nodeLength - startInNode;
+        const takeLength = Math.min(availableLength, remainingLength);
+
+        matches.push({
+          node: textNode,
+          start: startInNode,
+          length: takeLength
+        });
+
+        remainingLength -= takeLength;
+        currentPos = nodePos + nodeLength;
+
+        if (remainingLength <= 0) break;
+      }
+
+      const rubyTexts = annotation.rubyTexts;
+      let currentOffset = 0;
+      const markElements: HTMLElement[] = [];
+
+      // 检查是否需要跨元素渲染（标注跨越多个文本节点）
+      const needsCrossElementRendering = matches.length > 1;
+
+      if (needsCrossElementRendering) {
+        // 跨元素渲染：用单个 <mark> 包裹整个选区
+        const firstMatch = matches[0]!;
+        const lastMatch = matches[matches.length - 1]!;
+
+        // 处理第一个文本节点（标注开始前）
+        const firstText = firstMatch.node.textContent || "";
+        const beforeFirst = firstText.substring(0, firstMatch.start);
+
+        // 处理最后一个文本节点（标注结束后）
+        const lastText = lastMatch.node.textContent || "";
+        const afterLast = lastText.substring(lastMatch.start + lastMatch.length);
+
+        // 收集选区内的所有节点
+        const startNode = firstMatch.node;
+        const endNode = lastMatch.node;
+
+        // 使用 Range 来获取选区内容
+        const range = document.createRange();
+
+        // 设置 Range 的起始位置
+        const startOffset = firstMatch.start;
+        range.setStart(startNode, startOffset);
+
+        // 设置 Range 的结束位置
+        const endOffset = lastMatch.start + lastMatch.length;
+        range.setEnd(endNode, endOffset);
+
+        // 创建空的 mark 元素容器（不预先填充内容）
+        const colorStyle = COLOR_MAP[annotation.color];
+        const markElement = document.createElement("mark");
+        markElement.dataset.annotationId = annotation.id;
+
+        if (annotation.color !== "none") {
+          markElement.style.backgroundColor = colorStyle.bg;
+        }
+
+        if (annotation.note && annotation.note.trim()) {
+          markElement.style.borderBottom = `2px solid ${colorStyle.border}`;
+        }
+
+        markElement.style.cursor = "pointer";
+        markElement.addEventListener("mouseenter", (e) => this.showTooltip(e, annotation));
+        markElement.addEventListener("mousemove", (e) => this.moveTooltip(e));
+        markElement.addEventListener("mouseleave", () => this.hideTooltip());
+
+        // 提取 Range 内容到 mark 元素中
+        try {
+          const fragment = range.extractContents();
+          markElement.appendChild(fragment);
+        } catch (e) {
+          // 如果 extractContents 失败（部分选中导致），使用备用方案
+          console.warn('[⚠️ AnnotationRenderer] extractContents 失败，使用备用方案:', e);
+
+          // 备用方案：手动收集内容
+          let currentNode: Node | null = startNode;
+          let reachedEnd = false;
+
+          while (currentNode && !reachedEnd) {
+            if (currentNode === endNode) {
+              // 处理结束节点
+              if (currentNode.nodeType === Node.TEXT_NODE) {
+                const textNode = currentNode as Text;
+                const endText = textNode.textContent?.substring(0, endOffset) || "";
+                markElement.appendChild(document.createTextNode(endText));
+              }
+              reachedEnd = true;
+            } else if (currentNode === startNode) {
+              // 处理开始节点（只取部分内容）
+              if (currentNode.nodeType === Node.TEXT_NODE) {
+                const textNode = currentNode as Text;
+                const startText = textNode.textContent?.substring(startOffset) || "";
+                markElement.appendChild(document.createTextNode(startText));
+              }
+            } else {
+              // 处理中间节点（完整移动）
+              markElement.appendChild(currentNode.cloneNode(true));
+            }
+
+            // 移动到下一个节点
+            if (currentNode === endNode) {
+              reachedEnd = true;
+            } else if (currentNode.firstChild) {
+              currentNode = currentNode.firstChild;
+            } else if (currentNode.nextSibling) {
+              currentNode = currentNode.nextSibling;
+            } else {
+              // 向上查找下一个节点
+              let parentNode: Node | null = currentNode.parentNode;
+              while (parentNode && parentNode !== element && !parentNode.nextSibling) {
+                parentNode = parentNode.parentNode;
+              }
+              if (parentNode && parentNode !== element) {
+                currentNode = parentNode.nextSibling;
+              } else {
+                reachedEnd = true;
+              }
+            }
+          }
+        }
+
+        // 构建替换后的文档结构
+        const newFragment = document.createDocumentFragment();
+
+        // 添加标注前的内容
+        if (beforeFirst) {
+          newFragment.appendChild(document.createTextNode(beforeFirst));
+        }
+
+        // 添加 mark 元素
+        newFragment.appendChild(markElement);
+
+        // 添加标注后的内容
+        if (afterLast) {
+          newFragment.appendChild(document.createTextNode(afterLast));
+        }
+
+        // 找到第一个文本节点的父元素，并替换内容
+        const firstParent = startNode.parentNode;
+        if (firstParent) {
+          // 需要移除从 startNode 到 endNode 之间的所有节点
+          // 并插入新构建的 fragment
+
+          // 首先将第一个节点替换为新 fragment
+          firstParent.replaceChild(newFragment, startNode);
+
+          // 然后删除中间的所有节点（直到并包括 endNode）
+          let nodeToRemove: Node | null = startNode.nextSibling;
+          while (nodeToRemove) {
+            const nextSibling = nodeToRemove.nextSibling;
+
+            // 检查是否是 endNode 或包含 endNode
+            let shouldRemove = false;
+            if (nodeToRemove === endNode) {
+              shouldRemove = true;
+            } else {
+              // 检查 nodeToRemove 是否包含 endNode
+              const containsEnd = nodeToRemove.contains(endNode);
+              if (containsEnd) {
+                shouldRemove = true;
+              }
+            }
+
+            if (shouldRemove) {
+              firstParent.removeChild(nodeToRemove);
+              if (nodeToRemove === endNode) {
+                break;
+              }
+            } else {
+              // 如果不包含 endNode，继续检查下一个
+              if (nodeToRemove.contains(endNode)) {
+                // 找到了包含 endNode 的节点，停止删除
+                break;
+              }
+            }
+
+            nodeToRemove = nextSibling;
+          }
+        }
+
+        markElements.push(markElement);
+      } else {
+        // 单元素渲染：保持原有逻辑
+        for (let i = 0; i < matches.length; i++) {
+          const match = matches[i]!;
+          if (!document.contains(match.node)) {
+            continue;
+          }
+
+          const text = match.node.textContent || "";
+          const colorStyle = COLOR_MAP[annotation.color];
+          const highlighted = text.substring(match.start, match.start + match.length);
+
+          let matchRubyTexts: typeof rubyTexts = undefined;
+
+          if (rubyTexts && rubyTexts.length > 0) {
+            const segmentStart = currentOffset;
+            const segmentEnd = currentOffset + highlighted.replace(/\r\n/g, '\n').length;
+            const fullText = annotation.text;
+
+            matchRubyTexts = rubyTexts
+              .filter(ruby => {
+                const rubyStart = ruby.startIndex;
+                const rubyEnd = ruby.startIndex + ruby.length;
+                const inRange = rubyStart < segmentEnd && rubyEnd > segmentStart;
+                return inRange;
+              })
+              .map(ruby => {
+                const relativeStartIndex = Math.max(0, ruby.startIndex - segmentStart);
+                const adjustedLength = Math.min(ruby.length, segmentEnd - ruby.startIndex);
+                return {
+                  startIndex: relativeStartIndex,
+                  length: adjustedLength,
+                  ruby: ruby.ruby
+                };
+              })
+              .filter(ruby => ruby.length > 0);
+          }
+
+          currentOffset += highlighted.replace(/\r\n/g, '\n').length;
+
+          const modifiedAnnotation = matchRubyTexts && matchRubyTexts.length > 0
+            ? { ...annotation, rubyTexts: matchRubyTexts }
+            : { ...annotation, rubyTexts: undefined };
+
+          const markElement = this.createHighlightSpan(modifiedAnnotation, highlighted, colorStyle);
+
+          const before = text.substring(0, match.start);
+          const after = text.substring(match.start + match.length);
+
+          const parent = match.node.parentNode;
+          if (parent) {
+            const fragment = document.createDocumentFragment();
+            if (before) fragment.appendChild(document.createTextNode(before));
+            fragment.appendChild(markElement);
+            if (after) fragment.appendChild(document.createTextNode(after));
+            parent.replaceChild(fragment, match.node);
+          }
+
+          markElements.push(markElement);
+        }
+      }
+
+      this.annotationElements.set(annotation.id, markElements);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+
+
+
+
 }

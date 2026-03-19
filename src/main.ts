@@ -1,4 +1,4 @@
-import { Plugin, TFile, Notice } from "obsidian";
+import { Plugin, TFile, Notice, MarkdownPostProcessorContext } from "obsidian";
 import { AnnotationPluginSettings, DEFAULT_SETTINGS } from "./types";
 import { DataManager } from "./dataManager";
 import { AnnotationMode } from "./annotationMode";
@@ -9,36 +9,57 @@ export default class MarkdownAnnotationPlugin extends Plugin {
   private annotationMode: AnnotationMode;
   private fileRenameEventRef: any;
   private fileDeleteEventRef: any;
+  private markdownPostProcessorRef: any;
 
   async onload(): Promise<void> {
+
+
+
+
     await this.loadSettings();
+
 
     const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
     this.dataManager = new DataManager(this.app, pluginDir);
-    this.annotationMode = new AnnotationMode(this.app, this.dataManager);
+    this.annotationMode = new AnnotationMode(this.app, this.dataManager, this);
+
+
+
+    // 注册全局 Markdown 后处理器
+    this.registerGlobalMarkdownPostProcessor();
 
     this.fileRenameEventRef = this.app.vault.on("rename", async (file, oldPath) => {
+
       if (file instanceof TFile && file.extension === "md") {
         const success = await this.dataManager.migrateAnnotation(oldPath, file.path);
         if (success) {
+
           new Notice(`标注数据已自动迁移`);
           await this.annotationMode.updateFilePaths(oldPath, file.path);
+        } else {
+
         }
       }
     });
 
     this.fileDeleteEventRef = this.app.vault.on("delete", async (file) => {
+
       if (file instanceof TFile && file.extension === "md") {
         const success = await this.dataManager.deleteAnnotationData(file.path);
         if (success) {
+
           new Notice(`标注数据已自动删除`);
           this.annotationMode.deactivateForFile(file.path);
+        } else {
+
         }
       }
     });
 
     this.addRibbonIcon("highlighter", "标注模式", async () => {
+
       const file = this.app.workspace.getActiveFile();
+
       this.annotationMode.toggle(file);
     });
 
@@ -49,6 +70,7 @@ export default class MarkdownAnnotationPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         if (file && file.extension === "md") {
           if (!checking) {
+
             this.annotationMode.toggle(file);
           }
           return true;
@@ -56,19 +78,45 @@ export default class MarkdownAnnotationPlugin extends Plugin {
         return false;
       },
     });
+
+
+  }
+
+  private registerGlobalMarkdownPostProcessor(): void {
+
+
+    this.markdownPostProcessorRef = this.registerMarkdownPostProcessor(
+      (element: HTMLElement, context: MarkdownPostProcessorContext) => {
+
+        // 将元素处理路由到对应的 LeafAnnotationState
+        this.annotationMode.processMarkdownElement(element, context);
+      },
+      -100
+    );
+
+
   }
 
   onunload(): void {
+
+
     this.annotationMode.deactivate();
+
+
     this.dataManager.clearCache();
+
 
     if (this.fileRenameEventRef) {
       this.app.vault.offref(this.fileRenameEventRef);
+
     }
 
     if (this.fileDeleteEventRef) {
       this.app.vault.offref(this.fileDeleteEventRef);
+
     }
+
+
   }
 
   async loadSettings(): Promise<void> {

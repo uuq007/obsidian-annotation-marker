@@ -1,18 +1,22 @@
 import { App, Modal, Notice } from "obsidian";
 import { Annotation, AnnotationColor, COLOR_LABELS } from "./types";
 import { DataManager } from "./dataManager";
+import { calculateRangeOffsetInElement } from "./utils/helpers";
+import { AnnotationMode } from "./annotationMode";
 
 export class AnnotationMenu {
   private app: App;
   private dataManager: DataManager;
   private menuEl: HTMLElement | null = null;
+  private annotationMode?: AnnotationMode;
 
-  constructor(app: App, dataManager: DataManager) {
+  constructor(app: App, dataManager: DataManager, annotationMode?: AnnotationMode) {
     this.app = app;
     this.dataManager = dataManager;
+    this.annotationMode = annotationMode;
   }
 
-  show(x: number, y: number, annotation: Annotation, filePath: string, onUpdate: () => void): void {
+  show(x: number, y: number, annotation: Annotation, annotationId: string, filePath: string, onUpdate: () => void, annotationMode?: AnnotationMode): void {
     this.hide();
 
     this.menuEl = document.createElement("div");
@@ -47,7 +51,7 @@ export class AnnotationMenu {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         if (c !== annotation.color) {
-          this.updateColor(annotation, filePath, c, onUpdate);
+          this.updateColor(annotation, annotationId, filePath, c, onUpdate, annotationMode);
         }
       });
     });
@@ -57,7 +61,7 @@ export class AnnotationMenu {
     const editBtn = actions.createEl("button", { cls: "annotation-btn annotation-btn-secondary", text: "编辑批注" });
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.showEditModal(annotation, filePath, onUpdate);
+      this.showEditModal(annotation, annotationId, filePath, onUpdate, annotationMode);
     });
 
     const copyBtn = actions.createEl("button", { cls: "annotation-btn annotation-btn-secondary", text: "复制原文" });
@@ -109,18 +113,26 @@ export class AnnotationMenu {
     setTimeout(() => document.addEventListener("click", clickHandler), 10);
   }
 
-  private async updateColor(annotation: Annotation, filePath: string, color: AnnotationColor, onUpdate: () => void): Promise<void> {
+  private async updateColor(annotation: Annotation, annotationId: string, filePath: string, color: AnnotationColor, onUpdate: () => void, annotationMode?: AnnotationMode): Promise<void> {
     await this.dataManager.updateAnnotation(filePath, annotation.id, { color });
     this.hide();
-    onUpdate();
+
+    if (annotationMode) {
+      await annotationMode.reRenderAnnotation(annotationId);
+    }
+
     new Notice("标注颜色已修改");
   }
 
-  private showEditModal(annotation: Annotation, filePath: string, onUpdate: () => void): void {
+  private showEditModal(annotation: Annotation, annotationId: string, filePath: string, onUpdate: () => void, annotationMode?: AnnotationMode): void {
     this.hide();
     const modal = new EditNoteModal(this.app, annotation, async (note, color, rubyTexts) => {
       await this.dataManager.updateAnnotation(filePath, annotation.id, { note, color, rubyTexts });
-      onUpdate();
+
+      if (annotationMode) {
+        await annotationMode.reRenderAnnotation(annotationId);
+      }
+
       new Notice("批注已更新");
     });
     modal.open();
@@ -242,11 +254,14 @@ class EditNoteModal extends Modal {
       setTimeout(() => {
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed) {
-          const selectedRubyText = selection.toString();
-          const fullText = this.rubyTextPreview!.textContent || "";
-          const startIndex = fullText.indexOf(selectedRubyText);
-          if (startIndex !== -1) {
-            this.selectedRubyRange = { start: startIndex, end: startIndex + selectedRubyText.length };
+          const range = selection.getRangeAt(0);
+          const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
+
+          if (rubyTextOffset) {
+            this.selectedRubyRange = {
+              start: rubyTextOffset.start,
+              end: rubyTextOffset.end
+            };
           }
         }
       }, 10);
@@ -273,29 +288,32 @@ class EditNoteModal extends Modal {
     addRubyBtn.addEventListener("click", () => {
       const selection = window.getSelection();
       let selectedRubyText = "";
+      let rubyStart = 0;
 
       if (selection && !selection.isCollapsed) {
         selectedRubyText = selection.toString();
+        const range = selection.getRangeAt(0);
+        const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
+        if (rubyTextOffset) {
+          rubyStart = rubyTextOffset.start;
+        }
       } else if (this.selectedRubyRange) {
         selectedRubyText = this.annotation.text.substring(this.selectedRubyRange.start, this.selectedRubyRange.end);
+        rubyStart = this.selectedRubyRange.start;
       }
 
       if (selectedRubyText && this.rubyTextInput!.value.trim()) {
-        const fullText = this.rubyTextPreview!.textContent || "";
-        const startIndex = fullText.indexOf(selectedRubyText);
-        if (startIndex !== -1) {
-          this.rubyTexts.push({
-            startIndex,
-            length: selectedRubyText.length,
-            ruby: this.rubyTextInput!.value.trim()
-          });
-          this.rubyTextInput!.value = "";
-          this.selectedRubyRange = null;
-          if (selection) {
-            selection.removeAllRanges();
-          }
-          this.updateRubyList?.();
+        this.rubyTexts.push({
+          startIndex: rubyStart,
+          length: selectedRubyText.length,
+          ruby: this.rubyTextInput!.value.trim()
+        });
+        this.rubyTextInput!.value = "";
+        this.selectedRubyRange = null;
+        if (selection) {
+          selection.removeAllRanges();
         }
+        this.updateRubyList?.();
       } else {
         if (!selectedRubyText) {
           if (this.annotation.text.length === 1) {

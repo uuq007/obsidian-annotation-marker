@@ -62,3 +62,48 @@ export function extractContextByPosition(fullText: string, startIndex: number, t
 
   return { before, after };
 }
+
+export function calculateRangeOffsetInElement(
+  range: Range,
+  element: HTMLElement
+): { start: number; end: number } | null {
+  let start = 0;
+  let end = 0;
+  let foundStart = false;
+
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  let node = walker.nextNode();
+
+  while (node) {
+    const textNode = node as Text;
+    const nodeLength = textNode.textContent?.length || 0;
+
+    if (!foundStart) {
+      if (textNode === range.startContainer) {
+        start += range.startOffset;
+        foundStart = true;
+
+        if (range.endContainer === textNode) {
+          end = start + (range.endOffset - range.startOffset);
+          return { start, end };
+        }
+      } else if (textNode === range.endContainer) {
+        end = start + range.endOffset;
+        return { start: 0, end };
+      } else {
+        start += nodeLength;
+      }
+    } else {
+      if (textNode === range.endContainer) {
+        end = start + range.endOffset;
+        return { start, end };
+      } else {
+        start += nodeLength;
+      }
+    }
+
+    node = walker.nextNode();
+  }
+
+  return null;
+}

@@ -355,13 +355,16 @@ export class AnnotationRenderer {
     }
 
     const noteText = annotation.note?.trim() || "";
-    const tooltipContent = noteText 
+    const tooltipContent = noteText
       ? `<div class="annotation-tooltip-label">批注内容</div><div class="annotation-tooltip-content">${this.escapeHtml(noteText)}</div>`
       : `<div class="annotation-tooltip-empty">无批注内容</div>`;
-    
+
     this.tooltipEl.innerHTML = tooltipContent;
 
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    // 获取整个标注 mark 元素的位置，而不是内部子元素
+    const target = e.target as HTMLElement;
+    const markElement = target.closest('mark[data-annotation-id]');
+    const rect = (markElement || target).getBoundingClientRect();
     const tooltipRect = this.tooltipEl.getBoundingClientRect();
     const threshold = window.innerHeight * 0.5;
 
@@ -375,6 +378,12 @@ export class AnnotationRenderer {
 
     const left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
     this.tooltipEl.style.left = `${Math.max(10, Math.min(left, window.innerWidth - tooltipRect.width - 10))}px`;
+
+    // 设置箭头位置，让箭头指向标注区域的中心
+    // 箭头是 10px 宽，中心在 5px 处，所以需要让箭头中心对齐 tooltip 中心
+    const arrowLeft = tooltipRect.width / 2 - 5;
+    this.tooltipEl.style.setProperty('--arrow-left', `${arrowLeft}px`);
+
     this.tooltipEl.style.opacity = "1";
     this.tooltipEl.style.visibility = "visible";
   }
@@ -382,8 +391,10 @@ export class AnnotationRenderer {
   private moveTooltip(e: MouseEvent): void {
     if (!this.tooltipEl) return;
 
+    // 获取整个标注 mark 元素的位置，而不是内部子元素
     const target = e.target as HTMLElement;
-    const rect = target.getBoundingClientRect();
+    const markElement = target.closest('mark[data-annotation-id]');
+    const rect = (markElement || target).getBoundingClientRect();
     const tooltipRect = this.tooltipEl.getBoundingClientRect();
     const threshold = window.innerHeight * 0.5;
 
@@ -397,6 +408,10 @@ export class AnnotationRenderer {
 
     const left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
     this.tooltipEl.style.left = `${Math.max(10, Math.min(left, window.innerWidth - tooltipRect.width - 10))}px`;
+
+    // 设置箭头位置，让箭头指向标注区域的中心
+    const arrowLeft = tooltipRect.width / 2 - 5;
+    this.tooltipEl.style.setProperty('--arrow-left', `${arrowLeft}px`);
   }
 
   private hideTooltip(): void {

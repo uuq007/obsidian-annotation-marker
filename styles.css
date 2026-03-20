@@ -444,7 +444,7 @@
   content: "";
   position: absolute;
   top: -6px;
-  left: 20px;
+  left: var(--arrow-left, calc(50% - 5px));
   width: 10px;
   height: 10px;
   background: var(--background-primary);

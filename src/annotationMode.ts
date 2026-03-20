@@ -1926,6 +1926,21 @@ export class AnnotationMode {
   }
 
   async updateFilePaths(oldPath: string, newPath: string): Promise<void> {
+    // 更新全局元素缓存中的文件路径映射
+    const elements = this.globalElementsByFilePath.get(oldPath);
+    if (elements) {
+      this.globalElementsByFilePath.delete(oldPath);
+      this.globalElementsByFilePath.set(newPath, elements);
+
+      // 更新元素的 context sourcePath
+      for (const element of elements) {
+        const context = this.globalElementContextMap.get(element);
+        if (context && (context as any).sourcePath === oldPath) {
+          (context as any).sourcePath = newPath;
+        }
+      }
+    }
+
     for (const [leaf, state] of this.leafStates) {
       if (state.currentFilePath === oldPath && state.isActive) {
         state.deactivate();

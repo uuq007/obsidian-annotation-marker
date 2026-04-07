@@ -478,25 +478,17 @@ mark.annotation-marker.annotation-marker-has-note {
     0 12px 32px rgba(0, 0, 0, 0.2);
 }
 
-.annotation-toolbar-header {
-  padding-bottom: 10px;
-}
-
 .annotation-toolbar-content {
-  padding: 12px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .annotation-toolbar-section {
   padding: 0;
   border: none;
   background: transparent;
-}
-
-.annotation-toolbar-section label {
-  margin-bottom: 8px;
 }
 
 .annotation-toolbar-marker-row {
@@ -512,7 +504,23 @@ mark.annotation-marker.annotation-marker-has-note {
 }
 
 .annotation-toolbar-action {
-  min-height: 34px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.annotation-toolbar-action svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2px;
 }
 
 .annotation-toolbar-action.is-active {
@@ -522,27 +530,18 @@ mark.annotation-marker.annotation-marker-has-note {
 }
 
 .annotation-toolbar-panel {
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
 }
 
 .annotation-toolbar-preview {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
   background: var(--background-primary);
   margin-bottom: 10px;
-}
-
-.annotation-toolbar-preview label,
-.annotation-toolbar-ruby-list-label {
-  display: block;
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-  font-weight: 500;
 }
 
 .annotation-toolbar-preview span {
@@ -565,9 +564,9 @@ mark.annotation-marker.annotation-marker-has-note {
 }
 
 .annotation-toolbar-ruby-helper {
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--interactive-accent);
 }
 
 .annotation-ruby-text-preview[data-has-selection="true"] {
@@ -580,18 +579,10 @@ mark.annotation-marker.annotation-marker-has-note {
   margin-bottom: 10px;
 }
 
-.annotation-toolbar-dirty-hint {
-  display: none;
-  padding: 0 14px 10px;
-  font-size: 12px;
-  color: var(--interactive-accent);
-  font-weight: 500;
-}
-
 .annotation-toolbar-commit-bar {
   display: none;
   gap: 10px;
-  padding: 14px;
+  padding: 12px;
   border-top: 1px solid var(--background-modifier-border);
   background: linear-gradient(
     180deg,

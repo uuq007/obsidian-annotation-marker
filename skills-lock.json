@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "triage-issue": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "computedHash": "823d4ab5abd353e28dae31d47bd7aa8f1e75072ebbf9f86576523890f1b8b8d4"
+    }
+  }
+}

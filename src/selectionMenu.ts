@@ -1,4 +1,4 @@
-import { App, Notice } from "obsidian";
+import { App, Notice, setIcon } from "obsidian";
 import { AnnotationColor, ExtractedRubyInfo, Marker, OriginalRuby, PartialAnnotationInfo } from "./types";
 import { DataManager } from "./dataManager";
 import { calculateRangeOffsetInElement } from "./utils/helpers";
@@ -44,7 +44,6 @@ export class SelectionMenu {
   private addRubyBtn: HTMLButtonElement | null = null;
   private noteToggleBtn: HTMLButtonElement | null = null;
   private rubyToggleBtn: HTMLButtonElement | null = null;
-  private dirtyHintEl: HTMLElement | null = null;
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
 
   constructor(app: App, dataManager: DataManager) {
@@ -98,6 +97,13 @@ export class SelectionMenu {
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
+    this.menuEl.addEventListener("mousedown", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("input, textarea")) {
+        return;
+      }
+      e.preventDefault();
+    });
     this.menuEl.dataset.startLine = startLine.toString();
     this.menuEl.dataset.endLine = endLine.toString();
     this.menuEl.dataset.startOffset = startOffset.toString();
@@ -116,22 +122,6 @@ export class SelectionMenu {
   private renderToolbar(): void {
     if (!this.menuEl) return;
 
-    const header = this.menuEl.createDiv({ cls: "annotation-menu-header annotation-toolbar-header" });
-    const titleText = this.partialAnnotationInfo ? "添加注音" : "添加标注";
-    header.createEl("span", { text: titleText, cls: "annotation-menu-title" });
-
-    const closeBtn = header.createEl("button", {
-      cls: "annotation-menu-close",
-      attr: { "aria-label": "关闭标注工具栏" },
-      text: "×",
-    });
-    closeBtn.addEventListener("click", () => {
-      if (this.isDirty()) {
-        return;
-      }
-      this.hide();
-    });
-
     const content = this.menuEl.createDiv({ cls: "annotation-menu-scrollable-content annotation-toolbar-content" });
     this.renderMarkerToolbar(content);
     this.renderActionToolbar(content);
@@ -141,8 +131,6 @@ export class SelectionMenu {
 
     this.renderNotePanel();
     this.renderRubyPanel();
-
-    this.dirtyHintEl = this.menuEl.createDiv({ cls: "annotation-toolbar-dirty-hint", text: "有未保存内容" });
 
     this.saveBarEl = this.menuEl.createDiv({ cls: "annotation-toolbar-commit-bar" });
     this.cancelBtn = this.saveBarEl.createEl("button", {
@@ -174,7 +162,6 @@ export class SelectionMenu {
 
   private renderMarkerToolbar(container: HTMLElement): void {
     const section = container.createDiv({ cls: "annotation-menu-section annotation-toolbar-section annotation-toolbar-section-markers" });
-    section.createEl("label", { text: this.partialAnnotationInfo ? "当前记号" : "记号" });
     this.colorContainer = section.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
 
     const markerSelection = buildCreationMarkerSelection(this.dataManager.getMarkerManager().getMarkers());
@@ -222,9 +209,9 @@ export class SelectionMenu {
 
     this.noteToggleBtn = row.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
-      text: "批注",
-      attr: { type: "button", "aria-expanded": "false" },
+      attr: { type: "button", "aria-expanded": "false", title: "添加或编辑批注" },
     });
+    setIcon(this.noteToggleBtn, "message-square");
     this.noteToggleBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggleNotePanel();
@@ -232,9 +219,9 @@ export class SelectionMenu {
 
     this.rubyToggleBtn = row.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
-      text: "注音",
-      attr: { type: "button", "aria-expanded": "false" },
+      attr: { type: "button", "aria-expanded": "false", title: "添加注音" },
     });
+    setIcon(this.rubyToggleBtn, "languages");
     this.rubyToggleBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggleRubyPanel();
@@ -242,13 +229,16 @@ export class SelectionMenu {
 
     const copyBtn = row.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
-      text: "复制",
-      attr: { type: "button" },
+      attr: { type: "button", title: "复制当前选中文本" },
     });
+    setIcon(copyBtn, "copy");
     copyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(this.selectedText);
       new Notice("已复制到剪贴板");
+      if (!this.isDirty()) {
+        this.hide();
+      }
     });
   }
 
@@ -257,12 +247,10 @@ export class SelectionMenu {
     this.notePanelEl.empty();
 
     const preview = this.notePanelEl.createDiv({ cls: "annotation-menu-preview annotation-toolbar-preview" });
-    preview.createEl("label", { text: "当前文本" });
     const previewText = this.selectedText.length > 100 ? `${this.selectedText.substring(0, 100)}...` : this.selectedText;
     preview.createEl("span", { text: `"${previewText}"` });
 
     const noteLabel = this.notePanelEl.createDiv({ cls: "annotation-note-label-row" });
-    noteLabel.createEl("label", { text: "批注" });
     const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: `(${this.pendingNote.length}/400)` });
 
     this.noteInput = this.notePanelEl.createEl("textarea", {
@@ -287,7 +275,6 @@ export class SelectionMenu {
     this.rubyPanelEl.empty();
 
     const inputRow = this.rubyPanelEl.createDiv({ cls: "annotation-ruby-input-row annotation-toolbar-ruby-input-row" });
-    inputRow.createEl("label", { text: "注音内容" });
     this.rubyTextInput = inputRow.createEl("input", {
       type: "text",
       cls: "annotation-ruby-input",
@@ -298,7 +285,6 @@ export class SelectionMenu {
     });
 
     const preview = this.rubyPanelEl.createDiv({ cls: "annotation-ruby-preview annotation-toolbar-ruby-preview" });
-    preview.createEl("label", { text: "已选文本" });
     this.rubyTextPreview = preview.createDiv({
       cls: "annotation-ruby-text-preview",
       text: this.selectedText,
@@ -308,7 +294,7 @@ export class SelectionMenu {
 
     const helper = preview.createDiv({
       cls: "annotation-toolbar-ruby-helper",
-      text: "请在上方文本中划选需要注音的部分。",
+      text: "",
     });
 
     this.rubyTextPreview.addEventListener("mouseup", () => {
@@ -323,12 +309,12 @@ export class SelectionMenu {
               end: rubyTextOffset.end,
             };
             this.rubyTextPreview?.setAttribute("data-has-selection", "true");
-            helper.textContent = `已选中：${this.selectedText.substring(rubyTextOffset.start, rubyTextOffset.end)}`;
+            helper.textContent = this.selectedText.substring(rubyTextOffset.start, rubyTextOffset.end);
           }
         } else {
           this.selectedRubyRange = null;
           this.rubyTextPreview?.setAttribute("data-has-selection", "false");
-          helper.textContent = "请在上方文本中划选需要注音的部分。";
+          helper.textContent = "";
         }
         this.syncRubyAddButton();
       }, 10);
@@ -377,13 +363,12 @@ export class SelectionMenu {
       this.selectedRubyRange = null;
       this.rubyTextInput!.value = "";
       this.rubyTextPreview?.setAttribute("data-has-selection", "false");
-      helper.textContent = "请在上方文本中划选需要注音的部分。";
+      helper.textContent = "";
       this.renderRubyList();
       this.syncUiState();
       this.syncRubyAddButton();
     });
 
-    this.rubyPanelEl.createEl("label", { cls: "annotation-toolbar-ruby-list-label", text: "已添加列表" });
     this.rubyPanelEl.createDiv({ cls: "annotation-ruby-list" });
     this.renderRubyList();
     this.syncRubyAddButton();
@@ -487,9 +472,6 @@ export class SelectionMenu {
       this.rubyToggleBtn.setAttribute("aria-expanded", this.isRubyPanelOpen ? "true" : "false");
     }
 
-    if (this.dirtyHintEl) {
-      this.dirtyHintEl.style.display = dirty ? "block" : "none";
-    }
     if (this.saveBarEl) {
       this.saveBarEl.style.display = dirty ? "flex" : "none";
     }
@@ -531,16 +513,16 @@ export class SelectionMenu {
 
     const menuWidth = 320;
     const menuHeight = this.menuEl.offsetHeight || 220;
-    let menuX = x + 10;
-    let menuY = y + 10;
+    let menuX = x - Math.round(menuWidth / 2);
+    let menuY = y + 2;
 
-    if (menuX + menuWidth > window.innerWidth) {
-      menuX = x - menuWidth - 10;
+    if (menuX + menuWidth > window.innerWidth - 10) {
+      menuX = window.innerWidth - menuWidth - 10;
     }
 
     const threshold = window.innerHeight * 0.4;
     if (y > threshold) {
-      menuY = y - menuHeight - 10;
+      menuY = y - menuHeight - 2;
     }
 
     if (menuY + menuHeight > window.innerHeight) {
@@ -570,7 +552,6 @@ export class SelectionMenu {
     this.addRubyBtn = null;
     this.noteToggleBtn = null;
     this.rubyToggleBtn = null;
-    this.dirtyHintEl = null;
     this.isNotePanelOpen = false;
     this.isRubyPanelOpen = false;
   }

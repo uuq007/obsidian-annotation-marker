@@ -24,18 +24,19 @@
 .annotation-card-menu {
   position: fixed;
   z-index: 9999;
-  min-width: 260px;
-  max-width: 340px;
+  min-width: 320px;
+  max-width: 380px;
   max-height: 70vh;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.12);
   padding: 0;
   font-size: 14px;
   animation: annotation-menu-fade-in 0.15s ease-out;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .annotation-menu-scrollable-content {
@@ -159,12 +160,13 @@
 .annotation-color-buttons {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .annotation-color-dot {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   border: 2px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -172,7 +174,7 @@
 }
 
 .annotation-color-dot:hover {
-  transform: scale(1.1);
+  transform: translateY(-1px);
 }
 
 .annotation-color-dot.active {
@@ -261,6 +263,12 @@ mark.annotation-marker.annotation-marker-has-note {
   border: none;
   flex: 1;
   min-width: 70px;
+}
+
+.annotation-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .annotation-btn-primary {
@@ -458,6 +466,154 @@ mark.annotation-marker.annotation-marker-has-note {
 
 .annotation-char-count-error {
   color: #ff6b6b;
+}
+
+.annotation-selection-menu {
+  border-radius: 14px;
+}
+
+.annotation-selection-menu.is-dirty {
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 15%, transparent),
+    0 12px 32px rgba(0, 0, 0, 0.2);
+}
+
+.annotation-toolbar-header {
+  padding-bottom: 10px;
+}
+
+.annotation-toolbar-content {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.annotation-toolbar-section {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.annotation-toolbar-section label {
+  margin-bottom: 8px;
+}
+
+.annotation-toolbar-marker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.annotation-toolbar-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.annotation-toolbar-action {
+  min-height: 34px;
+}
+
+.annotation-toolbar-action.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-modifier-hover));
+  color: var(--text-normal);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+}
+
+.annotation-toolbar-panel {
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
+}
+
+.annotation-toolbar-preview {
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  margin-bottom: 10px;
+}
+
+.annotation-toolbar-preview label,
+.annotation-toolbar-ruby-list-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.annotation-toolbar-preview span {
+  display: block;
+  color: var(--text-normal);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.annotation-toolbar-note-input {
+  margin-bottom: 0;
+}
+
+.annotation-toolbar-ruby-input-row {
+  margin-bottom: 10px;
+}
+
+.annotation-toolbar-ruby-preview {
+  margin-bottom: 10px;
+}
+
+.annotation-toolbar-ruby-helper {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.annotation-ruby-text-preview[data-has-selection="true"] {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+}
+
+.annotation-toolbar-ruby-add {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.annotation-toolbar-dirty-hint {
+  display: none;
+  padding: 0 14px 10px;
+  font-size: 12px;
+  color: var(--interactive-accent);
+  font-weight: 500;
+}
+
+.annotation-toolbar-commit-bar {
+  display: none;
+  gap: 10px;
+  padding: 14px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-secondary) 40%, transparent),
+    var(--background-secondary)
+  );
+}
+
+.annotation-toolbar-commit-save,
+.annotation-toolbar-commit-cancel {
+  min-height: 40px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.annotation-toolbar-commit-cancel {
+  background: color-mix(in srgb, #ff6b6b 16%, var(--background-modifier-hover));
+  color: var(--text-normal);
+}
+
+.annotation-toolbar-commit-cancel:hover {
+  background: color-mix(in srgb, #ff6b6b 22%, var(--background-modifier-hover));
 }
 
 .annotation-highlight-tooltip {

@@ -73,6 +73,53 @@ export class MarkerManager {
     return marker;
   }
 
+  async updateMarker(markerId: string, updates: Partial<Pick<Marker, "name" | "color" | "preset">>): Promise<void> {
+    let changed = false;
+    this.settings.markers = this.getMarkers().map((marker) => {
+      if (marker.id !== markerId || marker.state !== "active") {
+        return marker;
+      }
+
+      changed = true;
+      return {
+        ...marker,
+        name: updates.name ?? marker.name,
+        color: updates.color ?? marker.color,
+        preset: updates.preset ?? marker.preset,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    if (changed) {
+      await this.saveSettings();
+    }
+  }
+
+  async moveMarker(markerId: string, direction: "up" | "down"): Promise<void> {
+    const activeMarkers = this.getActiveMarkers();
+    const index = activeMarkers.findIndex((marker) => marker.id === markerId);
+    if (index === -1) {
+      return;
+    }
+
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= activeMarkers.length) {
+      return;
+    }
+
+    const swapped = [...activeMarkers];
+    const current = swapped[index];
+    swapped[index] = swapped[targetIndex]!;
+    swapped[targetIndex] = current!;
+
+    const deletedMarkers = this.getMarkers().filter((marker) => marker.state === "soft-deleted");
+    this.settings.markers = [...swapped, ...deletedMarkers].map((marker, order) => ({
+      ...marker,
+      order,
+    }));
+    await this.saveSettings();
+  }
+
   async softDeleteMarker(markerId: string): Promise<void> {
     const markers = this.getMarkers();
     const activeMarkers = markers.filter((marker) => marker.state === "active" && marker.id !== markerId);

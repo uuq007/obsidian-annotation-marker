@@ -951,3 +951,56 @@ mark.annotation-marker.annotation-marker-has-note {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+
+.annotation-marker-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.annotation-marker-settings-item {
+  display: flex;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+}
+
+.annotation-marker-settings-item.is-deleted {
+  opacity: 0.6;
+}
+
+.annotation-marker-settings-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  min-width: 64px;
+}
+
+.annotation-marker-preview-chip {
+  width: 42px;
+  height: 18px;
+  display: inline-block;
+  color: var(--marker-preview-color);
+}
+
+.annotation-marker-settings-fields {
+  flex: 1;
+}
+
+.annotation-marker-settings-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 180px;
+  justify-content: flex-end;
+}
+
+.annotation-marker-settings-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}

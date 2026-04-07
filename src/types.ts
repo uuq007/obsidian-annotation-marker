@@ -88,6 +88,13 @@ export const COLOR_LABELS: Record<AnnotationColor, string> = {
   none: "无色",
 };
 
+export const MARKER_PRESET_LABELS: Record<MarkerPreset, string> = {
+  solid: "实底高亮",
+  "double-underline": "双下划线",
+  "half-highlight": "半高亮",
+  "wavy-underline": "波浪线",
+};
+
 export const CONTEXT_LENGTH_BEFORE = 50;
 export const CONTEXT_LENGTH_AFTER = 50;
 export const MATCH_THRESHOLD = 0.5;

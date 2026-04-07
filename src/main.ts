@@ -2,11 +2,13 @@ import { Plugin, TFile, Notice, MarkdownPostProcessorContext } from "obsidian";
 import { AnnotationPluginSettings, DEFAULT_SETTINGS } from "./types";
 import { DataManager } from "./dataManager";
 import { AnnotationMode } from "./annotationMode";
+import { MarkerManager } from "./markerManager";
 
 export default class MarkdownAnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
   private dataManager: DataManager;
   private annotationMode: AnnotationMode;
+  private markerManager: MarkerManager;
   private fileRenameEventRef: any;
   private fileDeleteEventRef: any;
   private markdownPostProcessorRef: any;
@@ -17,10 +19,12 @@ export default class MarkdownAnnotationPlugin extends Plugin {
 
 
     await this.loadSettings();
+    this.markerManager = new MarkerManager(this.settings, async () => this.saveSettings());
+    await this.markerManager.ensureInitialized();
 
 
     const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
-    this.dataManager = new DataManager(this.app, pluginDir);
+    this.dataManager = new DataManager(this.app, pluginDir, this.markerManager);
     this.annotationMode = new AnnotationMode(this.app, this.dataManager, this);
 
 

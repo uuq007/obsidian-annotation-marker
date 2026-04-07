@@ -5,17 +5,26 @@
   "main": "main.js",
   "type": "module",
   "scripts": {
+    "typecheck": "tsc --noEmit -skipLibCheck",
+    "test": "vitest run",
     "dev": "node esbuild.config.mjs",
-    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+    "build": "npm run typecheck && node esbuild.config.mjs production"
   },
-  "keywords": ["obsidian", "annotation", "highlight", "markdown", "marker"],
+  "keywords": [
+    "obsidian",
+    "annotation",
+    "highlight",
+    "markdown",
+    "marker"
+  ],
   "license": "MIT",
   "author": "uuq007",
   "devDependencies": {
     "@types/node": "^16.11.6",
     "esbuild": "0.25.5",
     "tslib": "2.4.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^0.34.6"
   },
   "dependencies": {
     "obsidian": "latest"

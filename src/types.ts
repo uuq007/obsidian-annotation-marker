@@ -1,4 +1,18 @@
 export type AnnotationColor = "red" | "blue" | "yellow" | "green" | "purple" | "none";
+export type MarkerPreset = "solid" | "double-underline" | "half-highlight" | "wavy-underline";
+export type MarkerState = "active" | "soft-deleted";
+
+export interface Marker {
+  id: string;
+  name: string;
+  color: string;
+  preset: MarkerPreset;
+  state: MarkerState;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+  legacyColor?: AnnotationColor;
+}
 
 export interface AnnotationRuby {
   startIndex: number;
@@ -24,6 +38,8 @@ export interface Annotation {
   contextBefore: string;
   contextAfter: string;
   color: AnnotationColor;
+  markerId?: string;
+  markerLabel?: string;
   note: string;
   rubyText?: string;
   rubyTexts?: AnnotationRuby[];
@@ -45,11 +61,13 @@ export interface FileAnnotationData {
 export interface AnnotationPluginSettings {
   defaultColor: AnnotationColor;
   maxNoteLength: number;
+  markers?: Marker[];
 }
 
 export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
   defaultColor: "yellow",
   maxNoteLength: 500,
+  markers: [],
 };
 
 export const COLOR_MAP: Record<AnnotationColor, { bg: string; border: string }> = {

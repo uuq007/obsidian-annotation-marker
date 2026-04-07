@@ -142,6 +142,15 @@ export class MarkerManager {
     await this.saveSettings();
   }
 
+  async deleteMarker(markerId: string): Promise<void> {
+    const remainingMarkers = this.getMarkers().filter((marker) => marker.id !== markerId);
+    this.settings.markers = remainingMarkers.map((marker, index) => ({
+      ...marker,
+      order: index,
+    }));
+    await this.saveSettings();
+  }
+
   async restoreMarker(markerId: string): Promise<void> {
     const markers = this.getMarkers();
     const restoringMarker = markers.find((marker) => marker.id === markerId);

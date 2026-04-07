@@ -1,4 +1,4 @@
-import { App, Modal, Notice } from "obsidian";
+import { App, Modal, Notice, setIcon } from "obsidian";
 import { Annotation, AnnotationColor, Marker } from "./types";
 import { DataManager } from "./dataManager";
 import { calculateRangeOffsetInElement } from "./utils/helpers";
@@ -23,29 +23,38 @@ export class AnnotationMenu {
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-view-menu";
 
-    const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
-    header.createEl("span", { text: "标注详情", cls: "annotation-menu-title" });
-    const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: "×" });
+    const header = this.menuEl.createDiv({ cls: "annotation-panel-header annotation-view-header" });
+    const title = header.createDiv({ cls: "annotation-panel-title" });
+    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
+    setIcon(titleIcon, "highlighter");
+    title.createSpan({ text: "标注详情", cls: "annotation-panel-title-text" });
+    if (annotation.note?.trim()) {
+      header.createSpan({ cls: "annotation-panel-meta", text: "含批注" });
+    }
+    const closeBtn = header.createEl("button", { cls: "annotation-menu-close annotation-toolbar-action", attr: { type: "button", title: "关闭" } });
+    setIcon(closeBtn, "x");
     closeBtn.addEventListener("click", () => this.hide());
 
-    const textPreview = this.menuEl.createDiv({ cls: "annotation-menu-text" });
+    const textPreview = this.menuEl.createDiv({ cls: "annotation-menu-text annotation-toolbar-preview" });
+    textPreview.createEl("label", { text: "原文" });
     const previewText = annotation.text.length > 80 ? annotation.text.substring(0, 80) + "..." : annotation.text;
     textPreview.createEl("span", { text: `"${previewText}"` });
 
     if (annotation.note) {
-      const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note" });
-      noteSection.createEl("label", { text: "批注内容" });
+      const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note annotation-toolbar-panel-field" });
+      noteSection.createEl("label", { text: "批注" });
       noteSection.createEl("div", { cls: "annotation-note-text", text: annotation.note });
     }
 
-    const colorSection = this.menuEl.createDiv({ cls: "annotation-menu-section" });
+    const colorSection = this.menuEl.createDiv({ cls: "annotation-menu-section annotation-toolbar-panel-field" });
     colorSection.createEl("label", { text: "记号" });
-    const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
+    const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
     const markerSelection = buildExistingMarkerSelection(this.dataManager.getMarkerManager().getMarkers(), annotation.markerId);
     markerSelection.options.forEach((option) => {
       const { marker, disabled } = option;
       const btn = colorContainer.createEl("button", { cls: `annotation-color-dot marker-preset-${marker.preset}` });
       btn.style.setProperty("--marker-preview-color", marker.color);
+      btn.setText("Aa");
       if (marker.id === markerSelection.selectedMarkerId) {
         btn.addClass("active");
       }
@@ -66,7 +75,7 @@ export class AnnotationMenu {
       });
     }
 
-    const actions = this.menuEl.createDiv({ cls: "annotation-menu-actions" });
+    const actions = this.menuEl.createDiv({ cls: "annotation-menu-actions annotation-view-actions" });
 
     const editBtn = actions.createEl("button", { cls: "annotation-btn annotation-btn-secondary", text: "编辑批注" });
     editBtn.addEventListener("click", (e) => {
@@ -180,6 +189,7 @@ class EditNoteModal extends Modal {
   private rubyTextPreview: HTMLElement | null = null;
   private selectedRubyRange: { start: number; end: number } | null = null;
   private updateRubyList: (() => void) | null = null;
+  private activeTab: "note" | "ruby" = "note";
 
   constructor(app: App, dataManager: DataManager, annotation: Annotation, onSave: (note: string, marker: Marker, rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>) => void) {
     super(app);
@@ -199,27 +209,35 @@ class EditNoteModal extends Modal {
       this.rubyTextEnabled = !!annotation.rubyTexts && annotation.rubyTexts.length > 0;
       this.rubyTexts = annotation.rubyTexts || [];
     }
+    this.activeTab = this.rubyTextEnabled && !annotation.note ? "ruby" : "note";
   }
 
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.addClass("annotation-note-modal");
+    contentEl.addClass("annotation-note-modal", "annotation-edit-modal");
 
-    contentEl.createEl("h3", { text: this.annotation.note ? "编辑批注" : "添加批注" });
+    const header = contentEl.createDiv({ cls: "annotation-panel-header annotation-edit-header" });
+    const title = header.createDiv({ cls: "annotation-panel-title" });
+    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
+    setIcon(titleIcon, "square-pen");
+    title.createSpan({ cls: "annotation-panel-title-text", text: this.annotation.note ? "编辑批注" : "添加批注" });
+    header.createSpan({ cls: "annotation-panel-meta", text: this.rubyTexts.length > 0 ? `${this.rubyTexts.length} 项注音` : "编辑模式" });
 
-    const previewEl = contentEl.createDiv({ cls: "annotation-modal-preview" });
-    previewEl.createEl("strong", { text: "标注文字：" });
+    const previewEl = contentEl.createDiv({ cls: "annotation-modal-preview annotation-toolbar-preview" });
+    previewEl.createEl("label", { text: "原文" });
     const previewText = this.annotation.text.length > 50 ? this.annotation.text.substring(0, 50) + "..." : this.annotation.text;
     previewEl.createEl("span", { text: previewText });
 
-    const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });
-    colorContainer.createEl("label", { text: "记号：" });
+    const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker annotation-toolbar-panel-field" });
+    colorContainer.createEl("label", { text: "记号" });
 
+    const markerButtons = colorContainer.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
     const markerSelection = buildExistingMarkerSelection(this.dataManager.getMarkerManager().getMarkers(), this.annotation.markerId);
     markerSelection.options.forEach((option) => {
       const { marker, disabled } = option;
-      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot marker-preset-${marker.preset}` });
+      const btn = markerButtons.createEl("button", { cls: `annotation-color-dot marker-preset-${marker.preset}` });
       btn.style.setProperty("--marker-preview-color", marker.color);
+      btn.setText("Aa");
       btn.title = disabled ? `${marker.name}（已删除）` : marker.name;
       if (marker.id === this.currentMarker.id) {
         btn.addClass("active");
@@ -240,8 +258,20 @@ class EditNoteModal extends Modal {
       });
     }
 
-    const noteContainer = contentEl.createDiv({ cls: "annotation-note-container" });
-    noteContainer.createEl("label", { text: "批注内容（最多400字）：" });
+    const tabs = contentEl.createDiv({ cls: "annotation-edit-tabs" });
+    const noteTabBtn = tabs.createEl("button", {
+      cls: `annotation-btn annotation-btn-secondary annotation-edit-tab${this.activeTab === "note" ? " is-active" : ""}`,
+      text: "批注",
+      attr: { type: "button" },
+    });
+    const rubyTabBtn = tabs.createEl("button", {
+      cls: `annotation-btn annotation-btn-secondary annotation-edit-tab${this.activeTab === "ruby" ? " is-active" : ""}`,
+      text: "注音",
+      attr: { type: "button" },
+    });
+
+    const noteContainer = contentEl.createDiv({ cls: "annotation-note-container annotation-toolbar-panel-field" });
+    noteContainer.createEl("label", { text: "批注内容" });
     this.noteInput = noteContainer.createEl("textarea", { cls: "annotation-note-input" });
     this.noteInput.setAttribute("maxlength", "400");
     this.noteInput.setAttribute("rows", "4");
@@ -254,25 +284,8 @@ class EditNoteModal extends Modal {
       charCount.textContent = `${len}/400`;
     });
 
-    const rubySection = contentEl.createDiv({ cls: "annotation-ruby-section" });
-    const rubyRow = rubySection.createDiv({ cls: "annotation-ruby-row" });
-    const rubyCheckbox = rubyRow.createEl("input", { type: "checkbox", cls: "annotation-ruby-checkbox" });
-    rubyCheckbox.checked = this.rubyTextEnabled;
-    rubyCheckbox.addEventListener("change", () => {
-      this.rubyTextEnabled = rubyCheckbox.checked;
-      if (this.rubyTextEnabled) {
-        this.rubyTextContainer!.style.display = "block";
-        this.rubyTextInput!.focus();
-      } else {
-        this.rubyTextContainer!.style.display = "none";
-        this.rubyTexts = [];
-        this.updateRubyList?.();
-      }
-    });
-    rubyRow.createEl("label", { text: "注音" });
-
+    const rubySection = contentEl.createDiv({ cls: "annotation-ruby-section annotation-toolbar-panel-field" });
     this.rubyTextContainer = rubySection.createDiv({ cls: "annotation-ruby-input-container" });
-    this.rubyTextContainer.style.display = this.rubyTextEnabled ? "block" : "none";
 
     this.rubyPreview = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-preview" });
     this.rubyPreview.createEl("label", { text: "划选需要注音的文字：" });
@@ -388,6 +401,30 @@ class EditNoteModal extends Modal {
       }
     };
     this.updateRubyList();
+
+    const syncTabs = () => {
+      noteTabBtn.toggleClass("is-active", this.activeTab === "note");
+      rubyTabBtn.toggleClass("is-active", this.activeTab === "ruby");
+      noteContainer.style.display = this.activeTab === "note" ? "block" : "none";
+      rubySection.style.display = this.activeTab === "ruby" ? "block" : "none";
+      if (this.activeTab === "ruby") {
+        this.rubyTextEnabled = true;
+      }
+    };
+
+    noteTabBtn.addEventListener("click", () => {
+      this.activeTab = "note";
+      syncTabs();
+    });
+
+    rubyTabBtn.addEventListener("click", () => {
+      this.activeTab = "ruby";
+      this.rubyTextEnabled = true;
+      syncTabs();
+      this.rubyTextInput?.focus();
+    });
+
+    syncTabs();
 
     const buttonContainer = contentEl.createDiv({ cls: "annotation-modal-buttons" });
     buttonContainer.createEl("button", { text: "取消", cls: "annotation-btn annotation-btn-secondary" }).addEventListener("click", () => {

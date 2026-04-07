@@ -18,7 +18,9 @@ export class SelectionMenu {
   private pendingNote = "";
   private noteInput: HTMLTextAreaElement | null = null;
   private colorContainer: HTMLElement | null = null;
+  private markerScrollContainer: HTMLElement | null = null;
   private rubyTexts: RubyText[] = [];
+  private initialRubyTexts: RubyText[] = [];
   private rubyTextInput: HTMLInputElement | null = null;
   private rubyTextPreview: HTMLElement | null = null;
   private selectedRubyRange: { start: number; end: number } | null = null;
@@ -48,6 +50,7 @@ export class SelectionMenu {
   private rubyToggleBtn: HTMLButtonElement | null = null;
   private closeBtn: HTMLButtonElement | null = null;
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private anchorPointX: number | null = null;
   private anchorPointY: number | null = null;
   private selectionHighlightEl: HTMLElement | null = null;
@@ -103,6 +106,7 @@ export class SelectionMenu {
     this.selectedMarkerId = markerSelection.selectedMarkerId;
     this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(this.selectedMarkerId ?? undefined);
     this.rubyTexts = extractedRubyInfo?.rubyTexts ? [...extractedRubyInfo.rubyTexts] : [];
+    this.initialRubyTexts = this.rubyTexts.map((ruby) => ({ ...ruby }));
     this.isRubyPanelOpen = this.partialAnnotationInfo !== null || this.rubyTexts.length > 0;
 
     this.selectionHighlightEl = document.createElement("div");
@@ -118,6 +122,8 @@ export class SelectionMenu {
     });
     document.body.appendChild(this.selectionHighlightEl);
 
+    window.getSelection()?.removeAllRanges();
+
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
     this.menuEl.dataset.startLine = startLine.toString();
@@ -132,6 +138,7 @@ export class SelectionMenu {
       this.positionMenu();
       this.syncUiState();
       this.bindOutsideClick();
+      this.bindKeyboard();
     });
   }
 
@@ -142,6 +149,7 @@ export class SelectionMenu {
     this.anchorEl = content.createDiv({ cls: "annotation-toolbar-anchor" });
     const primaryEl = this.anchorEl.createDiv({ cls: "annotation-toolbar-primary annotation-toolbar-primary-single-row" });
     const markerGroup = primaryEl.createDiv({ cls: "annotation-toolbar-group annotation-toolbar-group-markers" });
+    this.markerScrollContainer = markerGroup;
     this.renderMarkerToolbar(markerGroup);
     primaryEl.createDiv({ cls: "annotation-toolbar-divider" });
     const actionGroup = primaryEl.createDiv({ cls: "annotation-toolbar-group annotation-toolbar-group-actions" });
@@ -195,11 +203,11 @@ export class SelectionMenu {
         attr: {
           type: "button",
           title: disabled ? `${marker.name}（已删除）` : marker.name,
-          "aria-label": marker.name,
           "data-marker-id": marker.id,
         },
       });
       btn.style.setProperty("--marker-preview-color", marker.color);
+      btn.setText("Aa");
 
       if (marker.id === this.selectedMarkerId) {
         btn.addClass("active");
@@ -225,6 +233,20 @@ export class SelectionMenu {
         }
       });
     });
+
+    this.markerScrollContainer?.addEventListener(
+      "wheel",
+      (e) => {
+        const target = this.markerScrollContainer;
+        if (!target) return;
+        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) && e.deltaX === 0) {
+          return;
+        }
+        target.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX;
+        e.preventDefault();
+      },
+      { passive: false }
+    );
   }
 
   private renderActionToolbar(container: HTMLElement): void {
@@ -284,12 +306,21 @@ export class SelectionMenu {
     if (!this.notePanelEl) return;
     this.notePanelEl.empty();
 
+    const header = this.notePanelEl.createDiv({ cls: "annotation-panel-header annotation-panel-header-note" });
+    const title = header.createDiv({ cls: "annotation-panel-title" });
+    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
+    setIcon(titleIcon, "message-square");
+    title.createSpan({ cls: "annotation-panel-title-text", text: "批注" });
+    header.createSpan({ cls: "annotation-panel-meta", text: `${this.pendingNote.length}/400` });
+
     const preview = this.notePanelEl.createDiv({ cls: "annotation-menu-preview annotation-toolbar-preview" });
+    preview.createEl("label", { text: "原文本" });
     const previewText = this.selectedText.length > 100 ? `${this.selectedText.substring(0, 100)}...` : this.selectedText;
     preview.createEl("span", { text: `"${previewText}"` });
 
-    const noteLabel = this.notePanelEl.createDiv({ cls: "annotation-note-label-row" });
-    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: `(${this.pendingNote.length}/400)` });
+    const noteLabel = this.notePanelEl.createDiv({ cls: "annotation-panel-field-label-row" });
+    noteLabel.createEl("label", { text: "批注内容" });
+    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: `${this.pendingNote.length}/400` });
 
     this.noteInput = this.notePanelEl.createEl("textarea", {
       cls: "annotation-note-input-small annotation-toolbar-note-input",
@@ -302,8 +333,9 @@ export class SelectionMenu {
     this.noteInput.addEventListener("input", () => {
       const value = this.noteInput?.value ?? "";
       this.pendingNote = value;
-      charCount.textContent = `(${value.length}/400)`;
+      charCount.textContent = `${value.length}/400`;
       charCount.toggleClass("annotation-char-count-error", value.length > 400);
+      header.querySelector(".annotation-panel-meta")!.textContent = `${value.length}/400`;
       this.syncUiState();
     });
   }
@@ -312,7 +344,15 @@ export class SelectionMenu {
     if (!this.rubyPanelEl) return;
     this.rubyPanelEl.empty();
 
+    const header = this.rubyPanelEl.createDiv({ cls: "annotation-panel-header annotation-panel-header-ruby" });
+    const title = header.createDiv({ cls: "annotation-panel-title" });
+    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
+    setIcon(titleIcon, "languages");
+    title.createSpan({ cls: "annotation-panel-title-text", text: "注音" });
+    header.createSpan({ cls: "annotation-panel-meta", text: `${this.rubyTexts.length} 项` });
+
     const inputRow = this.rubyPanelEl.createDiv({ cls: "annotation-ruby-input-row annotation-toolbar-ruby-input-row" });
+    inputRow.createEl("label", { cls: "annotation-panel-field-label", text: "注音内容" });
     this.rubyTextInput = inputRow.createEl("input", {
       type: "text",
       cls: "annotation-ruby-input",
@@ -340,6 +380,7 @@ export class SelectionMenu {
     });
 
     const preview = this.rubyPanelEl.createDiv({ cls: "annotation-ruby-preview annotation-toolbar-ruby-preview" });
+    preview.createEl("label", { text: "原文本内选择注音范围" });
     this.rubyTextPreview = preview.createDiv({
       cls: "annotation-ruby-text-preview",
       text: this.selectedText,
@@ -434,6 +475,10 @@ export class SelectionMenu {
     if (!rubyList) return;
 
     rubyList.empty();
+    const rubyMeta = this.rubyPanelEl?.querySelector(".annotation-panel-meta") as HTMLElement | null;
+    if (rubyMeta) {
+      rubyMeta.textContent = `${this.rubyTexts.length} 项`;
+    }
     if (this.rubyTexts.length === 0) {
       rubyList.createDiv({ text: "暂无注音", cls: "annotation-ruby-empty" });
       return;
@@ -492,7 +537,23 @@ export class SelectionMenu {
   }
 
   private isDirty(): boolean {
-    return this.pendingNote.trim().length > 0 || this.rubyTexts.length > 0;
+    const rubyInputDirty = (this.rubyTextInput?.value.trim() ?? "").length > 0;
+    const rubyListDirty = this.haveRubyTextsChanged();
+    return this.pendingNote.trim().length > 0 || rubyInputDirty || rubyListDirty;
+  }
+
+  private haveRubyTextsChanged(): boolean {
+    if (this.rubyTexts.length !== this.initialRubyTexts.length) {
+      return true;
+    }
+
+    return this.rubyTexts.some((ruby, index) => {
+      const initial = this.initialRubyTexts[index];
+      return !initial ||
+        ruby.startIndex !== initial.startIndex ||
+        ruby.length !== initial.length ||
+        ruby.ruby !== initial.ruby;
+    });
   }
 
   private syncMarkerButtons(): void {
@@ -567,6 +628,23 @@ export class SelectionMenu {
     }, 10);
   }
 
+  private bindKeyboard(): void {
+    this.keydownHandler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") {
+        return;
+      }
+
+      if (this.isDirty()) {
+        this.cancelBtn?.focus();
+        return;
+      }
+
+      this.hide();
+    };
+
+    document.addEventListener("keydown", this.keydownHandler);
+  }
+
   private positionMenu(): void {
     if (!this.menuEl || this.anchorPointX === null || this.anchorPointY === null) return;
 
@@ -633,6 +711,8 @@ export class SelectionMenu {
     this.pendingNote = "";
     this.noteInput = null;
     this.colorContainer = null;
+    this.markerScrollContainer = null;
+    this.initialRubyTexts = [];
     this.rubyTextInput = null;
     this.rubyTextPreview = null;
     this.selectedRubyRange = null;
@@ -647,6 +727,7 @@ export class SelectionMenu {
     this.noteToggleBtn = null;
     this.rubyToggleBtn = null;
     this.closeBtn = null;
+    this.keydownHandler = null;
     this.isNotePanelOpen = false;
     this.isRubyPanelOpen = false;
     this.anchorPointX = null;
@@ -674,7 +755,9 @@ export class SelectionMenu {
         }));
 
         const updatedRubyTexts = this.mergeRubyTexts(existingAnnotation.rubyTexts || [], newRubyTexts);
+        const nextNote = note.trim();
         await this.dataManager.updateAnnotation(this.currentFilePath, annotationId, {
+          note: nextNote,
           rubyTexts: updatedRubyTexts.length > 0 ? updatedRubyTexts : undefined,
           originalRubies: existingAnnotation.originalRubies,
         });
@@ -729,7 +812,7 @@ export class SelectionMenu {
           await new Promise((resolve) => setTimeout(resolve, 300));
           await this.onAddCallback();
         }
-        new Notice("注音已添加");
+        new Notice(nextNote || updatedRubyTexts.length > 0 ? "标注已更新" : "注音已添加");
         return;
       }
 
@@ -808,6 +891,11 @@ export class SelectionMenu {
     if (this.outsideClickHandler) {
       document.removeEventListener("click", this.outsideClickHandler);
       this.outsideClickHandler = null;
+    }
+
+    if (this.keydownHandler) {
+      document.removeEventListener("keydown", this.keydownHandler);
+      this.keydownHandler = null;
     }
 
     if (this.menuEl) {

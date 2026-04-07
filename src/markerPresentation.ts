@@ -36,6 +36,10 @@ export function buildListMarkerPreview(annotation: Annotation, marker: Marker | 
 export function buildMarkerCssRule(marker: Marker): string {
   const selector = `mark.annotation-marker[data-marker-id="${marker.id}"]`;
   const noteSelector = `${selector}.annotation-marker-has-note`;
+  const noteBadgeStyle = `
+  position: relative;
+  --annotation-note-indicator-color: ${marker.color};
+`;
 
   switch (marker.preset) {
     case "double-underline":
@@ -48,7 +52,7 @@ ${selector} {
   text-decoration-thickness: 2px;
 }
 ${noteSelector} {
-  border-bottom: 1px solid ${marker.color};
+${noteBadgeStyle}
 }
 `;
     case "half-highlight":
@@ -57,7 +61,7 @@ ${selector} {
   background: linear-gradient(to top, color-mix(in srgb, ${marker.color} 45%, transparent) 0 58%, transparent 58% 100%);
 }
 ${noteSelector} {
-  border-bottom: 2px solid ${marker.color};
+${noteBadgeStyle}
 }
 `;
     case "wavy-underline":
@@ -70,7 +74,7 @@ ${selector} {
   text-decoration-thickness: 2px;
 }
 ${noteSelector} {
-  border-bottom: 1px solid ${marker.color};
+${noteBadgeStyle}
 }
 `;
     case "solid":
@@ -80,7 +84,7 @@ ${selector} {
   background: color-mix(in srgb, ${marker.color} 38%, transparent);
 }
 ${noteSelector} {
-  border-bottom: 2px solid ${marker.color};
+${noteBadgeStyle}
 }
 `;
   }

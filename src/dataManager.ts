@@ -264,6 +264,37 @@ export class DataManager {
     return true;
   }
 
+  async getMarkerUsageCounts(): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    const dir = this.getAnnotationsDir();
+    const exists = await this.app.vault.adapter.exists(dir);
+    if (!exists) {
+      return counts;
+    }
+
+    const files = await this.app.vault.adapter.list(dir);
+    for (const path of files.files) {
+      if (!path.endsWith(".json")) {
+        continue;
+      }
+
+      try {
+        const content = await this.app.vault.adapter.read(path);
+        const parsed = JSON.parse(content) as FileAnnotationData;
+        for (const annotation of parsed.annotations ?? []) {
+          if (!annotation.markerId) {
+            continue;
+          }
+          counts.set(annotation.markerId, (counts.get(annotation.markerId) ?? 0) + 1);
+        }
+      } catch (e) {
+        console.error("统计记号使用量失败:", path, e);
+      }
+    }
+
+    return counts;
+  }
+
   private hasDuplicateText(annotations: Annotation[], text: string, contextBefore: string, contextAfter: string): boolean {
     const normalizedText = text.trim().toLowerCase();
     return annotations.some(

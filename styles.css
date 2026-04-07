@@ -516,8 +516,37 @@ mark.annotation-marker.annotation-marker-has-note {
 
 .annotation-toolbar-primary {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 8px;
+}
+
+.annotation-toolbar-primary-single-row {
+  flex-wrap: nowrap;
+}
+
+.annotation-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.annotation-toolbar-group-markers {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.annotation-toolbar-group-actions {
+  flex: 0 0 auto;
+}
+
+.annotation-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--background-modifier-border);
+  opacity: 0.9;
 }
 
 .annotation-toolbar-panel-stack {
@@ -554,13 +583,13 @@ mark.annotation-marker.annotation-marker-has-note {
 
 .annotation-toolbar-marker-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
 }
 
 .annotation-toolbar-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -582,6 +611,10 @@ mark.annotation-marker.annotation-marker-has-note {
   width: 16px;
   height: 16px;
   stroke-width: 2px;
+}
+
+.annotation-toolbar-close {
+  margin-left: 2px;
 }
 
 .annotation-toolbar-action.is-active {

@@ -46,6 +46,7 @@ export class SelectionMenu {
   private addRubyBtn: HTMLButtonElement | null = null;
   private noteToggleBtn: HTMLButtonElement | null = null;
   private rubyToggleBtn: HTMLButtonElement | null = null;
+  private closeBtn: HTMLButtonElement | null = null;
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
   private anchorPointX: number | null = null;
   private anchorPointY: number | null = null;
@@ -139,9 +140,13 @@ export class SelectionMenu {
 
     const content = this.menuEl.createDiv({ cls: "annotation-menu-scrollable-content annotation-toolbar-content" });
     this.anchorEl = content.createDiv({ cls: "annotation-toolbar-anchor" });
-    const primaryEl = this.anchorEl.createDiv({ cls: "annotation-toolbar-primary" });
-    this.renderMarkerToolbar(primaryEl);
-    this.renderActionToolbar(primaryEl);
+    const primaryEl = this.anchorEl.createDiv({ cls: "annotation-toolbar-primary annotation-toolbar-primary-single-row" });
+    const markerGroup = primaryEl.createDiv({ cls: "annotation-toolbar-group annotation-toolbar-group-markers" });
+    this.renderMarkerToolbar(markerGroup);
+    primaryEl.createDiv({ cls: "annotation-toolbar-divider" });
+    const actionGroup = primaryEl.createDiv({ cls: "annotation-toolbar-group annotation-toolbar-group-actions" });
+    this.renderActionToolbar(actionGroup);
+    this.renderCloseButton(actionGroup);
 
     this.panelStackEl = content.createDiv({ cls: "annotation-toolbar-panel-stack" });
     this.notePanelEl = this.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-note" });
@@ -260,6 +265,21 @@ export class SelectionMenu {
     });
   }
 
+  private renderCloseButton(container: HTMLElement): void {
+    this.closeBtn = container.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action annotation-toolbar-close",
+      attr: { type: "button", title: this.isDirty() ? "当前有未保存内容" : "关闭工具栏" },
+    });
+    setIcon(this.closeBtn, "x");
+    this.closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.isDirty()) {
+        return;
+      }
+      this.hide();
+    });
+  }
+
   private renderNotePanel(): void {
     if (!this.notePanelEl) return;
     this.notePanelEl.empty();
@@ -300,6 +320,23 @@ export class SelectionMenu {
     });
     this.rubyTextInput.addEventListener("input", () => {
       this.syncRubyAddButton();
+    });
+    this.rubyTextInput.addEventListener("focus", () => {
+      if (!this.selectedRubyRange || !this.rubyTextPreview) {
+        return;
+      }
+
+      const selection = window.getSelection();
+      const textNode = this.rubyTextPreview.firstChild;
+      if (!selection || !textNode) {
+        return;
+      }
+
+      const range = document.createRange();
+      range.setStart(textNode, this.selectedRubyRange.start);
+      range.setEnd(textNode, this.selectedRubyRange.end);
+      selection.removeAllRanges();
+      selection.addRange(range);
     });
 
     const preview = this.rubyPanelEl.createDiv({ cls: "annotation-ruby-preview annotation-toolbar-ruby-preview" });
@@ -489,6 +526,10 @@ export class SelectionMenu {
       this.rubyToggleBtn.classList.toggle("is-active", this.isRubyPanelOpen);
       this.rubyToggleBtn.setAttribute("aria-expanded", this.isRubyPanelOpen ? "true" : "false");
     }
+    if (this.closeBtn) {
+      this.closeBtn.disabled = dirty;
+      this.closeBtn.title = dirty ? "当前有未保存内容，请先保存或取消" : "关闭工具栏";
+    }
 
     if (this.saveBarEl) {
       this.saveBarEl.style.display = dirty ? "flex" : "none";
@@ -605,6 +646,7 @@ export class SelectionMenu {
     this.addRubyBtn = null;
     this.noteToggleBtn = null;
     this.rubyToggleBtn = null;
+    this.closeBtn = null;
     this.isNotePanelOpen = false;
     this.isRubyPanelOpen = false;
     this.anchorPointX = null;

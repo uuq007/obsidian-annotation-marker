@@ -1,6 +1,7 @@
 import { App, Notice, MarkdownView } from "obsidian";
 import { Annotation } from "./types";
 import { DataManager } from "./dataManager";
+import { buildListMarkerPreview } from "./markerPresentation";
 
 export class AnnotationListPanel {
   private app: App;
@@ -175,10 +176,20 @@ export class AnnotationListPanel {
 
     annotations.forEach((annotation) => {
       const item = content.createDiv({ cls: "annotation-list-item" });
+      const marker = this.dataManager.getMarkerManager().getMarkerById(annotation.markerId);
+      const preview = buildListMarkerPreview(annotation, marker);
 
       const colorDot = item.createSpan({
-        cls: `annotation-list-dot color-${annotation.color}`
+        cls: preview.dotClassName
       });
+      if (preview.color) {
+        colorDot.style.setProperty("--marker-preview-color", preview.color);
+      }
+
+      if (preview.label) {
+        const labelPreview = item.createDiv({ cls: "annotation-list-note" });
+        labelPreview.textContent = `🏷️ ${preview.label}${preview.deleted ? "（已删除）" : ""}`;
+      }
 
       const textPreview = item.createDiv({ cls: "annotation-list-text" });
       const previewText = annotation.text.length > 60

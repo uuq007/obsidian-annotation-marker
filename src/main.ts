@@ -3,12 +3,14 @@ import { AnnotationPluginSettings, DEFAULT_SETTINGS } from "./types";
 import { DataManager } from "./dataManager";
 import { AnnotationMode } from "./annotationMode";
 import { MarkerManager } from "./markerManager";
+import { buildMarkerCssRule } from "./markerPresentation";
 
 export default class MarkdownAnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
   private dataManager: DataManager;
   private annotationMode: AnnotationMode;
   private markerManager: MarkerManager;
+  private markerStyleEl: HTMLStyleElement | null = null;
   private fileRenameEventRef: any;
   private fileDeleteEventRef: any;
   private markdownPostProcessorRef: any;
@@ -21,6 +23,7 @@ export default class MarkdownAnnotationPlugin extends Plugin {
     await this.loadSettings();
     this.markerManager = new MarkerManager(this.settings, async () => this.saveSettings());
     await this.markerManager.ensureInitialized();
+    this.refreshMarkerStyles();
 
 
     const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
@@ -120,6 +123,9 @@ export default class MarkdownAnnotationPlugin extends Plugin {
 
     }
 
+    this.markerStyleEl?.remove();
+    this.markerStyleEl = null;
+
 
   }
 
@@ -129,5 +135,19 @@ export default class MarkdownAnnotationPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+    this.refreshMarkerStyles();
+  }
+
+  private refreshMarkerStyles(): void {
+    if (!this.markerStyleEl) {
+      this.markerStyleEl = document.createElement("style");
+      this.markerStyleEl.id = "annotation-marker-dynamic-styles";
+      document.head.appendChild(this.markerStyleEl);
+    }
+
+    this.markerStyleEl.textContent = this.markerManager
+      .getMarkers()
+      .map((marker) => buildMarkerCssRule(marker))
+      .join("\n");
   }
 }

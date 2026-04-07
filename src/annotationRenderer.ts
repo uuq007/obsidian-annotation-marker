@@ -1,7 +1,8 @@
 import { MarkdownView } from "obsidian";
-import { Annotation, COLOR_MAP, MATCH_THRESHOLD, CONTEXT_LENGTH_BEFORE, CONTEXT_LENGTH_AFTER } from "./types";
+import { Annotation, MATCH_THRESHOLD, CONTEXT_LENGTH_BEFORE, CONTEXT_LENGTH_AFTER } from "./types";
 import { calculateSimilarity } from "./utils/helpers";
 import { MarkdownPostProcessorContext } from "obsidian";
+import { buildRenderedAnnotationAttrs } from "./markerPresentation";
 
 export interface RenderResult {
   lostAnnotations: Annotation[];
@@ -227,7 +228,15 @@ export class AnnotationRenderer {
     );
   }
 
-  private createHighlightSpan(annotation: Annotation, text: string, colorStyle: { bg: string; border: string }): HTMLElement {
+  private applyMarkerPresentation(element: HTMLElement, annotation: Annotation): void {
+    const attrs = buildRenderedAnnotationAttrs(annotation);
+    attrs.classNames.forEach((className) => element.addClass(className));
+    if (attrs.markerId) {
+      element.dataset.markerId = attrs.markerId;
+    }
+  }
+
+  private createHighlightSpan(annotation: Annotation, text: string): HTMLElement {
     let rubyTexts = annotation.rubyTexts;
 
     if (!rubyTexts && annotation.rubyText) {
@@ -245,14 +254,7 @@ export class AnnotationRenderer {
 
     const container = document.createElement("mark");
     container.dataset.annotationId = annotation.id;
-
-    if (annotation.color !== "none") {
-      container.style.backgroundColor = colorStyle.bg;
-    }
-
-    if (annotation.note && annotation.note.trim()) {
-      container.style.borderBottom = `2px solid ${colorStyle.border}`;
-    }
+    this.applyMarkerPresentation(container, annotation);
 
     if (!hasRubies && !hasOriginalRubies) {
       container.textContent = text;
@@ -914,17 +916,9 @@ export class AnnotationRenderer {
         range.setEnd(endNode, endOffset);
 
         // 创建空的 mark 元素容器（不预先填充内容）
-        const colorStyle = COLOR_MAP[annotation.color];
         const markElement = document.createElement("mark");
         markElement.dataset.annotationId = annotation.id;
-
-        if (annotation.color !== "none") {
-          markElement.style.backgroundColor = colorStyle.bg;
-        }
-
-        if (annotation.note && annotation.note.trim()) {
-          markElement.style.borderBottom = `2px solid ${colorStyle.border}`;
-        }
+        this.applyMarkerPresentation(markElement, annotation);
 
         markElement.style.cursor = "pointer";
         markElement.addEventListener("mouseenter", (e) => this.showTooltip(e, annotation));
@@ -1055,7 +1049,6 @@ export class AnnotationRenderer {
           }
 
           const text = match.node.textContent || "";
-          const colorStyle = COLOR_MAP[annotation.color];
           const highlighted = text.substring(match.start, match.start + match.length);
 
           let matchRubyTexts: typeof rubyTexts = undefined;
@@ -1090,7 +1083,7 @@ export class AnnotationRenderer {
             ? { ...annotation, rubyTexts: matchRubyTexts }
             : { ...annotation, rubyTexts: undefined };
 
-          const markElement = this.createHighlightSpan(modifiedAnnotation, highlighted, colorStyle);
+          const markElement = this.createHighlightSpan(modifiedAnnotation, highlighted);
 
           const before = text.substring(0, match.start);
           const after = text.substring(match.start + match.length);

@@ -210,6 +210,14 @@
   text-decoration-thickness: 2px;
 }
 
+mark.annotation-marker {
+  cursor: pointer;
+}
+
+mark.annotation-marker.annotation-marker-has-note {
+  border-bottom-style: solid;
+}
+
 .annotation-color-dot.color-red {
   background: rgba(255, 107, 107, 0.5);
 }
@@ -667,6 +675,37 @@
 .annotation-list-dot.color-none {
   background: transparent;
   border: 2px dashed var(--text-muted);
+}
+
+.annotation-list-dot[class*="marker-preset-"] {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--marker-preview-color);
+}
+
+.annotation-list-dot.marker-preset-solid {
+  background: color-mix(in srgb, var(--marker-preview-color) 35%, transparent);
+}
+
+.annotation-list-dot.marker-preset-double-underline {
+  border-bottom: 3px double var(--marker-preview-color);
+}
+
+.annotation-list-dot.marker-preset-half-highlight {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--marker-preview-color) 45%, transparent) 0 55%,
+    transparent 55% 100%
+  );
+}
+
+.annotation-list-dot.marker-preset-wavy-underline {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--marker-preview-color);
+  text-decoration-thickness: 2px;
 }
 
 .annotation-list-text {

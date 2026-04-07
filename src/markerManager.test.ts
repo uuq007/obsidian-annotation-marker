@@ -197,4 +197,109 @@ describe("MarkerManager", () => {
     expect(markers[markers.length - 1]?.id).toBe(markerToRestore.id);
     expect(markers[markers.length - 1]?.state).toBe("active");
   });
+
+  it("keeps explicit marker fields when a new annotation is created", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+    };
+    const files = new Map<string, string>();
+    const adapter = {
+      exists: async (path: string) => files.has(path),
+      mkdir: async () => {},
+      read: async (path: string) => {
+        const content = files.get(path);
+        if (!content) {
+          throw new Error(`missing file: ${path}`);
+        }
+        return content;
+      },
+      write: async (path: string, content: string) => {
+        files.set(path, content);
+      },
+      remove: async (path: string) => {
+        files.delete(path);
+      },
+    };
+    const app = {
+      vault: {
+        adapter,
+      },
+    } as any;
+    const manager = new MarkerManager(settings, async () => {});
+    await manager.ensureInitialized();
+    const selectedMarker = manager.getMarkers()[2]!;
+    const dataManager = new DataManager(app, ".obsidian/plugins/obsidian-annotation-marker", manager);
+
+    const created = await dataManager.addAnnotation("folder/note.md", {
+      text: "selected",
+      contextBefore: "",
+      contextAfter: "",
+      color: "yellow",
+      markerId: selectedMarker.id,
+      markerLabel: selectedMarker.name,
+      note: "",
+      startLine: 1,
+      endLine: 1,
+      startOffset: 0,
+      endOffset: 8,
+      isValid: 1,
+    });
+
+    expect(created?.markerId).toBe(selectedMarker.id);
+    expect(created?.markerLabel).toBe(selectedMarker.name);
+  });
+
+  it("keeps explicit marker fields when an annotation is switched to another marker", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+    };
+    const files = new Map<string, string>();
+    const adapter = {
+      exists: async (path: string) => files.has(path),
+      mkdir: async () => {},
+      read: async (path: string) => {
+        const content = files.get(path);
+        if (!content) {
+          throw new Error(`missing file: ${path}`);
+        }
+        return content;
+      },
+      write: async (path: string, content: string) => {
+        files.set(path, content);
+      },
+      remove: async (path: string) => {
+        files.delete(path);
+      },
+    };
+    const app = {
+      vault: {
+        adapter,
+      },
+    } as any;
+    const manager = new MarkerManager(settings, async () => {});
+    await manager.ensureInitialized();
+    const dataManager = new DataManager(app, ".obsidian/plugins/obsidian-annotation-marker", manager);
+    const created = await dataManager.addAnnotation("folder/note.md", {
+      text: "selected",
+      contextBefore: "",
+      contextAfter: "",
+      color: "yellow",
+      note: "",
+      startLine: 1,
+      endLine: 1,
+      startOffset: 0,
+      endOffset: 8,
+      isValid: 1,
+    });
+    const targetMarker = manager.getMarkers()[4]!;
+
+    const updated = await dataManager.updateAnnotation("folder/note.md", created!.id, {
+      markerId: targetMarker.id,
+      markerLabel: targetMarker.name,
+      color: "purple",
+    });
+
+    expect(updated?.markerId).toBe(targetMarker.id);
+    expect(updated?.markerLabel).toBe(targetMarker.name);
+  });
 });

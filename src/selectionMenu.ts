@@ -1,13 +1,15 @@
 import { App, Notice } from "obsidian";
-import { AnnotationColor, COLOR_LABELS, ExtractedRubyInfo, PartialAnnotationInfo, OriginalRuby } from "./types";
+import { AnnotationColor, Marker, ExtractedRubyInfo, PartialAnnotationInfo, OriginalRuby } from "./types";
 import { DataManager } from "./dataManager";
 import { calculateRangeOffsetInElement } from "./utils/helpers";
+import { buildCreationMarkerSelection } from "./markerSelection";
 
 export class SelectionMenu {
   private app: App;
   private dataManager: DataManager;
   private menuEl: HTMLElement | null = null;
   private selectedColor: AnnotationColor = "yellow";
+  private selectedMarkerId: string | null = null;
   private currentFilePath: string | null = null;
   private selectedText: string = "";
   private onAddCallback: (() => void) | null = null;
@@ -115,31 +117,38 @@ export class SelectionMenu {
     textPreview.createEl("span", { text: `"${previewText}"` });
 
     const colorSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
-    colorSection.createEl("label", { text: "选择颜色立即标注" });
+    colorSection.createEl("label", { text: "选择记号立即标注" });
     this.colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
+    const markerSelection = buildCreationMarkerSelection(this.dataManager.getMarkerManager().getMarkers());
+    this.selectedMarkerId = markerSelection.selectedMarkerId;
+    this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(this.selectedMarkerId ?? undefined);
 
-    const colors: AnnotationColor[] = ["red", "yellow", "green", "blue", "purple", "none"];
-    colors.forEach((c) => {
-      const btn = this.colorContainer!.createEl("button", { cls: `annotation-color-dot color-${c}` });
+    markerSelection.options.forEach((option) => {
+      const { marker, disabled } = option;
+      const btn = this.colorContainer!.createEl("button", { cls: `annotation-color-dot marker-preset-${marker.preset}` });
+      btn.style.setProperty("--marker-preview-color", marker.color);
 
       if (isUpdatingAnnotation) {
         btn.disabled = true;
         btn.style.opacity = "0.5";
         btn.style.cursor = "not-allowed";
-        btn.title = "更新已有标注时不能更改颜色";
+        btn.title = "更新已有标注时不能更改记号";
       } else {
-        if (c === this.selectedColor) {
+        btn.disabled = disabled;
+        if (marker.id === this.selectedMarkerId) {
           btn.addClass("active");
         }
-        btn.title = COLOR_LABELS[c];
+        btn.title = marker.name;
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
-          this.selectedColor = c;
+          if (disabled) return;
+          this.selectedMarkerId = marker.id;
+          this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(marker.id);
 
           this.colorContainer!.querySelectorAll(".annotation-color-dot").forEach((b) => b.removeClass("active"));
           btn.addClass("active");
 
-          if (c === "none" && !this.pendingNote && this.rubyTexts.length === 0) {
+          if (this.selectedColor === "none" && !this.pendingNote && this.rubyTexts.length === 0) {
             this.hide();
             return;
           }
@@ -571,6 +580,8 @@ export class SelectionMenu {
         contextBefore: this.contextBeforeInstance,
         contextAfter: this.contextAfterInstance,
         color: this.selectedColor,
+        markerId: this.selectedMarkerId ?? undefined,
+        markerLabel: this.getSelectedMarker()?.name,
         note,
         rubyTexts,
         originalRubies: this.originalRubies.length > 0 ? this.originalRubies : undefined,
@@ -620,6 +631,10 @@ export class SelectionMenu {
     }
 
     return merged.sort((a, b) => a.startIndex - b.startIndex);
+  }
+
+  private getSelectedMarker(): Marker | null {
+    return this.dataManager.getMarkerManager().getMarkerById(this.selectedMarkerId ?? undefined);
   }
 
   hide(): void {

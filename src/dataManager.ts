@@ -31,6 +31,10 @@ export class DataManager {
     this.cache.clear();
   }
 
+  getMarkerManager(): MarkerManager {
+    return this.markerManager;
+  }
+
   async ensureAnnotationsDir(): Promise<void> {
     const dir = this.getAnnotationsDir();
     const exists = await this.app.vault.adapter.exists(dir);

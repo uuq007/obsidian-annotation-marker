@@ -41,6 +41,17 @@ export class MarkerManager {
     return [...(this.settings.markers ?? [])].sort((a, b) => a.order - b.order);
   }
 
+  getActiveMarkers(): Marker[] {
+    return this.getMarkers().filter((marker) => marker.state === "active");
+  }
+
+  getMarkerById(markerId?: string): Marker | null {
+    if (!markerId) {
+      return null;
+    }
+    return this.getMarkers().find((marker) => marker.id === markerId) ?? null;
+  }
+
   async createMarker(): Promise<Marker> {
     const now = new Date().toISOString();
     const marker: Marker = {
@@ -108,6 +119,10 @@ export class MarkerManager {
 
   getMarkerForLegacyColor(color: AnnotationColor): Marker | null {
     return this.getMarkers().find((marker) => marker.legacyColor === color) ?? null;
+  }
+
+  getLegacyColorForMarker(markerId?: string): AnnotationColor {
+    return this.getMarkerById(markerId)?.legacyColor ?? this.settings.defaultColor;
   }
 
   normalizeAnnotation(annotation: Annotation): { annotation: Annotation; changed: boolean } {

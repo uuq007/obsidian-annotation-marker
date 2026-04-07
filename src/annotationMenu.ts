@@ -1,8 +1,9 @@
 import { App, Modal, Notice } from "obsidian";
-import { Annotation, AnnotationColor, COLOR_LABELS } from "./types";
+import { Annotation, AnnotationColor, Marker } from "./types";
 import { DataManager } from "./dataManager";
 import { calculateRangeOffsetInElement } from "./utils/helpers";
 import { AnnotationMode } from "./annotationMode";
+import { buildExistingMarkerSelection } from "./markerSelection";
 
 export class AnnotationMenu {
   private app: App;
@@ -38,23 +39,32 @@ export class AnnotationMenu {
     }
 
     const colorSection = this.menuEl.createDiv({ cls: "annotation-menu-section" });
-    colorSection.createEl("label", { text: "标注颜色" });
+    colorSection.createEl("label", { text: "记号" });
     const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
-
-    const colors: AnnotationColor[] = ["red", "yellow", "green", "blue", "purple", "none"];
-    colors.forEach((c) => {
-      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot color-${c}` });
-      if (c === annotation.color) {
+    const markerSelection = buildExistingMarkerSelection(this.dataManager.getMarkerManager().getMarkers(), annotation.markerId);
+    markerSelection.options.forEach((option) => {
+      const { marker, disabled } = option;
+      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot marker-preset-${marker.preset}` });
+      btn.style.setProperty("--marker-preview-color", marker.color);
+      if (marker.id === markerSelection.selectedMarkerId) {
         btn.addClass("active");
       }
-      btn.title = COLOR_LABELS[c];
+      btn.disabled = disabled;
+      btn.title = disabled ? `${marker.name}（已删除）` : marker.name;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (c !== annotation.color) {
-          this.updateColor(annotation, annotationId, filePath, c, onUpdate, annotationMode);
+        if (!disabled && marker.id !== annotation.markerId) {
+          this.updateMarker(annotation, annotationId, filePath, marker, onUpdate, annotationMode);
         }
       });
     });
+
+    if (markerSelection.options.some((option) => option.marker.id === annotation.markerId && option.disabled)) {
+      this.menuEl.createDiv({
+        cls: "annotation-marker-settings-status",
+        text: "当前记号已删除，仅保留历史显示；切换后无法再选回，除非先恢复。",
+      });
+    }
 
     const actions = this.menuEl.createDiv({ cls: "annotation-menu-actions" });
 
@@ -113,21 +123,31 @@ export class AnnotationMenu {
     setTimeout(() => document.addEventListener("click", clickHandler), 10);
   }
 
-  private async updateColor(annotation: Annotation, annotationId: string, filePath: string, color: AnnotationColor, onUpdate: () => void, annotationMode?: AnnotationMode): Promise<void> {
-    await this.dataManager.updateAnnotation(filePath, annotation.id, { color });
+  private async updateMarker(annotation: Annotation, annotationId: string, filePath: string, marker: Marker, onUpdate: () => void, annotationMode?: AnnotationMode): Promise<void> {
+    await this.dataManager.updateAnnotation(filePath, annotation.id, {
+      color: this.dataManager.getMarkerManager().getLegacyColorForMarker(marker.id),
+      markerId: marker.id,
+      markerLabel: marker.name,
+    });
     this.hide();
 
     if (annotationMode) {
       await annotationMode.reRenderAnnotation(annotationId);
     }
 
-    new Notice("标注颜色已修改");
+    new Notice("标注记号已修改");
   }
 
   private showEditModal(annotation: Annotation, annotationId: string, filePath: string, onUpdate: () => void, annotationMode?: AnnotationMode): void {
     this.hide();
-    const modal = new EditNoteModal(this.app, annotation, async (note, color, rubyTexts) => {
-      await this.dataManager.updateAnnotation(filePath, annotation.id, { note, color, rubyTexts });
+    const modal = new EditNoteModal(this.app, this.dataManager, annotation, async (note, marker, rubyTexts) => {
+      await this.dataManager.updateAnnotation(filePath, annotation.id, {
+        note,
+        color: this.dataManager.getMarkerManager().getLegacyColorForMarker(marker.id),
+        markerId: marker.id,
+        markerLabel: marker.name,
+        rubyTexts,
+      });
 
       if (annotationMode) {
         await annotationMode.reRenderAnnotation(annotationId);
@@ -147,10 +167,11 @@ export class AnnotationMenu {
 }
 
 class EditNoteModal extends Modal {
+  private dataManager: DataManager;
   private annotation: Annotation;
-  private onSave: (note: string, color: AnnotationColor, rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>) => void;
+  private onSave: (note: string, marker: Marker, rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>) => void;
   private noteInput: HTMLTextAreaElement | null = null;
-  private currentColor: AnnotationColor;
+  private currentMarker: Marker;
   private rubyTextEnabled: boolean = false;
   private rubyTexts: Array<{ startIndex: number; length: number; ruby: string }> = [];
   private rubyTextInput: HTMLInputElement | null = null;
@@ -160,11 +181,12 @@ class EditNoteModal extends Modal {
   private selectedRubyRange: { start: number; end: number } | null = null;
   private updateRubyList: (() => void) | null = null;
 
-  constructor(app: App, annotation: Annotation, onSave: (note: string, color: AnnotationColor, rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>) => void) {
+  constructor(app: App, dataManager: DataManager, annotation: Annotation, onSave: (note: string, marker: Marker, rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>) => void) {
     super(app);
+    this.dataManager = dataManager;
     this.annotation = annotation;
     this.onSave = onSave;
-    this.currentColor = annotation.color;
+    this.currentMarker = this.dataManager.getMarkerManager().getMarkerById(annotation.markerId) ?? this.dataManager.getMarkerManager().getMarkers()[0]!;
 
     if (annotation.rubyText && !annotation.rubyTexts) {
       this.rubyTexts = [{
@@ -191,21 +213,32 @@ class EditNoteModal extends Modal {
     previewEl.createEl("span", { text: previewText });
 
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });
-    colorContainer.createEl("label", { text: "标注颜色：" });
+    colorContainer.createEl("label", { text: "记号：" });
 
-    const colors: AnnotationColor[] = ["red", "yellow", "green", "blue", "purple", "none"];
-    colors.forEach((c) => {
-      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot color-${c}` });
-      btn.title = COLOR_LABELS[c];
-      if (c === this.currentColor) {
+    const markerSelection = buildExistingMarkerSelection(this.dataManager.getMarkerManager().getMarkers(), this.annotation.markerId);
+    markerSelection.options.forEach((option) => {
+      const { marker, disabled } = option;
+      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot marker-preset-${marker.preset}` });
+      btn.style.setProperty("--marker-preview-color", marker.color);
+      btn.title = disabled ? `${marker.name}（已删除）` : marker.name;
+      if (marker.id === this.currentMarker.id) {
         btn.addClass("active");
       }
+      btn.disabled = disabled;
       btn.addEventListener("click", () => {
+        if (disabled) return;
         colorContainer.querySelectorAll(".annotation-color-dot").forEach((b) => b.removeClass("active"));
         btn.addClass("active");
-        this.currentColor = c;
+        this.currentMarker = marker;
       });
     });
+
+    if (markerSelection.options.some((option) => option.marker.id === this.annotation.markerId && option.disabled)) {
+      contentEl.createDiv({
+        cls: "annotation-marker-settings-status",
+        text: "当前记号已删除，保存时请选择一个新的可用记号。",
+      });
+    }
 
     const noteContainer = contentEl.createDiv({ cls: "annotation-note-container" });
     noteContainer.createEl("label", { text: "批注内容（最多400字）：" });
@@ -364,7 +397,7 @@ class EditNoteModal extends Modal {
     saveBtn.addEventListener("click", () => {
       const note = this.noteInput?.value ?? "";
       const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : undefined;
-      this.onSave(note, this.currentColor, rubyTexts);
+      this.onSave(note, this.currentMarker, rubyTexts);
       this.close();
     });
   }

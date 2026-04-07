@@ -180,6 +180,36 @@
   box-shadow: 0 0 0 2px var(--background-primary);
 }
 
+.annotation-color-dot[class*="marker-preset-"] {
+  border-radius: 8px;
+  background: transparent;
+  border-color: var(--background-modifier-border);
+  color: var(--marker-preview-color);
+}
+
+.annotation-color-dot.marker-preset-solid {
+  background: color-mix(in srgb, var(--marker-preview-color) 35%, transparent);
+}
+
+.annotation-color-dot.marker-preset-double-underline {
+  border-bottom: 4px double var(--marker-preview-color);
+}
+
+.annotation-color-dot.marker-preset-half-highlight {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--marker-preview-color) 45%, transparent) 0 55%,
+    transparent 55% 100%
+  );
+}
+
+.annotation-color-dot.marker-preset-wavy-underline {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--marker-preview-color);
+  text-decoration-thickness: 2px;
+}
+
 .annotation-color-dot.color-red {
   background: rgba(255, 107, 107, 0.5);
 }

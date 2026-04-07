@@ -105,3 +105,10 @@ export interface PartialAnnotationInfo {
   length: number;
   rubyText: string;
 }
+
+export interface SelectionRectSnapshot {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}

@@ -1,5 +1,5 @@
 import { App, Notice, setIcon } from "obsidian";
-import { AnnotationColor, ExtractedRubyInfo, Marker, OriginalRuby, PartialAnnotationInfo } from "./types";
+import { AnnotationColor, ExtractedRubyInfo, Marker, OriginalRuby, PartialAnnotationInfo, SelectionRectSnapshot } from "./types";
 import { DataManager } from "./dataManager";
 import { calculateRangeOffsetInElement } from "./utils/helpers";
 import { buildCreationMarkerSelection } from "./markerSelection";
@@ -38,6 +38,8 @@ export class SelectionMenu {
   private isRubyPanelOpen = false;
   private notePanelEl: HTMLElement | null = null;
   private rubyPanelEl: HTMLElement | null = null;
+  private panelStackEl: HTMLElement | null = null;
+  private anchorEl: HTMLElement | null = null;
   private saveBarEl: HTMLElement | null = null;
   private saveBtn: HTMLButtonElement | null = null;
   private cancelBtn: HTMLButtonElement | null = null;
@@ -45,6 +47,9 @@ export class SelectionMenu {
   private noteToggleBtn: HTMLButtonElement | null = null;
   private rubyToggleBtn: HTMLButtonElement | null = null;
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
+  private anchorPointX: number | null = null;
+  private anchorPointY: number | null = null;
+  private selectionHighlightEl: HTMLElement | null = null;
 
   constructor(app: App, dataManager: DataManager) {
     this.app = app;
@@ -60,6 +65,7 @@ export class SelectionMenu {
     startOffset: number,
     endOffset: number,
     filePath: string,
+    selectionRects: SelectionRectSnapshot[],
     onAdd: () => void,
     extractedRubyInfo?: ExtractedRubyInfo,
     partialAnnotationInfo?: PartialAnnotationInfo,
@@ -89,21 +95,30 @@ export class SelectionMenu {
     this.hide();
     this.resetUiState();
 
+    this.anchorPointX = x;
+    this.anchorPointY = y;
+
     const markerSelection = buildCreationMarkerSelection(this.dataManager.getMarkerManager().getMarkers());
     this.selectedMarkerId = markerSelection.selectedMarkerId;
     this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(this.selectedMarkerId ?? undefined);
     this.rubyTexts = extractedRubyInfo?.rubyTexts ? [...extractedRubyInfo.rubyTexts] : [];
     this.isRubyPanelOpen = this.partialAnnotationInfo !== null || this.rubyTexts.length > 0;
 
+    this.selectionHighlightEl = document.createElement("div");
+    this.selectionHighlightEl.className = "annotation-selection-highlight-layer";
+    selectionRects.forEach((rect) => {
+      const rectEl = document.createElement("div");
+      rectEl.className = "annotation-selection-highlight-rect";
+      rectEl.style.left = `${rect.left}px`;
+      rectEl.style.top = `${rect.top}px`;
+      rectEl.style.width = `${rect.width}px`;
+      rectEl.style.height = `${rect.height}px`;
+      this.selectionHighlightEl!.appendChild(rectEl);
+    });
+    document.body.appendChild(this.selectionHighlightEl);
+
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
-    this.menuEl.addEventListener("mousedown", (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest("input, textarea")) {
-        return;
-      }
-      e.preventDefault();
-    });
     this.menuEl.dataset.startLine = startLine.toString();
     this.menuEl.dataset.endLine = endLine.toString();
     this.menuEl.dataset.startOffset = startOffset.toString();
@@ -113,7 +128,7 @@ export class SelectionMenu {
     document.body.appendChild(this.menuEl);
 
     requestAnimationFrame(() => {
-      this.positionMenu(x, y);
+      this.positionMenu();
       this.syncUiState();
       this.bindOutsideClick();
     });
@@ -123,16 +138,19 @@ export class SelectionMenu {
     if (!this.menuEl) return;
 
     const content = this.menuEl.createDiv({ cls: "annotation-menu-scrollable-content annotation-toolbar-content" });
-    this.renderMarkerToolbar(content);
-    this.renderActionToolbar(content);
+    this.anchorEl = content.createDiv({ cls: "annotation-toolbar-anchor" });
+    const primaryEl = this.anchorEl.createDiv({ cls: "annotation-toolbar-primary" });
+    this.renderMarkerToolbar(primaryEl);
+    this.renderActionToolbar(primaryEl);
 
-    this.notePanelEl = content.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-note" });
-    this.rubyPanelEl = content.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-ruby" });
+    this.panelStackEl = content.createDiv({ cls: "annotation-toolbar-panel-stack" });
+    this.notePanelEl = this.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-note" });
+    this.rubyPanelEl = this.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-ruby" });
 
     this.renderNotePanel();
     this.renderRubyPanel();
 
-    this.saveBarEl = this.menuEl.createDiv({ cls: "annotation-toolbar-commit-bar" });
+    this.saveBarEl = this.anchorEl.createDiv({ cls: "annotation-toolbar-commit-bar" });
     this.cancelBtn = this.saveBarEl.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary annotation-toolbar-commit-cancel",
       text: "取消",
@@ -480,7 +498,7 @@ export class SelectionMenu {
     }
 
     this.syncRubyAddButton();
-    requestAnimationFrame(() => this.adjustMenuPosition());
+    requestAnimationFrame(() => this.positionMenu());
   }
 
   private syncRubyAddButton(): void {
@@ -508,33 +526,66 @@ export class SelectionMenu {
     }, 10);
   }
 
-  private positionMenu(x: number, y: number): void {
-    if (!this.menuEl) return;
+  private positionMenu(): void {
+    if (!this.menuEl || this.anchorPointX === null || this.anchorPointY === null) return;
 
     const menuWidth = 320;
     const menuHeight = this.menuEl.offsetHeight || 220;
+    const anchorHeight = this.anchorEl?.offsetHeight || 72;
+    const viewportPadding = 10;
+    const offset = 2;
+    const expandedHeight = Math.max(0, menuHeight - anchorHeight);
+    const x = this.anchorPointX;
+    const y = this.anchorPointY;
     let menuX = x - Math.round(menuWidth / 2);
-    let menuY = y + 2;
+    let toolbarTop = y - Math.round(anchorHeight / 2);
+    let placement: "above" | "below" = "below";
 
-    if (menuX + menuWidth > window.innerWidth - 10) {
-      menuX = window.innerWidth - menuWidth - 10;
+    if (menuX + menuWidth > window.innerWidth - viewportPadding) {
+      menuX = window.innerWidth - menuWidth - viewportPadding;
     }
 
-    const threshold = window.innerHeight * 0.4;
-    if (y > threshold) {
-      menuY = y - menuHeight - 2;
+    toolbarTop = Math.max(
+      viewportPadding,
+      Math.min(window.innerHeight - anchorHeight - viewportPadding, toolbarTop)
+    );
+
+    const toolbarBottom = toolbarTop + anchorHeight;
+    const spaceBelow = window.innerHeight - toolbarBottom - viewportPadding;
+    const spaceAbove = toolbarTop - viewportPadding;
+
+    if (expandedHeight > 0) {
+      if (spaceBelow >= expandedHeight + offset) {
+        placement = "above";
+      } else if (spaceAbove >= expandedHeight + offset) {
+        placement = "below";
+      } else if (spaceBelow >= spaceAbove) {
+        placement = "above";
+      } else {
+        placement = "below";
+      }
     }
 
-    if (menuY + menuHeight > window.innerHeight) {
-      menuY = window.innerHeight - menuHeight - 10;
+    let menuY = placement === "above" ? toolbarTop : toolbarTop - expandedHeight;
+
+    if (placement === "above" && menuY + menuHeight > window.innerHeight - viewportPadding) {
+      menuY = Math.max(
+        viewportPadding,
+        window.innerHeight - viewportPadding - menuHeight
+      );
     }
 
-    if (menuY < 10) {
-      menuY = 10;
+    if (placement === "below" && menuY < viewportPadding) {
+      menuY = viewportPadding;
     }
 
-    this.menuEl.style.left = `${Math.max(10, menuX)}px`;
+    if (menuY < viewportPadding) {
+      menuY = viewportPadding;
+    }
+
+    this.menuEl.style.left = `${Math.max(viewportPadding, menuX)}px`;
     this.menuEl.style.top = `${menuY}px`;
+    this.menuEl.setAttribute("data-placement", placement);
   }
 
   private resetUiState(): void {
@@ -546,6 +597,8 @@ export class SelectionMenu {
     this.selectedRubyRange = null;
     this.notePanelEl = null;
     this.rubyPanelEl = null;
+    this.panelStackEl = null;
+    this.anchorEl = null;
     this.saveBarEl = null;
     this.saveBtn = null;
     this.cancelBtn = null;
@@ -554,6 +607,9 @@ export class SelectionMenu {
     this.rubyToggleBtn = null;
     this.isNotePanelOpen = false;
     this.isRubyPanelOpen = false;
+    this.anchorPointX = null;
+    this.anchorPointY = null;
+    this.selectionHighlightEl = null;
   }
 
   private async createAnnotation(note: string): Promise<void> {
@@ -717,19 +773,12 @@ export class SelectionMenu {
       this.menuEl = null;
     }
 
+    if (this.selectionHighlightEl) {
+      this.selectionHighlightEl.remove();
+      this.selectionHighlightEl = null;
+    }
+
     this.resetUiState();
   }
 
-  private adjustMenuPosition(): void {
-    if (!this.menuEl) return;
-
-    const menuHeight = this.menuEl.offsetHeight || 220;
-    const currentTop = parseInt(this.menuEl.style.top || "0", 10);
-    const bottomPosition = currentTop + menuHeight;
-
-    if (bottomPosition > window.innerHeight - 20) {
-      const newTop = Math.max(10, window.innerHeight - menuHeight - 20);
-      this.menuEl.style.top = `${newTop}px`;
-    }
-  }
 }

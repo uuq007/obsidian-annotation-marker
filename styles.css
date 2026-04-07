@@ -16,6 +16,20 @@
   transition: all 0.15s ease;
 }
 
+.annotation-selection-highlight-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9997;
+}
+
+.annotation-selection-highlight-rect {
+  position: fixed;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+}
+
 .annotation-highlight:hover {
   filter: brightness(0.9);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -470,6 +484,7 @@ mark.annotation-marker.annotation-marker-has-note {
 
 .annotation-selection-menu {
   border-radius: 14px;
+  transform-origin: center top;
 }
 
 .annotation-selection-menu.is-dirty {
@@ -478,11 +493,57 @@ mark.annotation-marker.annotation-marker-has-note {
     0 12px 32px rgba(0, 0, 0, 0.2);
 }
 
+.annotation-selection-menu[data-placement="below"] {
+  transform-origin: center bottom;
+}
+
+.annotation-selection-menu[data-placement="above"] {
+  transform-origin: center top;
+}
+
 .annotation-toolbar-content {
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.annotation-toolbar-anchor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.annotation-toolbar-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.annotation-toolbar-panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.annotation-selection-menu[data-placement="below"] .annotation-toolbar-content {
+  justify-content: flex-end;
+}
+
+.annotation-selection-menu[data-placement="below"] .annotation-toolbar-panel-stack {
+  order: 1;
+}
+
+.annotation-selection-menu[data-placement="below"] .annotation-toolbar-anchor {
+  order: 2;
+}
+
+.annotation-selection-menu[data-placement="above"] .annotation-toolbar-anchor {
+  order: 1;
+}
+
+.annotation-selection-menu[data-placement="above"] .annotation-toolbar-panel-stack {
+  order: 2;
 }
 
 .annotation-toolbar-section {

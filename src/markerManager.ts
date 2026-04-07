@@ -41,6 +41,71 @@ export class MarkerManager {
     return [...(this.settings.markers ?? [])].sort((a, b) => a.order - b.order);
   }
 
+  async createMarker(): Promise<Marker> {
+    const now = new Date().toISOString();
+    const marker: Marker = {
+      id: generateId(),
+      name: "新记号",
+      color: "#ffd43b",
+      preset: "solid",
+      state: "active",
+      order: this.getMarkers().length,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.settings.markers = [...this.getMarkers(), marker].map((item, index) => ({
+      ...item,
+      order: index,
+    }));
+    await this.saveSettings();
+    return marker;
+  }
+
+  async softDeleteMarker(markerId: string): Promise<void> {
+    const markers = this.getMarkers();
+    const activeMarkers = markers.filter((marker) => marker.state === "active" && marker.id !== markerId);
+    const deletedMarkers = markers
+      .filter((marker) => marker.state === "soft-deleted" || marker.id === markerId)
+      .map((marker) =>
+        marker.id === markerId
+          ? {
+              ...marker,
+              state: "soft-deleted" as const,
+              updatedAt: new Date().toISOString(),
+            }
+          : marker
+      );
+
+    this.settings.markers = [...activeMarkers, ...deletedMarkers].map((item, index) => ({
+      ...item,
+      order: index,
+    }));
+    await this.saveSettings();
+  }
+
+  async restoreMarker(markerId: string): Promise<void> {
+    const markers = this.getMarkers();
+    const restoringMarker = markers.find((marker) => marker.id === markerId);
+    if (!restoringMarker) {
+      return;
+    }
+
+    const activeMarkers = markers.filter((marker) => marker.state === "active");
+    const deletedMarkers = markers.filter((marker) => marker.state === "soft-deleted" && marker.id !== markerId);
+    const restoredMarker: Marker = {
+      ...restoringMarker,
+      state: "active",
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.settings.markers = [...activeMarkers, restoredMarker, ...deletedMarkers].map((item, index) => ({
+      ...item,
+      order: index,
+    }));
+    await this.saveSettings();
+  }
+
   getMarkerForLegacyColor(color: AnnotationColor): Marker | null {
     return this.getMarkers().find((marker) => marker.legacyColor === color) ?? null;
   }

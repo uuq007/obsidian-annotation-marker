@@ -146,4 +146,55 @@ describe("MarkerManager", () => {
     expect(updated?.markerId).toBe(manager.getMarkerForLegacyColor("green")?.id);
     expect(updated?.markerLabel).toBe("绿色");
   });
+
+  it("creates a new active marker with default values at the end of active markers", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+    };
+    const manager = new MarkerManager(settings, async () => {});
+    await manager.ensureInitialized();
+
+    const created = await manager.createMarker();
+    const markers = manager.getMarkers();
+
+    expect(created.name).toBe("新记号");
+    expect(created.preset).toBe("solid");
+    expect(created.color).toBe("#ffd43b");
+    expect(markers).toHaveLength(7);
+    expect(markers[6]?.id).toBe(created.id);
+    expect(markers[6]?.state).toBe("active");
+  });
+
+  it("soft deletes a marker by moving it to the end of the list and marking it unavailable", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+    };
+    const manager = new MarkerManager(settings, async () => {});
+    await manager.ensureInitialized();
+
+    const initialMarkers = manager.getMarkers();
+    const markerToDelete = initialMarkers[1]!;
+
+    await manager.softDeleteMarker(markerToDelete.id);
+
+    const markers = manager.getMarkers();
+    expect(markers[markers.length - 1]?.id).toBe(markerToDelete.id);
+    expect(markers[markers.length - 1]?.state).toBe("soft-deleted");
+  });
+
+  it("restores a soft-deleted marker to the end of active markers instead of its original position", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+    };
+    const manager = new MarkerManager(settings, async () => {});
+    await manager.ensureInitialized();
+
+    const markerToRestore = manager.getMarkers()[1]!;
+    await manager.softDeleteMarker(markerToRestore.id);
+    await manager.restoreMarker(markerToRestore.id);
+
+    const markers = manager.getMarkers();
+    expect(markers[markers.length - 1]?.id).toBe(markerToRestore.id);
+    expect(markers[markers.length - 1]?.state).toBe("active");
+  });
 });

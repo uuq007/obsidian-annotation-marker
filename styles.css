@@ -181,6 +181,14 @@
   flex-wrap: wrap;
 }
 
+.annotation-selection-menu[data-marker-layout="single-row-scroll"] .annotation-color-buttons.annotation-toolbar-marker-row {
+  flex-wrap: nowrap;
+}
+
+.annotation-selection-menu[data-marker-layout="wrap"] .annotation-color-buttons.annotation-toolbar-marker-row {
+  flex-wrap: wrap;
+}
+
 .annotation-color-dot {
   width: 32px;
   height: 32px;
@@ -296,17 +304,7 @@ mark.annotation-marker.annotation-marker-has-note::after {
 }
 
 .annotation-view-menu {
-  padding: 8px;
-  gap: 8px;
-}
-
-.annotation-view-menu .annotation-panel-header,
-.annotation-edit-modal .annotation-panel-header {
-  margin-bottom: 0;
-}
-
-.annotation-view-menu .annotation-menu-close {
-  margin-left: auto;
+  padding: 0;
 }
 
 .annotation-view-menu .annotation-menu-text,
@@ -325,7 +323,7 @@ mark.annotation-marker.annotation-marker-has-note::after {
 .annotation-view-menu .annotation-menu-text,
 .annotation-view-menu .annotation-menu-note,
 .annotation-view-menu .annotation-menu-section {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .annotation-view-menu .annotation-menu-text label,
@@ -349,9 +347,8 @@ mark.annotation-marker.annotation-marker-has-note::after {
   margin-top: 8px;
 }
 
-.annotation-view-menu .annotation-color-buttons,
-.annotation-edit-modal .annotation-color-buttons {
-  flex-wrap: wrap;
+.annotation-view-panel {
+  overflow: visible;
 }
 
 .annotation-edit-modal {
@@ -360,6 +357,10 @@ mark.annotation-marker.annotation-marker-has-note::after {
 
 .annotation-edit-modal h3 {
   display: none;
+}
+
+.annotation-edit-modal .annotation-color-buttons.annotation-toolbar-marker-row {
+  flex-wrap: wrap;
 }
 
 .annotation-edit-modal .annotation-modal-preview,
@@ -865,6 +866,22 @@ mark.annotation-marker.annotation-marker-has-note::after {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+.annotation-inline-copy-btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-width: 1px;
+}
+
+.annotation-inline-copy-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .annotation-toolbar-note-input {

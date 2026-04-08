@@ -3,6 +3,8 @@ import { AnnotationColor, ExtractedRubyInfo, Marker, OriginalRuby, PartialAnnota
 import { DataManager } from "./dataManager";
 import { buildCreationMarkerSelection } from "./markerSelection";
 import { renderNoteEditor, renderRubyEditor } from "./annotationEditorSections";
+import { AnnotationToolbarView, renderAnnotationToolbar } from "./annotationToolbar";
+import { renderMarkerButtons } from "./markerButtons";
 
 type RubyText = { startIndex: number; length: number; ruby: string };
 
@@ -53,6 +55,7 @@ export class SelectionMenu {
   private anchorPointX: number | null = null;
   private anchorPointY: number | null = null;
   private selectionHighlightEl: HTMLElement | null = null;
+  private toolbarView: AnnotationToolbarView | null = null;
 
   constructor(app: App, dataManager: DataManager) {
     this.app = app;
@@ -144,18 +147,14 @@ export class SelectionMenu {
   private renderToolbar(): void {
     if (!this.menuEl) return;
 
-    const content = this.menuEl.createDiv({ cls: "annotation-menu-scrollable-content annotation-toolbar-content" });
-    this.anchorEl = content.createDiv({ cls: "annotation-toolbar-anchor" });
-    const primaryEl = this.anchorEl.createDiv({ cls: "annotation-toolbar-primary annotation-toolbar-primary-single-row" });
-    const markerGroup = primaryEl.createDiv({ cls: "annotation-toolbar-group annotation-toolbar-group-markers" });
-    this.markerScrollContainer = markerGroup;
-    this.renderMarkerToolbar(markerGroup);
-    primaryEl.createDiv({ cls: "annotation-toolbar-divider" });
-    const actionGroup = primaryEl.createDiv({ cls: "annotation-toolbar-group annotation-toolbar-group-actions" });
-    this.renderActionToolbar(actionGroup);
-    this.renderCloseButton(actionGroup);
+    this.toolbarView = renderAnnotationToolbar(this.menuEl, { markerLayout: "single-row-scroll" });
+    this.anchorEl = this.toolbarView.anchorEl;
+    this.markerScrollContainer = this.toolbarView.markerGroupEl;
+    this.renderMarkerToolbar(this.toolbarView.markerGroupEl);
+    this.renderActionToolbar(this.toolbarView.actionGroupEl);
+    this.renderCloseButton(this.toolbarView.actionGroupEl);
 
-    this.panelStackEl = content.createDiv({ cls: "annotation-toolbar-panel-stack" });
+    this.panelStackEl = this.toolbarView.panelStackEl;
     this.notePanelEl = this.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-note" });
     this.rubyPanelEl = this.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-ruby" });
 
@@ -195,34 +194,19 @@ export class SelectionMenu {
     this.colorContainer = section.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
 
     const markerSelection = buildCreationMarkerSelection(this.dataManager.getMarkerManager().getMarkers());
-    markerSelection.options.forEach((option) => {
-      const { marker, disabled } = option;
-      const btn = this.colorContainer!.createEl("button", {
-        cls: `annotation-color-dot marker-preset-${marker.preset}`,
-        attr: {
-          type: "button",
-          title: disabled ? `${marker.name}（已删除）` : marker.name,
-          "data-marker-id": marker.id,
-        },
-      });
-      btn.style.setProperty("--marker-preview-color", marker.color);
-      btn.setText("Aa");
-
-      if (marker.id === this.selectedMarkerId) {
-        btn.addClass("active");
-      }
-
-      btn.disabled = !!this.partialAnnotationInfo || disabled;
-      if (this.partialAnnotationInfo) {
-        btn.title = "为已有标注补充注音时不能修改记号";
-      }
-
-      btn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        if (btn.disabled) return;
-
-        this.selectedMarkerId = marker.id;
-        this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(marker.id);
+    renderMarkerButtons({
+      container: this.colorContainer,
+      selection: markerSelection,
+      getButtonTitle: ({ markerName, disabled }) => {
+        if (this.partialAnnotationInfo) {
+          return "为已有标注补充注音时不能修改记号";
+        }
+        return disabled ? `${markerName}（已删除）` : markerName;
+      },
+      isButtonDisabled: ({ disabled }) => !!this.partialAnnotationInfo || disabled,
+      onMarkerClick: async (markerId) => {
+        this.selectedMarkerId = markerId;
+        this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(markerId);
         this.syncMarkerButtons();
 
         if (!this.isDirty()) {
@@ -230,22 +214,9 @@ export class SelectionMenu {
         } else {
           this.syncUiState();
         }
-      });
+      },
     });
 
-    this.markerScrollContainer?.addEventListener(
-      "wheel",
-      (e) => {
-        const target = this.markerScrollContainer;
-        if (!target) return;
-        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) && e.deltaX === 0) {
-          return;
-        }
-        target.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX;
-        e.preventDefault();
-      },
-      { passive: false }
-    );
   }
 
   private renderActionToolbar(container: HTMLElement): void {
@@ -484,64 +455,7 @@ export class SelectionMenu {
 
   private positionMenu(): void {
     if (!this.menuEl || this.anchorPointX === null || this.anchorPointY === null) return;
-
-    const menuWidth = 320;
-    const menuHeight = this.menuEl.offsetHeight || 220;
-    const anchorHeight = this.anchorEl?.offsetHeight || 72;
-    const viewportPadding = 10;
-    const offset = 2;
-    const expandedHeight = Math.max(0, menuHeight - anchorHeight);
-    const x = this.anchorPointX;
-    const y = this.anchorPointY;
-    let menuX = x - Math.round(menuWidth / 2);
-    let toolbarTop = y - Math.round(anchorHeight / 2);
-    let placement: "above" | "below" = "below";
-
-    if (menuX + menuWidth > window.innerWidth - viewportPadding) {
-      menuX = window.innerWidth - menuWidth - viewportPadding;
-    }
-
-    toolbarTop = Math.max(
-      viewportPadding,
-      Math.min(window.innerHeight - anchorHeight - viewportPadding, toolbarTop)
-    );
-
-    const toolbarBottom = toolbarTop + anchorHeight;
-    const spaceBelow = window.innerHeight - toolbarBottom - viewportPadding;
-    const spaceAbove = toolbarTop - viewportPadding;
-
-    if (expandedHeight > 0) {
-      if (spaceBelow >= expandedHeight + offset) {
-        placement = "above";
-      } else if (spaceAbove >= expandedHeight + offset) {
-        placement = "below";
-      } else if (spaceBelow >= spaceAbove) {
-        placement = "above";
-      } else {
-        placement = "below";
-      }
-    }
-
-    let menuY = placement === "above" ? toolbarTop : toolbarTop - expandedHeight;
-
-    if (placement === "above" && menuY + menuHeight > window.innerHeight - viewportPadding) {
-      menuY = Math.max(
-        viewportPadding,
-        window.innerHeight - viewportPadding - menuHeight
-      );
-    }
-
-    if (placement === "below" && menuY < viewportPadding) {
-      menuY = viewportPadding;
-    }
-
-    if (menuY < viewportPadding) {
-      menuY = viewportPadding;
-    }
-
-    this.menuEl.style.left = `${Math.max(viewportPadding, menuX)}px`;
-    this.menuEl.style.top = `${menuY}px`;
-    this.menuEl.setAttribute("data-placement", placement);
+    this.toolbarView?.position(this.anchorPointX, this.anchorPointY);
   }
 
   private resetUiState(): void {
@@ -556,6 +470,7 @@ export class SelectionMenu {
     this.rubyPanelEl = null;
     this.panelStackEl = null;
     this.anchorEl = null;
+    this.toolbarView = null;
     this.saveBarEl = null;
     this.saveBtn = null;
     this.cancelBtn = null;

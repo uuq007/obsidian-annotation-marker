@@ -4,12 +4,20 @@ import { DataManager } from "./dataManager";
 import { AnnotationMode } from "./annotationMode";
 import { buildExistingMarkerSelection } from "./markerSelection";
 import { renderNoteEditor, renderRubyEditor } from "./annotationEditorSections";
+import { AnnotationToolbarView, renderAnnotationToolbar } from "./annotationToolbar";
+import { renderMarkerButtons } from "./markerButtons";
 
 export class AnnotationMenu {
   private app: App;
   private dataManager: DataManager;
   private menuEl: HTMLElement | null = null;
   private annotationMode?: AnnotationMode;
+  private anchorEl: HTMLElement | null = null;
+  private markerScrollContainer: HTMLElement | null = null;
+  private anchorPointX: number | null = null;
+  private anchorPointY: number | null = null;
+  private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
+  private toolbarView: AnnotationToolbarView | null = null;
 
   constructor(app: App, dataManager: DataManager, annotationMode?: AnnotationMode) {
     this.app = app;
@@ -19,78 +27,43 @@ export class AnnotationMenu {
 
   show(x: number, y: number, annotation: Annotation, annotationId: string, filePath: string, onUpdate: () => void, annotationMode?: AnnotationMode): void {
     this.hide();
+    this.anchorPointX = x;
+    this.anchorPointY = y;
 
     this.menuEl = document.createElement("div");
-    this.menuEl.className = "annotation-card-menu annotation-view-menu";
+    this.menuEl.className = "annotation-card-menu annotation-selection-menu annotation-view-menu";
 
-    const header = this.menuEl.createDiv({ cls: "annotation-panel-header annotation-view-header" });
-    const title = header.createDiv({ cls: "annotation-panel-title" });
-    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
-    setIcon(titleIcon, "highlighter");
-    title.createSpan({ text: "标注详情", cls: "annotation-panel-title-text" });
-    if (annotation.note?.trim()) {
-      header.createSpan({ cls: "annotation-panel-meta", text: "含批注" });
-    }
-    const closeBtn = header.createEl("button", { cls: "annotation-menu-close annotation-toolbar-action", attr: { type: "button", title: "关闭" } });
-    setIcon(closeBtn, "x");
-    closeBtn.addEventListener("click", () => this.hide());
-
-    const textPreview = this.menuEl.createDiv({ cls: "annotation-menu-text annotation-toolbar-preview" });
-    textPreview.createEl("label", { text: "原文" });
-    const previewText = annotation.text.length > 80 ? annotation.text.substring(0, 80) + "..." : annotation.text;
-    textPreview.createEl("span", { text: `"${previewText}"` });
-
-    if (annotation.note) {
-      const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note annotation-toolbar-panel-field" });
-      noteSection.createEl("label", { text: "批注" });
-      noteSection.createEl("div", { cls: "annotation-note-text", text: annotation.note });
-    }
-
-    const colorSection = this.menuEl.createDiv({ cls: "annotation-menu-section annotation-toolbar-panel-field" });
-    colorSection.createEl("label", { text: "记号" });
-    const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
+    this.toolbarView = renderAnnotationToolbar(this.menuEl, { markerLayout: "single-row-scroll" });
+    this.anchorEl = this.toolbarView.anchorEl;
+    this.markerScrollContainer = this.toolbarView.markerGroupEl;
+    const colorContainer = this.toolbarView.markerGroupEl.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
     const markerSelection = buildExistingMarkerSelection(this.dataManager.getMarkerManager().getMarkers(), annotation.markerId);
-    markerSelection.options.forEach((option) => {
-      const { marker, disabled } = option;
-      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot marker-preset-${marker.preset}` });
-      btn.style.setProperty("--marker-preview-color", marker.color);
-      btn.setText("Aa");
-      if (marker.id === markerSelection.selectedMarkerId) {
-        btn.addClass("active");
-      }
-      btn.disabled = disabled;
-      btn.title = disabled ? `${marker.name}（已删除）` : marker.name;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (!disabled && marker.id !== annotation.markerId) {
-          this.updateMarker(annotation, annotationId, filePath, marker, onUpdate, annotationMode);
-        }
-      });
+    renderMarkerButtons({
+      container: colorContainer,
+      selection: markerSelection,
+      onMarkerClick: async (markerId) => {
+        if (markerId === annotation.markerId) return;
+        const marker = this.dataManager.getMarkerManager().getMarkerById(markerId);
+        if (!marker) return;
+        await this.updateMarker(annotation, annotationId, filePath, marker, onUpdate, annotationMode);
+      },
     });
-
-    if (markerSelection.options.some((option) => option.marker.id === annotation.markerId && option.disabled)) {
-      this.menuEl.createDiv({
-        cls: "annotation-marker-settings-status",
-        text: "当前记号已删除，仅保留历史显示；切换后无法再选回，除非先恢复。",
-      });
-    }
-
-    const actions = this.menuEl.createDiv({ cls: "annotation-menu-actions annotation-view-actions" });
-
-    const editBtn = actions.createEl("button", { cls: "annotation-btn annotation-btn-secondary", text: "编辑批注" });
+    const actionGroup = this.toolbarView.actionGroupEl;
+    const editBtn = actionGroup.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
+      attr: { type: "button", title: "编辑标注" },
+    });
+    setIcon(editBtn, "square-pen");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.showEditModal(annotation, annotationId, filePath, onUpdate, annotationMode);
     });
 
-    const copyBtn = actions.createEl("button", { cls: "annotation-btn annotation-btn-secondary", text: "复制原文" });
-    copyBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      navigator.clipboard.writeText(annotation.text);
-      new Notice("已复制原文到剪贴板");
+    const deleteBtn = actionGroup.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
+      attr: { type: "button", title: "删除标注" },
     });
-
-    const deleteBtn = actions.createEl("button", { cls: "annotation-btn annotation-btn-danger", text: "删除" });
+    setIcon(deleteBtn, "trash-2");
     deleteBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       await this.dataManager.deleteAnnotation(filePath, annotation.id);
@@ -99,37 +72,68 @@ export class AnnotationMenu {
       new Notice("标注已删除");
     });
 
-    document.body.appendChild(this.menuEl);
+    const closeBtn = actionGroup.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action annotation-toolbar-close",
+      attr: { type: "button", title: "关闭" },
+    });
+    setIcon(closeBtn, "x");
+    closeBtn.addEventListener("click", () => this.hide());
 
-    const menuWidth = 300;
-    const menuHeight = this.menuEl.offsetHeight || 250;
+    const detailPanel = this.toolbarView.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-view-panel" });
+    const panelHeader = detailPanel.createDiv({ cls: "annotation-panel-header" });
+    const title = panelHeader.createDiv({ cls: "annotation-panel-title" });
+    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
+    setIcon(titleIcon, "highlighter");
+    title.createSpan({ text: "标注预览", cls: "annotation-panel-title-text" });
+    panelHeader.createSpan({ cls: "annotation-panel-meta", text: annotation.note?.trim() ? "含批注" : "仅记号" });
 
-    let menuX = x + 10;
-    let menuY = y + 10;
+    const textPreview = detailPanel.createDiv({ cls: "annotation-menu-text annotation-toolbar-preview" });
+    const textHeader = textPreview.createDiv({ cls: "annotation-panel-field-label-row" });
+    textHeader.createEl("label", { text: "原文" });
+    const copyTextBtn = textHeader.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action annotation-inline-copy-btn",
+      attr: { type: "button", title: "复制原文" },
+    });
+    setIcon(copyTextBtn, "copy");
+    copyTextBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(annotation.text);
+      this.hide();
+      new Notice("已复制原文到剪贴板");
+    });
+    const previewText = annotation.text.length > 80 ? annotation.text.substring(0, 80) + "..." : annotation.text;
+    textPreview.createEl("span", { text: `"${previewText}"` });
 
-    if (menuX + menuWidth > window.innerWidth) {
-      menuX = x - menuWidth - 10;
-    }
-
-    const threshold = window.innerHeight * 0.4;
-    if (y > threshold) {
-      menuY = y - menuHeight - 10;
-    }
-
-    if (menuY + menuHeight > window.innerHeight) {
-      menuY = window.innerHeight - menuHeight - 10;
-    }
-
-    this.menuEl.style.left = `${Math.max(10, menuX)}px`;
-    this.menuEl.style.top = `${Math.max(10, menuY)}px`;
-
-    const clickHandler = (e: MouseEvent) => {
-      if (this.menuEl && !this.menuEl.contains(e.target as Node)) {
+    if (annotation.note) {
+      const noteSection = detailPanel.createDiv({ cls: "annotation-menu-note annotation-toolbar-panel-field" });
+      const noteHeader = noteSection.createDiv({ cls: "annotation-panel-field-label-row" });
+      noteHeader.createEl("label", { text: "批注" });
+      const copyNoteBtn = noteHeader.createEl("button", {
+        cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action annotation-inline-copy-btn",
+        attr: { type: "button", title: "复制批注" },
+      });
+      setIcon(copyNoteBtn, "copy");
+      copyNoteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(annotation.note);
         this.hide();
-        document.removeEventListener("click", clickHandler);
-      }
-    };
-    setTimeout(() => document.addEventListener("click", clickHandler), 10);
+        new Notice("已复制批注到剪贴板");
+      });
+      noteSection.createEl("div", { cls: "annotation-note-text", text: annotation.note });
+    }
+
+    if (markerSelection.options.some((option) => option.marker.id === annotation.markerId && option.disabled)) {
+      detailPanel.createDiv({
+        cls: "annotation-marker-settings-status",
+        text: "当前记号已删除，仅保留历史显示；切换后无法再选回，除非先恢复。",
+      });
+    }
+
+    document.body.appendChild(this.menuEl);
+    requestAnimationFrame(() => {
+      this.positionMenu();
+      this.bindOutsideClick();
+    });
   }
 
   private async updateMarker(annotation: Annotation, annotationId: string, filePath: string, marker: Marker, onUpdate: () => void, annotationMode?: AnnotationMode): Promise<void> {
@@ -168,10 +172,39 @@ export class AnnotationMenu {
   }
 
   hide(): void {
+    if (this.outsideClickHandler) {
+      document.removeEventListener("click", this.outsideClickHandler);
+      this.outsideClickHandler = null;
+    }
     if (this.menuEl) {
       this.menuEl.remove();
       this.menuEl = null;
     }
+    this.anchorEl = null;
+    this.markerScrollContainer = null;
+    this.anchorPointX = null;
+    this.anchorPointY = null;
+    this.toolbarView = null;
+  }
+
+  private bindOutsideClick(): void {
+    if (!this.menuEl) return;
+    this.outsideClickHandler = (e: MouseEvent) => {
+      if (!this.menuEl || this.menuEl.contains(e.target as Node)) {
+        return;
+      }
+      this.hide();
+    };
+    setTimeout(() => {
+      if (this.outsideClickHandler) {
+        document.addEventListener("click", this.outsideClickHandler);
+      }
+    }, 10);
+  }
+
+  private positionMenu(): void {
+    if (!this.menuEl || this.anchorPointX === null || this.anchorPointY === null) return;
+    this.toolbarView?.position(this.anchorPointX, this.anchorPointY);
   }
 }
 

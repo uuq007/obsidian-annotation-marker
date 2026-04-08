@@ -255,13 +255,19 @@ mark.annotation-marker {
 
 mark.annotation-marker.annotation-marker-has-note {
   overflow: visible;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
-mark.annotation-marker.annotation-marker-has-note::after {
+mark.annotation-marker.annotation-marker-has-note rt {
+  position: relative;
+}
+
+mark.annotation-marker.annotation-marker-has-note::before {
   content: "";
   position: absolute;
   top: -0.18em;
-  right: -0.14em;
+  left: -0.14em;
   width: 0.34em;
   height: 0.34em;
   background: var(--annotation-note-indicator-color, var(--interactive-accent));

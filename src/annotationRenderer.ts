@@ -336,7 +336,6 @@ export class AnnotationRenderer {
     container.addEventListener("mouseenter", (e) => this.showTooltip(e, annotation));
     container.addEventListener("mousemove", (e) => this.moveTooltip(e));
     container.addEventListener("mouseleave", () => this.hideTooltip());
-
     return container;
   }
 

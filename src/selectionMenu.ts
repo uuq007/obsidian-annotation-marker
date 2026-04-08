@@ -1,42 +1,61 @@
-import { App, Notice } from "obsidian";
-import { AnnotationColor, COLOR_LABELS, ExtractedRubyInfo, PartialAnnotationInfo, OriginalRuby } from "./types";
+import { App, Notice, setIcon } from "obsidian";
+import { AnnotationColor, ExtractedRubyInfo, Marker, OriginalRuby, PartialAnnotationInfo, SelectionRectSnapshot } from "./types";
 import { DataManager } from "./dataManager";
-import { calculateRangeOffsetInElement } from "./utils/helpers";
+import { buildCreationMarkerSelection } from "./markerSelection";
+import { renderNoteEditor, renderRubyEditor } from "./annotationEditorSections";
+import { AnnotationToolbarView, renderAnnotationToolbar } from "./annotationToolbar";
+import { renderMarkerButtons } from "./markerButtons";
+
+type RubyText = { startIndex: number; length: number; ruby: string };
 
 export class SelectionMenu {
   private app: App;
   private dataManager: DataManager;
   private menuEl: HTMLElement | null = null;
   private selectedColor: AnnotationColor = "yellow";
+  private selectedMarkerId: string | null = null;
   private currentFilePath: string | null = null;
-  private selectedText: string = "";
+  private selectedText = "";
   private onAddCallback: (() => void) | null = null;
-  private pendingNote: string = "";
+  private pendingNote = "";
   private noteInput: HTMLTextAreaElement | null = null;
   private colorContainer: HTMLElement | null = null;
-  private rubyTextEnabled: boolean = false;
-  private rubyTexts: Array<{ startIndex: number; length: number; ruby: string }> = [];
+  private markerScrollContainer: HTMLElement | null = null;
+  private rubyTexts: RubyText[] = [];
+  private initialRubyTexts: RubyText[] = [];
   private rubyTextInput: HTMLInputElement | null = null;
-  private rubyTextContainer: HTMLElement | null = null;
-  private rubyPreview: HTMLElement | null = null;
   private rubyTextPreview: HTMLElement | null = null;
-  private selectedRubyRange: { start: number; end: number } | null = null;
   private extractedRubyInfo: ExtractedRubyInfo | null = null;
   private partialAnnotationInfo: PartialAnnotationInfo | null = null;
-  private updateRubyList: (() => void) | null = null;
-  private fullText: string = "";
-  private startIndexInFullText: number = 0;
-  private endIndexInFullText: number = 0;
-  private startLineInstance: number = 0;
-  private endLineInstance: number = 0;
-  private startOffsetInstance: number = 0;
-  private endOffsetInstance: number = 0;
+  private startLineInstance = 0;
+  private endLineInstance = 0;
+  private startOffsetInstance = 0;
+  private endOffsetInstance = 0;
   private previewEl: HTMLElement | null = null;
   private renderer: any = null;
-  private contextBeforeInstance: string = "";
-  private contextAfterInstance: string = "";
+  private contextBeforeInstance = "";
+  private contextAfterInstance = "";
   private containedAnnotationIds: string[] = [];
   private originalRubies: OriginalRuby[] = [];
+  private isNotePanelOpen = false;
+  private isRubyPanelOpen = false;
+  private notePanelEl: HTMLElement | null = null;
+  private rubyPanelEl: HTMLElement | null = null;
+  private panelStackEl: HTMLElement | null = null;
+  private anchorEl: HTMLElement | null = null;
+  private saveBarEl: HTMLElement | null = null;
+  private saveBtn: HTMLButtonElement | null = null;
+  private cancelBtn: HTMLButtonElement | null = null;
+  private addRubyBtn: HTMLButtonElement | null = null;
+  private noteToggleBtn: HTMLButtonElement | null = null;
+  private rubyToggleBtn: HTMLButtonElement | null = null;
+  private closeBtn: HTMLButtonElement | null = null;
+  private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
+  private anchorPointX: number | null = null;
+  private anchorPointY: number | null = null;
+  private selectionHighlightEl: HTMLElement | null = null;
+  private toolbarView: AnnotationToolbarView | null = null;
 
   constructor(app: App, dataManager: DataManager) {
     this.app = app;
@@ -52,6 +71,7 @@ export class SelectionMenu {
     startOffset: number,
     endOffset: number,
     filePath: string,
+    selectionRects: SelectionRectSnapshot[],
     onAdd: () => void,
     extractedRubyInfo?: ExtractedRubyInfo,
     partialAnnotationInfo?: PartialAnnotationInfo,
@@ -65,320 +85,405 @@ export class SelectionMenu {
     this.currentFilePath = filePath;
     this.selectedText = selectedText;
     this.onAddCallback = onAdd;
-    this.extractedRubyInfo = extractedRubyInfo || null;
-    this.partialAnnotationInfo = partialAnnotationInfo || null;
-    this.previewEl = previewEl || null;
-    this.renderer = renderer || null;
-    this.contextBeforeInstance = contextBefore || "";
-    this.contextAfterInstance = contextAfter || "";
-    this.containedAnnotationIds = containedAnnotationIds || [];
-    this.originalRubies = originalRubies || [];
-
-
-
-
+    this.extractedRubyInfo = extractedRubyInfo ?? null;
+    this.partialAnnotationInfo = partialAnnotationInfo ?? null;
+    this.previewEl = previewEl ?? null;
+    this.renderer = renderer ?? null;
+    this.contextBeforeInstance = contextBefore ?? "";
+    this.contextAfterInstance = contextAfter ?? "";
+    this.containedAnnotationIds = containedAnnotationIds ?? [];
+    this.originalRubies = originalRubies ?? [];
     this.startLineInstance = startLine;
     this.endLineInstance = endLine;
     this.startOffsetInstance = startOffset;
     this.endOffsetInstance = endOffset;
+
     this.hide();
+    this.resetUiState();
+
+    this.anchorPointX = x;
+    this.anchorPointY = y;
+
+    const markerSelection = buildCreationMarkerSelection(this.dataManager.getMarkerManager().getMarkers());
+    this.selectedMarkerId = markerSelection.selectedMarkerId;
+    this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(this.selectedMarkerId ?? undefined);
+    this.rubyTexts = extractedRubyInfo?.rubyTexts ? [...extractedRubyInfo.rubyTexts] : [];
+    this.initialRubyTexts = this.rubyTexts.map((ruby) => ({ ...ruby }));
+    this.isRubyPanelOpen = this.partialAnnotationInfo !== null || this.rubyTexts.length > 0;
+
+    this.selectionHighlightEl = document.createElement("div");
+    this.selectionHighlightEl.className = "annotation-selection-highlight-layer";
+    selectionRects.forEach((rect) => {
+      const rectEl = document.createElement("div");
+      rectEl.className = "annotation-selection-highlight-rect";
+      rectEl.style.left = `${rect.left}px`;
+      rectEl.style.top = `${rect.top}px`;
+      rectEl.style.width = `${rect.width}px`;
+      rectEl.style.height = `${rect.height}px`;
+      this.selectionHighlightEl!.appendChild(rectEl);
+    });
+    document.body.appendChild(this.selectionHighlightEl);
+
+    window.getSelection()?.removeAllRanges();
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
-
     this.menuEl.dataset.startLine = startLine.toString();
     this.menuEl.dataset.endLine = endLine.toString();
     this.menuEl.dataset.startOffset = startOffset.toString();
     this.menuEl.dataset.endOffset = endOffset.toString();
 
+    this.renderToolbar();
+    document.body.appendChild(this.menuEl);
 
-
-    const isUpdatingAnnotation = !!this.partialAnnotationInfo;
-
-    this.rubyTexts = extractedRubyInfo?.rubyTexts ? [...extractedRubyInfo.rubyTexts] : [];
-    this.rubyTextEnabled = this.rubyTexts.length > 0 || isUpdatingAnnotation;
-    this.selectedRubyRange = null;
-
-    this.menuEl = document.createElement("div");
-    this.menuEl.className = "annotation-card-menu annotation-selection-menu";
-
-    const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
-    const titleText = isUpdatingAnnotation ? "添加注音" : "添加标注";
-    header.createEl("span", { text: titleText, cls: "annotation-menu-title" });
-    const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: "×" });
-    closeBtn.addEventListener("click", () => this.hide());
-
-    const scrollableContent = this.menuEl.createDiv({ cls: "annotation-menu-scrollable-content" });
-
-    const textPreview = scrollableContent.createDiv({ cls: "annotation-menu-preview" });
-    const previewText = selectedText.length > 80 ? selectedText.substring(0, 80) + "..." : selectedText;
-    textPreview.createEl("span", { text: `"${previewText}"` });
-
-    const colorSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
-    colorSection.createEl("label", { text: "选择颜色立即标注" });
-    this.colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
-
-    const colors: AnnotationColor[] = ["red", "yellow", "green", "blue", "purple", "none"];
-    colors.forEach((c) => {
-      const btn = this.colorContainer!.createEl("button", { cls: `annotation-color-dot color-${c}` });
-
-      if (isUpdatingAnnotation) {
-        btn.disabled = true;
-        btn.style.opacity = "0.5";
-        btn.style.cursor = "not-allowed";
-        btn.title = "更新已有标注时不能更改颜色";
-      } else {
-        if (c === this.selectedColor) {
-          btn.addClass("active");
-        }
-        btn.title = COLOR_LABELS[c];
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.selectedColor = c;
-
-          this.colorContainer!.querySelectorAll(".annotation-color-dot").forEach((b) => b.removeClass("active"));
-          btn.addClass("active");
-
-          if (c === "none" && !this.pendingNote && this.rubyTexts.length === 0) {
-            this.hide();
-            return;
-          }
-
-          if (this.pendingNote) {
-            return;
-          }
-
-          this.createAnnotation("");
-        });
-      }
+    requestAnimationFrame(() => {
+      this.positionMenu();
+      this.syncUiState();
+      this.bindOutsideClick();
+      this.bindKeyboard();
     });
+  }
 
-    const noteSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
-    const noteLabel = noteSection.createDiv({ cls: "annotation-note-label-row" });
-    noteLabel.createEl("label", { text: "或添加批注" });
-    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: "(0/400)" });
+  private renderToolbar(): void {
+    if (!this.menuEl) return;
 
-    this.noteInput = noteSection.createEl("textarea", { cls: "annotation-note-input-small", placeholder: "输入批注内容（可选，最多400字）..." });
-    this.noteInput.setAttribute("maxlength", "400");
+    this.toolbarView = renderAnnotationToolbar(this.menuEl, { markerLayout: "single-row-scroll" });
+    this.anchorEl = this.toolbarView.anchorEl;
+    this.markerScrollContainer = this.toolbarView.markerGroupEl;
+    this.renderMarkerToolbar(this.toolbarView.markerGroupEl);
+    this.renderActionToolbar(this.toolbarView.actionGroupEl);
+    this.renderCloseButton(this.toolbarView.actionGroupEl);
 
-    this.noteInput.addEventListener("input", () => {
-      const len = this.noteInput!.value.length;
-      this.pendingNote = this.noteInput!.value;
-      charCount.textContent = `(${len}/400)`;
-      if (len > 400) {
-        charCount.addClass("annotation-char-count-error");
-      } else {
-        charCount.removeClass("annotation-char-count-error");
-      }
+    this.panelStackEl = this.toolbarView.panelStackEl;
+    this.notePanelEl = this.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-note" });
+    this.rubyPanelEl = this.panelStackEl.createDiv({ cls: "annotation-toolbar-panel annotation-toolbar-panel-ruby" });
+
+    this.renderNotePanel();
+    this.renderRubyPanel();
+
+    this.saveBarEl = this.anchorEl.createDiv({ cls: "annotation-toolbar-commit-bar" });
+    this.cancelBtn = this.saveBarEl.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-commit-cancel",
+      text: "取消",
     });
-
-    const rubySection = noteSection.createDiv({ cls: "annotation-ruby-section" });
-    const rubyRow = rubySection.createDiv({ cls: "annotation-ruby-row" });
-    const rubyCheckbox = rubyRow.createEl("input", { type: "checkbox", cls: "annotation-ruby-checkbox" });
-    rubyCheckbox.checked = this.rubyTextEnabled;
-    rubyCheckbox.addEventListener("change", () => {
-      this.rubyTextEnabled = rubyCheckbox.checked;
-      if (this.rubyTextEnabled) {
-        this.rubyTextContainer!.style.display = "block";
-        this.rubyTextInput!.focus();
-
-        requestAnimationFrame(() => {
-          this.adjustMenuPosition();
-        });
-      } else {
-        this.rubyTextContainer!.style.display = "none";
-        this.rubyTexts = [];
-        this.updateRubyList?.();
-      }
-    });
-    rubyRow.createEl("label", { text: "注音" });
-
-    this.rubyTextContainer = rubySection.createDiv({ cls: "annotation-ruby-input-container" });
-    if (!this.rubyTextEnabled) {
-      this.rubyTextContainer.style.display = "none";
-    }
-
-    this.rubyPreview = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-preview" });
-    const rubyLabelText = isUpdatingAnnotation
-      ? "已选中文字（将添加注音）："
-      : "划选需要注音的文字：";
-    this.rubyPreview.createEl("label", { text: rubyLabelText });
-    this.rubyTextPreview = this.rubyPreview.createDiv({ cls: "annotation-ruby-text-preview", text: selectedText });
-    this.rubyTextPreview.setAttribute("data-selected-text", selectedText);
-
-    const rubyInputRow = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-input-row" });
-    rubyInputRow.createEl("label", { text: "注音内容：" });
-    this.rubyTextInput = rubyInputRow.createEl("input", { type: "text", cls: "annotation-ruby-input", placeholder: "输入注音内容..." });
-
-    this.rubyTextPreview.addEventListener("mouseup", () => {
-      setTimeout(() => {
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) {
-          const range = selection.getRangeAt(0);
-          const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-
-          if (rubyTextOffset) {
-            this.selectedRubyRange = {
-              start: rubyTextOffset.start,
-              end: rubyTextOffset.end
-            };
-
-          }
-        }
-      }, 10);
-    });
-
-    this.rubyTextInput.addEventListener("focus", () => {
-      if (this.selectedRubyRange) {
-        const selection = window.getSelection();
-        if (selection) {
-          const fullText = this.rubyTextPreview!.textContent || "";
-          const textNode = this.rubyTextPreview!.firstChild;
-          if (textNode) {
-            const range = document.createRange();
-            range.setStart(textNode, this.selectedRubyRange.start);
-            range.setEnd(textNode, this.selectedRubyRange.end);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        }
-      }
-    });
-
-    const addRubyBtn = rubyInputRow.createEl("button", { text: "添加", cls: "annotation-btn annotation-btn-small" });
-    addRubyBtn.addEventListener("click", () => {
-      const selection = window.getSelection();
-      let selectedRubyText = "";
-      let rubyStart = 0;
-
-      if (selection && !selection.isCollapsed) {
-        selectedRubyText = selection.toString();
-        const range = selection.getRangeAt(0);
-        const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-        if (rubyTextOffset) {
-          rubyStart = rubyTextOffset.start;
-        }
-      } else if (this.selectedRubyRange) {
-        selectedRubyText = selectedText.substring(this.selectedRubyRange.start, this.selectedRubyRange.end);
-        rubyStart = this.selectedRubyRange.start;
-      }
-
-      if (selectedRubyText && this.rubyTextInput!.value.trim()) {
-        this.rubyTexts.push({
-          startIndex: rubyStart,
-          length: selectedRubyText.length,
-          ruby: this.rubyTextInput!.value.trim()
-        });
-        this.rubyTextInput!.value = "";
-        this.selectedRubyRange = null;
-        if (selection) {
-          selection.removeAllRanges();
-        }
-        this.updateRubyList?.();
-      } else {
-        if (!selectedRubyText) {
-          if (selectedText.length === 1) {
-            this.rubyTexts.push({
-              startIndex: 0,
-              length: 1,
-              ruby: this.rubyTextInput!.value.trim()
-            });
-            this.rubyTextInput!.value = "";
-            this.selectedRubyRange = null;
-            this.updateRubyList?.();
-          } else {
-            new Notice("请先划选需要注音的文字");
-          }
-        } else {
-          new Notice("请输入注音内容");
-        }
-      }
-    });
-
-    const rubyListContainer = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-list-container" });
-    rubyListContainer.createEl("label", { text: "已添加的注音：" });
-    const rubyList = rubyListContainer.createDiv({ cls: "annotation-ruby-list" });
-    this.updateRubyList = () => {
-      rubyList.empty();
-      if (this.rubyTexts.length === 0) {
-        rubyList.createDiv({ text: "暂无注音", cls: "annotation-ruby-empty" });
-      } else {
-        this.rubyTexts.forEach((ruby, index) => {
-          const item = rubyList.createDiv({ cls: "annotation-ruby-item" });
-          const textPart = item.createSpan({ text: `${selectedText.substring(ruby.startIndex, ruby.startIndex + ruby.length)} → ${ruby.ruby}`, cls: "annotation-ruby-item-text" });
-          const deleteBtn = item.createEl("button", { text: "×", cls: "annotation-ruby-item-delete" });
-          deleteBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            this.rubyTexts.splice(index, 1);
-            this.updateRubyList?.();
-          });
-        });
-      }
-    };
-    this.updateRubyList();
-
-    const actionRow = this.menuEl.createDiv({ cls: "annotation-action-row" });
-    actionRow.style.flexShrink = "0";
-
-    const copyBtn = actionRow.createEl("button", { cls: "annotation-btn annotation-btn-secondary annotation-btn-small", text: "复制" });
-    copyBtn.addEventListener("click", (e) => {
+    this.cancelBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      navigator.clipboard.writeText(selectedText);
-      new Notice("已复制到剪贴板");
+      this.hide();
     });
 
-    const saveButtonText = isUpdatingAnnotation ? "保存注音" : "保存";
-    const noteBtn = actionRow.createEl("button", {
-      cls: "annotation-btn annotation-btn-primary annotation-btn-small",
-      text: saveButtonText
+    this.saveBtn = this.saveBarEl.createEl("button", {
+      cls: "annotation-btn annotation-btn-primary annotation-toolbar-commit-save",
+      text: this.partialAnnotationInfo ? "保存注音" : "保存",
     });
-    noteBtn.addEventListener("click", async (e) => {
+    this.saveBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const note = this.noteInput!.value.trim();
+      const note = this.noteInput?.value.trim() ?? "";
       if (note.length > 400) {
         new Notice("批注内容不能超过400字");
         return;
       }
+      if (!this.isDirty()) {
+        return;
+      }
       await this.createAnnotation(note);
     });
+  }
 
-    document.body.appendChild(this.menuEl);
+  private renderMarkerToolbar(container: HTMLElement): void {
+    const section = container.createDiv({ cls: "annotation-menu-section annotation-toolbar-section annotation-toolbar-section-markers" });
+    this.colorContainer = section.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
 
-    requestAnimationFrame(() => {
-      const menuWidth = 280;
-      const menuHeight = this.menuEl!.offsetHeight || 200;
-  
-      let menuX = x + 10;
-      let menuY = y + 10;
- 
-      if (menuX + menuWidth > window.innerWidth) {
-        menuX = x - menuWidth - 10;
-      }
- 
-      const threshold = window.innerHeight * 0.4;
-      if (y > threshold) {
-        menuY = y - menuHeight - 10;
-      }
- 
-      if (menuY + menuHeight > window.innerHeight) {
-        menuY = window.innerHeight - menuHeight - 10;
-      }
-  
-      if (menuY < 10) {
-        menuY = 10;
-      }
-  
-      this.menuEl!.style.left = `${Math.max(10, menuX)}px`;
-      this.menuEl!.style.top = `${menuY}px`;
+    const markerSelection = buildCreationMarkerSelection(this.dataManager.getMarkerManager().getMarkers());
+    renderMarkerButtons({
+      container: this.colorContainer,
+      selection: markerSelection,
+      getButtonTitle: ({ markerName, disabled }) => {
+        if (this.partialAnnotationInfo) {
+          return "为已有标注补充注音时不能修改记号";
+        }
+        return disabled ? `${markerName}（已删除）` : markerName;
+      },
+      isButtonDisabled: ({ disabled }) => !!this.partialAnnotationInfo || disabled,
+      onMarkerClick: async (markerId) => {
+        this.selectedMarkerId = markerId;
+        this.selectedColor = this.dataManager.getMarkerManager().getLegacyColorForMarker(markerId);
+        this.syncMarkerButtons();
+
+        if (!this.isDirty()) {
+          await this.createAnnotation("");
+        } else {
+          this.syncUiState();
+        }
+      },
     });
 
-    const clickHandler = (e: MouseEvent) => {
-      if (this.menuEl && !this.menuEl.contains(e.target as Node)) {
+  }
+
+  private renderActionToolbar(container: HTMLElement): void {
+    const row = container.createDiv({ cls: "annotation-toolbar-actions" });
+
+    this.noteToggleBtn = row.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
+      attr: { type: "button", "aria-expanded": "false", title: "添加或编辑批注" },
+    });
+    setIcon(this.noteToggleBtn, "message-square");
+    this.noteToggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleNotePanel();
+    });
+
+    this.rubyToggleBtn = row.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
+      attr: { type: "button", "aria-expanded": "false", title: "添加注音" },
+    });
+    setIcon(this.rubyToggleBtn, "languages");
+    this.rubyToggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleRubyPanel();
+    });
+
+    const copyBtn = row.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action",
+      attr: { type: "button", title: "复制当前选中文本" },
+    });
+    setIcon(copyBtn, "copy");
+    copyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(this.selectedText);
+      new Notice("已复制到剪贴板");
+      if (!this.isDirty()) {
         this.hide();
-        document.removeEventListener("click", clickHandler);
       }
+    });
+  }
+
+  private renderCloseButton(container: HTMLElement): void {
+    this.closeBtn = container.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-action annotation-toolbar-close",
+      attr: { type: "button", title: this.isDirty() ? "当前有未保存内容" : "关闭工具栏" },
+    });
+    setIcon(this.closeBtn, "x");
+    this.closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.isDirty()) {
+        return;
+      }
+      this.hide();
+    });
+  }
+
+  private renderNotePanel(): void {
+    if (!this.notePanelEl) return;
+    this.notePanelEl.empty();
+
+    const header = this.notePanelEl.createDiv({ cls: "annotation-panel-header annotation-panel-header-note" });
+    const title = header.createDiv({ cls: "annotation-panel-title" });
+    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
+    setIcon(titleIcon, "message-square");
+    title.createSpan({ cls: "annotation-panel-title-text", text: "批注" });
+    header.createSpan({ cls: "annotation-panel-meta", text: `${this.pendingNote.length}/400` });
+
+    const noteEditor = renderNoteEditor({
+      container: this.notePanelEl,
+      selectedText: this.selectedText,
+      note: this.pendingNote,
+      onChange: (value) => {
+        this.pendingNote = value;
+        header.querySelector(".annotation-panel-meta")!.textContent = `${value.length}/400`;
+        this.syncUiState();
+      },
+    });
+    this.noteInput = noteEditor.input;
+  }
+
+  private renderRubyPanel(): void {
+    if (!this.rubyPanelEl) return;
+    this.rubyPanelEl.empty();
+
+    const header = this.rubyPanelEl.createDiv({ cls: "annotation-panel-header annotation-panel-header-ruby" });
+    const title = header.createDiv({ cls: "annotation-panel-title" });
+    const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
+    setIcon(titleIcon, "languages");
+    title.createSpan({ cls: "annotation-panel-title-text", text: "注音" });
+    header.createSpan({ cls: "annotation-panel-meta", text: `${this.rubyTexts.length} 项` });
+
+    const rubyEditor = renderRubyEditor({
+      container: this.rubyPanelEl,
+      selectedText: this.selectedText,
+      rubyTexts: this.rubyTexts,
+      onItemsChange: (items) => {
+        this.rubyTexts = items;
+        header.querySelector(".annotation-panel-meta")!.textContent = `${items.length} 项`;
+        this.syncUiState();
+      },
+      onDraftChange: () => {
+        this.syncUiState();
+      },
+    });
+    this.rubyTextInput = rubyEditor.input;
+    this.rubyTextPreview = rubyEditor.preview;
+    this.addRubyBtn = rubyEditor.addButton;
+  }
+
+  private toggleNotePanel(): void {
+    if (this.isNotePanelOpen && !this.pendingNote.trim()) {
+      this.isNotePanelOpen = false;
+    } else {
+      this.isNotePanelOpen = true;
+    }
+    this.syncUiState();
+    if (this.isNotePanelOpen) {
+      this.noteInput?.focus();
+    }
+  }
+
+  private toggleRubyPanel(): void {
+    if (this.isRubyPanelOpen && this.rubyTexts.length === 0) {
+      this.isRubyPanelOpen = false;
+      this.rubyTextPreview?.setAttribute("data-has-selection", "false");
+    } else {
+      this.isRubyPanelOpen = true;
+    }
+    this.syncUiState();
+    if (this.isRubyPanelOpen) {
+      this.rubyTextInput?.focus();
+    }
+  }
+
+  private isDirty(): boolean {
+    const rubyInputDirty = (this.rubyTextInput?.value.trim() ?? "").length > 0;
+    const rubyListDirty = this.haveRubyTextsChanged();
+    return this.pendingNote.trim().length > 0 || rubyInputDirty || rubyListDirty;
+  }
+
+  private haveRubyTextsChanged(): boolean {
+    if (this.rubyTexts.length !== this.initialRubyTexts.length) {
+      return true;
+    }
+
+    return this.rubyTexts.some((ruby, index) => {
+      const initial = this.initialRubyTexts[index];
+      return !initial ||
+        ruby.startIndex !== initial.startIndex ||
+        ruby.length !== initial.length ||
+        ruby.ruby !== initial.ruby;
+    });
+  }
+
+  private syncMarkerButtons(): void {
+    if (!this.colorContainer) return;
+    this.colorContainer.querySelectorAll(".annotation-color-dot").forEach((button) => {
+      const element = button as HTMLElement;
+      const isActive = element.dataset.markerId === this.selectedMarkerId;
+      element.classList.toggle("active", isActive);
+    });
+  }
+
+  private syncUiState(): void {
+    if (!this.menuEl) return;
+
+    const dirty = this.isDirty();
+    this.menuEl.classList.toggle("is-dirty", dirty);
+    this.menuEl.setAttribute("data-state", dirty ? "dirty" : "clean");
+
+    if (this.notePanelEl) {
+      this.notePanelEl.style.display = this.isNotePanelOpen ? "block" : "none";
+    }
+    if (this.rubyPanelEl) {
+      this.rubyPanelEl.style.display = this.isRubyPanelOpen ? "block" : "none";
+    }
+
+    if (this.noteToggleBtn) {
+      this.noteToggleBtn.classList.toggle("is-active", this.isNotePanelOpen);
+      this.noteToggleBtn.setAttribute("aria-expanded", this.isNotePanelOpen ? "true" : "false");
+    }
+    if (this.rubyToggleBtn) {
+      this.rubyToggleBtn.classList.toggle("is-active", this.isRubyPanelOpen);
+      this.rubyToggleBtn.setAttribute("aria-expanded", this.isRubyPanelOpen ? "true" : "false");
+    }
+    if (this.closeBtn) {
+      this.closeBtn.disabled = dirty;
+      this.closeBtn.title = dirty ? "当前有未保存内容，请先保存或取消" : "关闭工具栏";
+    }
+
+    if (this.saveBarEl) {
+      this.saveBarEl.style.display = dirty ? "flex" : "none";
+    }
+    if (this.saveBtn) {
+      this.saveBtn.disabled = !dirty;
+    }
+
+    requestAnimationFrame(() => this.positionMenu());
+  }
+
+  private bindOutsideClick(): void {
+    if (!this.menuEl) return;
+
+    this.outsideClickHandler = (e: MouseEvent) => {
+      if (!this.menuEl || this.menuEl.contains(e.target as Node)) {
+        return;
+      }
+      if (this.isDirty()) {
+        return;
+      }
+      this.hide();
     };
-    setTimeout(() => document.addEventListener("click", clickHandler), 10);
+
+    setTimeout(() => {
+      if (this.outsideClickHandler) {
+        document.addEventListener("click", this.outsideClickHandler);
+      }
+    }, 10);
+  }
+
+  private bindKeyboard(): void {
+    this.keydownHandler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") {
+        return;
+      }
+
+      if (this.isDirty()) {
+        this.cancelBtn?.focus();
+        return;
+      }
+
+      this.hide();
+    };
+
+    document.addEventListener("keydown", this.keydownHandler);
+  }
+
+  private positionMenu(): void {
+    if (!this.menuEl || this.anchorPointX === null || this.anchorPointY === null) return;
+    this.toolbarView?.position(this.anchorPointX, this.anchorPointY);
+  }
+
+  private resetUiState(): void {
+    this.pendingNote = "";
+    this.noteInput = null;
+    this.colorContainer = null;
+    this.markerScrollContainer = null;
+    this.initialRubyTexts = [];
+    this.rubyTextInput = null;
+    this.rubyTextPreview = null;
+    this.notePanelEl = null;
+    this.rubyPanelEl = null;
+    this.panelStackEl = null;
+    this.anchorEl = null;
+    this.toolbarView = null;
+    this.saveBarEl = null;
+    this.saveBtn = null;
+    this.cancelBtn = null;
+    this.addRubyBtn = null;
+    this.noteToggleBtn = null;
+    this.rubyToggleBtn = null;
+    this.closeBtn = null;
+    this.keydownHandler = null;
+    this.isNotePanelOpen = false;
+    this.isRubyPanelOpen = false;
+    this.anchorPointX = null;
+    this.anchorPointY = null;
+    this.selectionHighlightEl = null;
   }
 
   private async createAnnotation(note: string): Promise<void> {
@@ -387,42 +492,32 @@ export class SelectionMenu {
     try {
       if (this.partialAnnotationInfo) {
         const annotationId = this.partialAnnotationInfo.annotationId;
-
         const data = await this.dataManager.loadAnnotations(this.currentFilePath);
-        if (!data) {
-          new Notice("无法找到原有标注");
-          return;
-        }
-
-        const existingAnnotation = data.annotations.find(a => a.id === annotationId);
+        const existingAnnotation = data?.annotations.find((annotation) => annotation.id === annotationId);
         if (!existingAnnotation) {
           new Notice("无法找到原有标注");
           return;
         }
 
-        const newRubyTexts = this.rubyTexts.map(ruby => ({
+        const newRubyTexts = this.rubyTexts.map((ruby) => ({
           startIndex: this.partialAnnotationInfo!.startIndex + ruby.startIndex,
           length: ruby.length,
-          ruby: ruby.ruby
+          ruby: ruby.ruby,
         }));
 
-        const updatedRubyTexts = this.mergeRubyTexts(
-          existingAnnotation.rubyTexts || [],
-          newRubyTexts
-        );
-
+        const updatedRubyTexts = this.mergeRubyTexts(existingAnnotation.rubyTexts || [], newRubyTexts);
+        const nextNote = note.trim();
         await this.dataManager.updateAnnotation(this.currentFilePath, annotationId, {
+          note: nextNote,
           rubyTexts: updatedRubyTexts.length > 0 ? updatedRubyTexts : undefined,
-          originalRubies: existingAnnotation.originalRubies
+          originalRubies: existingAnnotation.originalRubies,
         });
 
         const markElement = document.querySelector(`mark[data-annotation-id="${annotationId}"]`);
-        if (markElement) {
-          if (this.renderer) {
-            const renderedAnnotations = this.renderer.getRenderedAnnotations();
-            renderedAnnotations.delete(annotationId);
-            this.renderer['processedAnnotations'].delete(annotationId);
-          }
+        if (markElement && this.renderer && this.previewEl) {
+          const renderedAnnotations = this.renderer.getRenderedAnnotations();
+          renderedAnnotations.delete(annotationId);
+          this.renderer["processedAnnotations"].delete(annotationId);
 
           const parent = markElement.parentNode;
           if (parent) {
@@ -437,29 +532,25 @@ export class SelectionMenu {
               }
               node = walker.nextNode();
             }
-            const textNode = document.createTextNode(textContent);
-            parent.replaceChild(textNode, markElement);
 
-            if (this.renderer && this.previewEl) {
-              this.dataManager.clearCache();
-              await new Promise(resolve => setTimeout(resolve, 100));
+            parent.replaceChild(document.createTextNode(textContent), markElement);
+            this.dataManager.clearCache();
+            await new Promise((resolve) => setTimeout(resolve, 100));
 
-              const data = await this.dataManager.loadAnnotations(this.currentFilePath);
-              if (data && data.annotations.length > 0) {
-                this.renderer.setAnnotations(data.annotations);
-                const result = this.renderer.renderByText(this.previewEl);
-
-                if (result.updatedContexts.length > 0) {
-                  for (const update of result.updatedContexts) {
-                    await this.dataManager.updateAnnotation(this.currentFilePath, update.id, {
-                      contextBefore: update.contextBefore,
-                      contextAfter: update.contextAfter,
-                      startLine: update.startLine,
-                      endLine: update.endLine,
-                      startOffset: update.startOffset,
-                      endOffset: update.endOffset,
-                    });
-                  }
+            const refreshed = await this.dataManager.loadAnnotations(this.currentFilePath);
+            if (refreshed && refreshed.annotations.length > 0) {
+              this.renderer.setAnnotations(refreshed.annotations);
+              const result = this.renderer.renderByText(this.previewEl);
+              if (result.updatedContexts.length > 0) {
+                for (const update of result.updatedContexts) {
+                  await this.dataManager.updateAnnotation(this.currentFilePath, update.id, {
+                    contextBefore: update.contextBefore,
+                    contextAfter: update.contextAfter,
+                    startLine: update.startLine,
+                    endLine: update.endLine,
+                    startOffset: update.startOffset,
+                    endOffset: update.endOffset,
+                  });
                 }
               }
             }
@@ -469,127 +560,51 @@ export class SelectionMenu {
         this.partialAnnotationInfo = null;
         this.hide();
         if (this.onAddCallback) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 300));
           await this.onAddCallback();
         }
-        new Notice("注音已添加");
+        new Notice(nextNote || updatedRubyTexts.length > 0 ? "标注已更新" : "注音已添加");
         return;
       }
 
-      const partialInfo = this.partialAnnotationInfo as PartialAnnotationInfo | null;
-      if (partialInfo && partialInfo.annotationId) {
-
-        const annotationId = partialInfo.annotationId;
-
-        const data = await this.dataManager.loadAnnotations(this.currentFilePath);
-        if (!data) {
-
-          return;
-        }
-
-        const annotation = data.annotations.find(a => a.id === annotationId);
-        if (!annotation) {
-
-          return;
-        }
-
-
-
-        const rubyTexts = annotation.rubyTexts || [];
-
-
-        const newRubyTexts = this.mergeRubyTexts(rubyTexts, this.rubyTexts);
-
-
-        const startIndex = partialInfo.startIndex;
-        const length = partialInfo.length;
-
-        const existingRubyIndex = rubyTexts.findIndex(r =>
-          r.startIndex <= startIndex && r.startIndex + r.length > startIndex
-        );
-
-        if (existingRubyIndex !== -1) {
-          rubyTexts.splice(existingRubyIndex, 1);
-        }
-
-        await this.dataManager.updateAnnotation(this.currentFilePath, annotationId, {
-          rubyTexts: newRubyTexts,
-          originalRubies: annotation.originalRubies
-        });
-
-        this.pendingNote = "";
-        this.rubyTextEnabled = false;
-        this.rubyTexts = [];
-        this.extractedRubyInfo = null;
-        this.partialAnnotationInfo = null;
-        this.hide();
-        if (this.onAddCallback) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-          await this.onAddCallback();
-        }
-        new Notice("注音已更新");
-        return;
-      }
-
-      if (this.extractedRubyInfo &&
-          this.extractedRubyInfo.annotationIds &&
-          this.extractedRubyInfo.annotationIds.length > 0) {
+      if (this.extractedRubyInfo?.annotationIds?.length) {
         for (const annotationId of this.extractedRubyInfo.annotationIds) {
           await this.dataManager.deleteAnnotation(this.currentFilePath, annotationId);
         }
-
         this.dataManager.clearCache();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      if (this.containedAnnotationIds && this.containedAnnotationIds.length > 0) {
-
+      if (this.containedAnnotationIds.length > 0) {
         for (const annotationId of this.containedAnnotationIds) {
           await this.dataManager.deleteAnnotation(this.currentFilePath, annotationId);
         }
-
         this.dataManager.clearCache();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : undefined;
-
-      const startLine = this.startLineInstance;
-      const endLine = this.endLineInstance;
-      const startOffset = this.startOffsetInstance;
-      const endOffset = this.endOffsetInstance;
-
-
-
-
-
-
-
-
+      const rubyTexts = this.rubyTexts.length > 0 ? this.rubyTexts : undefined;
       const result = await this.dataManager.addAnnotation(this.currentFilePath, {
         text: this.selectedText,
         contextBefore: this.contextBeforeInstance,
         contextAfter: this.contextAfterInstance,
         color: this.selectedColor,
+        markerId: this.selectedMarkerId ?? undefined,
+        markerLabel: this.getSelectedMarker()?.name,
         note,
         rubyTexts,
         originalRubies: this.originalRubies.length > 0 ? this.originalRubies : undefined,
-        startLine,
-        endLine,
-        startOffset,
-        endOffset,
+        startLine: this.startLineInstance,
+        endLine: this.endLineInstance,
+        startOffset: this.startOffsetInstance,
+        endOffset: this.endOffsetInstance,
         isValid: 1,
       });
 
       if (result) {
-        this.pendingNote = "";
-        this.rubyTextEnabled = false;
-        this.rubyTexts = [];
-        this.originalRubies = [];
-        this.extractedRubyInfo = null;
         this.hide();
         if (this.onAddCallback) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 300));
           await this.onAddCallback();
         }
         new Notice(note || rubyTexts ? "标注和批注已添加" : "标注已添加");
@@ -600,14 +615,11 @@ export class SelectionMenu {
     }
   }
 
-  private mergeRubyTexts(
-    existing: Array<{ startIndex: number; length: number; ruby: string }>,
-    newItems: Array<{ startIndex: number; length: number; ruby: string }>
-  ): Array<{ startIndex: number; length: number; ruby: string }> {
+  private mergeRubyTexts(existing: RubyText[], newItems: RubyText[]): RubyText[] {
     const merged = [...existing];
 
     for (const newItem of newItems) {
-      const overlapIndex = merged.findIndex(item =>
+      const overlapIndex = merged.findIndex((item) =>
         (newItem.startIndex >= item.startIndex && newItem.startIndex < item.startIndex + item.length) ||
         (item.startIndex >= newItem.startIndex && item.startIndex < newItem.startIndex + newItem.length)
       );
@@ -622,23 +634,32 @@ export class SelectionMenu {
     return merged.sort((a, b) => a.startIndex - b.startIndex);
   }
 
+  private getSelectedMarker(): Marker | null {
+    return this.dataManager.getMarkerManager().getMarkerById(this.selectedMarkerId ?? undefined);
+  }
+
   hide(): void {
+    if (this.outsideClickHandler) {
+      document.removeEventListener("click", this.outsideClickHandler);
+      this.outsideClickHandler = null;
+    }
+
+    if (this.keydownHandler) {
+      document.removeEventListener("keydown", this.keydownHandler);
+      this.keydownHandler = null;
+    }
+
     if (this.menuEl) {
       this.menuEl.remove();
       this.menuEl = null;
     }
-  }
 
-  private adjustMenuPosition(): void {
-    if (!this.menuEl) return;
-
-    const menuHeight = this.menuEl.offsetHeight || 200;
-    const currentTop = parseInt(this.menuEl.style.top || "0", 10);
-    const bottomPosition = currentTop + menuHeight;
-
-    if (bottomPosition > window.innerHeight - 20) {
-      const newTop = Math.max(10, window.innerHeight - menuHeight - 20);
-      this.menuEl.style.top = `${newTop}px`;
+    if (this.selectionHighlightEl) {
+      this.selectionHighlightEl.remove();
+      this.selectionHighlightEl = null;
     }
+
+    this.resetUiState();
   }
+
 }

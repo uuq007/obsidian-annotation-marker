@@ -1,4 +1,18 @@
 export type AnnotationColor = "red" | "blue" | "yellow" | "green" | "purple" | "none";
+export type MarkerPreset = "solid" | "double-underline" | "half-highlight" | "wavy-underline";
+export type MarkerState = "active" | "soft-deleted";
+
+export interface Marker {
+  id: string;
+  name: string;
+  color: string;
+  preset: MarkerPreset;
+  state: MarkerState;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+  legacyColor?: AnnotationColor;
+}
 
 export interface AnnotationRuby {
   startIndex: number;
@@ -24,6 +38,8 @@ export interface Annotation {
   contextBefore: string;
   contextAfter: string;
   color: AnnotationColor;
+  markerId?: string;
+  markerLabel?: string;
   note: string;
   rubyText?: string;
   rubyTexts?: AnnotationRuby[];
@@ -45,11 +61,13 @@ export interface FileAnnotationData {
 export interface AnnotationPluginSettings {
   defaultColor: AnnotationColor;
   maxNoteLength: number;
+  markers?: Marker[];
 }
 
 export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
   defaultColor: "yellow",
   maxNoteLength: 500,
+  markers: [],
 };
 
 export const COLOR_MAP: Record<AnnotationColor, { bg: string; border: string }> = {
@@ -70,6 +88,13 @@ export const COLOR_LABELS: Record<AnnotationColor, string> = {
   none: "无色",
 };
 
+export const MARKER_PRESET_LABELS: Record<MarkerPreset, string> = {
+  solid: "实底高亮",
+  "double-underline": "双下划线",
+  "half-highlight": "半高亮",
+  "wavy-underline": "波浪线",
+};
+
 export const CONTEXT_LENGTH_BEFORE = 50;
 export const CONTEXT_LENGTH_AFTER = 50;
 export const MATCH_THRESHOLD = 0.5;
@@ -79,4 +104,11 @@ export interface PartialAnnotationInfo {
   startIndex: number;
   length: number;
   rubyText: string;
+}
+
+export interface SelectionRectSnapshot {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }

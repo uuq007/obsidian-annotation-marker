@@ -16,6 +16,20 @@
   transition: all 0.15s ease;
 }
 
+.annotation-selection-highlight-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 900;
+}
+
+.annotation-selection-highlight-rect {
+  position: fixed;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+}
+
 .annotation-highlight:hover {
   filter: brightness(0.9);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -23,26 +37,31 @@
 
 .annotation-card-menu {
   position: fixed;
-  z-index: 9999;
-  min-width: 260px;
-  max-width: 340px;
-  max-height: 70vh;
+  z-index: 950;
+  min-width: 320px;
+  max-width: 380px;
+  max-height: min(78vh, calc(100vh - 20px));
   background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.1);
+  border: 2px solid var(--text-normal);
+  border-radius: 0;
+  box-shadow: none;
   padding: 0;
   font-size: 14px;
-  animation: annotation-menu-fade-in 0.15s ease-out;
+  animation: none;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .annotation-menu-scrollable-content {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   overflow-x: hidden;
   padding: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .annotation-menu-scrollable-content > div {
@@ -159,25 +178,140 @@
 .annotation-color-buttons {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.annotation-selection-menu[data-marker-layout="single-row-scroll"] .annotation-color-buttons.annotation-toolbar-marker-row {
+  flex-wrap: nowrap;
+}
+
+.annotation-selection-menu[data-marker-layout="wrap"] .annotation-color-buttons.annotation-toolbar-marker-row {
+  flex-wrap: wrap;
 }
 
 .annotation-color-dot {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 2px solid transparent;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 0;
+  border: 2px solid var(--text-normal);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: none;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--text-normal);
+  font-size: var(--font-text-size);
+  line-height: 1;
+  font-weight: 600;
 }
 
 .annotation-color-dot:hover {
-  transform: scale(1.1);
+  transform: none;
 }
 
 .annotation-color-dot.active {
   border-color: var(--text-normal);
-  box-shadow: 0 0 0 2px var(--background-primary);
+  box-shadow: inset 0 0 0 2px var(--background-primary);
+}
+
+.annotation-color-dot[class*="marker-preset-"] {
+  border-radius: 0;
+  background: transparent;
+  border-color: var(--text-normal);
+  color: var(--text-normal);
+}
+
+.annotation-color-dot.marker-preset-solid {
+  background: color-mix(in srgb, var(--marker-preview-color) 35%, transparent);
+}
+
+.annotation-color-dot.marker-preset-double-underline {
+  border-bottom: 4px double var(--marker-preview-color);
+}
+
+.annotation-color-dot.marker-preset-half-highlight {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--marker-preview-color) 45%, transparent) 0 55%,
+    transparent 55% 100%
+  );
+}
+
+.annotation-color-dot.marker-preset-wavy-underline {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--marker-preview-color);
+  text-decoration-thickness: 2px;
+}
+
+.markdown-rendered mark.annotation-marker,
+.markdown-preview-view mark.annotation-marker {
+  cursor: pointer;
+  border-radius: 2px;
+  --annotation-marker-color: currentColor;
+}
+
+.markdown-rendered mark.annotation-marker.annotation-marker-has-note,
+.markdown-preview-view mark.annotation-marker.annotation-marker-has-note {
+  position: relative;
+  overflow: visible;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.markdown-rendered mark.annotation-marker.annotation-marker-has-note rt,
+.markdown-preview-view mark.annotation-marker.annotation-marker-has-note rt {
+  position: relative;
+}
+
+.markdown-rendered mark.annotation-marker.annotation-marker-has-note::before,
+.markdown-preview-view mark.annotation-marker.annotation-marker-has-note::before {
+  content: "";
+  position: absolute;
+  top: -0.18em;
+  left: -0.14em;
+  width: 0.34em;
+  height: 0.34em;
+  background: var(--annotation-marker-color, var(--interactive-accent));
+  border-radius: 999px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-solid,
+.markdown-preview-view mark.annotation-marker.marker-preset-solid {
+  background: color-mix(in srgb, var(--annotation-marker-color) 38%, transparent);
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-double-underline,
+.markdown-preview-view mark.annotation-marker.marker-preset-double-underline {
+  background: transparent;
+  text-decoration-line: underline;
+  text-decoration-style: double;
+  text-decoration-color: var(--annotation-marker-color);
+  text-decoration-thickness: 2px;
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-half-highlight,
+.markdown-preview-view mark.annotation-marker.marker-preset-half-highlight {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--annotation-marker-color) 45%, transparent) 0 58%,
+    transparent 58% 100%
+  );
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-wavy-underline,
+.markdown-preview-view mark.annotation-marker.marker-preset-wavy-underline {
+  background: transparent;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--annotation-marker-color);
+  text-decoration-thickness: 2px;
 }
 
 .annotation-color-dot.color-red {
@@ -213,16 +347,124 @@
   gap: 8px;
 }
 
+.annotation-view-menu {
+  padding: 0;
+}
+
+.annotation-view-menu .annotation-menu-text,
+.annotation-view-menu .annotation-menu-note,
+.annotation-view-menu .annotation-menu-section,
+.annotation-edit-modal .annotation-modal-preview,
+.annotation-edit-modal .annotation-color-picker,
+.annotation-edit-modal .annotation-note-container,
+.annotation-edit-modal .annotation-ruby-section {
+  padding: 8px;
+  border: 2px solid var(--annotation-toolbar-border, var(--text-normal));
+  border-radius: 0;
+  background: var(--background-primary);
+}
+
+.annotation-view-menu .annotation-menu-text,
+.annotation-view-menu .annotation-menu-note,
+.annotation-view-menu .annotation-menu-section {
+  margin-top: 0;
+}
+
+.annotation-view-menu .annotation-menu-text label,
+.annotation-view-menu .annotation-menu-note label,
+.annotation-view-menu .annotation-menu-section label,
+.annotation-edit-modal .annotation-modal-preview label,
+.annotation-edit-modal .annotation-color-picker label,
+.annotation-edit-modal .annotation-note-container label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.annotation-view-actions {
+  padding: 8px 0 0;
+  border-top: 2px solid var(--annotation-toolbar-border, var(--text-normal));
+  margin-top: 8px;
+}
+
+.annotation-view-panel {
+  overflow: visible;
+}
+
+.annotation-edit-modal {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 96px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.annotation-edit-modal h3 {
+  display: none;
+}
+
+.annotation-edit-modal .annotation-color-buttons.annotation-toolbar-marker-row {
+  flex-wrap: wrap;
+}
+
+.annotation-edit-modal .annotation-modal-preview,
+.annotation-edit-modal .annotation-color-picker,
+.annotation-edit-modal .annotation-note-container,
+.annotation-edit-modal .annotation-ruby-section {
+  margin-bottom: 10px;
+}
+
+.annotation-edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.annotation-edit-modal .annotation-note-input,
+.annotation-edit-modal .annotation-ruby-input,
+.annotation-edit-modal .annotation-note-input-small {
+  border-radius: 0;
+}
+
+.annotation-edit-modal .annotation-modal-buttons {
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 2px solid var(--annotation-toolbar-border, var(--text-normal));
+  flex: 0 0 auto;
+  background: var(--background-primary);
+}
+
+.annotation-edit-modal .annotation-ruby-input-container {
+  gap: 8px;
+  padding-top: 0;
+}
+
 .annotation-btn {
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
-  border: none;
+  transition: none;
+  border: 2px solid var(--text-normal);
   flex: 1;
   min-width: 70px;
+}
+
+.annotation-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .annotation-btn-primary {
@@ -230,17 +472,9 @@
   color: var(--text-on-accent);
 }
 
-.annotation-btn-primary:hover {
-  background: var(--interactive-accent-hover);
-}
-
 .annotation-btn-secondary {
-  background: var(--background-modifier-hover);
+  background: var(--background-primary);
   color: var(--text-normal);
-}
-
-.annotation-btn-secondary:hover {
-  background: var(--background-modifier-border);
 }
 
 .annotation-btn-icon {
@@ -307,7 +541,7 @@
 }
 
 .annotation-note-container {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .annotation-note-container label {
@@ -349,7 +583,7 @@
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 0;
 }
 
 .annotation-modal-buttons .annotation-btn {
@@ -422,6 +656,361 @@
   color: #ff6b6b;
 }
 
+.annotation-selection-menu {
+  --annotation-toolbar-surface: var(--background-primary);
+  --annotation-toolbar-subtle: var(--background-secondary);
+  --annotation-toolbar-border: var(--text-normal);
+  --annotation-toolbar-accent-soft: var(--background-secondary);
+  border-radius: 0;
+  transform-origin: center top;
+  background: var(--annotation-toolbar-surface);
+}
+
+.annotation-selection-menu.is-dirty {
+  border-color: var(--interactive-accent);
+  box-shadow: none;
+}
+
+.annotation-selection-menu[data-placement="below"] {
+  transform-origin: center bottom;
+}
+
+.annotation-selection-menu[data-placement="above"] {
+  transform-origin: center top;
+}
+
+.annotation-toolbar-content {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.annotation-toolbar-anchor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.annotation-toolbar-primary {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.annotation-toolbar-primary-single-row {
+  flex-wrap: nowrap;
+}
+
+.annotation-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.annotation-toolbar-group-markers {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  padding-bottom: 0;
+  scrollbar-width: none;
+}
+
+.annotation-toolbar-group-markers::-webkit-scrollbar {
+  display: none;
+}
+
+.annotation-toolbar-group-actions {
+  flex: 0 0 auto;
+}
+
+.annotation-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--annotation-toolbar-border);
+  opacity: 1;
+}
+
+.annotation-toolbar-panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0;
+}
+
+.annotation-selection-menu[data-placement="below"] .annotation-toolbar-content {
+  justify-content: flex-end;
+}
+
+.annotation-selection-menu[data-placement="below"] .annotation-toolbar-panel-stack {
+  order: 1;
+}
+
+.annotation-selection-menu[data-placement="below"] .annotation-toolbar-anchor {
+  order: 2;
+  flex-shrink: 0;
+}
+
+.annotation-selection-menu[data-placement="above"] .annotation-toolbar-anchor {
+  order: 1;
+  flex-shrink: 0;
+}
+
+.annotation-selection-menu[data-placement="above"] .annotation-toolbar-panel-stack {
+  order: 2;
+}
+
+.annotation-toolbar-section {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.annotation-toolbar-marker-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.annotation-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.annotation-toolbar-action {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+}
+
+.annotation-toolbar-action svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2px;
+}
+
+.annotation-toolbar-close {
+  margin-left: 0;
+}
+
+.annotation-toolbar-close:disabled {
+  opacity: 0.45;
+}
+
+.annotation-toolbar-action.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--text-normal);
+  box-shadow: none;
+}
+
+.annotation-toolbar-action.is-active svg {
+  color: var(--text-normal);
+  color: var(--text-on-accent);
+}
+
+.annotation-toolbar-panel {
+  padding: 8px;
+  border: 2px solid var(--annotation-toolbar-border);
+  border-radius: 0;
+  background: var(--background-primary);
+  min-height: 0;
+  overflow: visible;
+  max-height: none;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.annotation-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--annotation-toolbar-border);
+}
+
+.annotation-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.annotation-panel-title-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--interactive-accent);
+}
+
+.annotation-panel-title-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2px;
+}
+
+.annotation-panel-title-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.annotation-panel-meta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 0;
+  border: 2px solid var(--annotation-toolbar-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.annotation-toolbar-preview {
+  padding: 6px 8px;
+  border: 2px solid var(--annotation-toolbar-border);
+  border-radius: 0;
+  background: var(--background-secondary);
+  margin-bottom: 8px;
+}
+
+.annotation-toolbar-preview label,
+.annotation-panel-field-label,
+.annotation-panel-field-label-row label,
+.annotation-toolbar-ruby-preview label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.annotation-toolbar-preview span {
+  display: block;
+  color: var(--text-normal);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.annotation-panel-field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.annotation-inline-copy-btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-width: 1px;
+}
+
+.annotation-inline-copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.annotation-toolbar-note-input {
+  margin-bottom: 0;
+  border-radius: 10px;
+}
+
+.annotation-toolbar-ruby-input-row {
+  margin-bottom: 8px;
+}
+
+.annotation-toolbar-ruby-preview {
+  margin-bottom: 8px;
+}
+
+.annotation-ruby-input {
+  border-radius: 10px;
+}
+
+.annotation-toolbar-ruby-helper {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--interactive-accent);
+  min-height: 18px;
+}
+
+.annotation-ruby-text-preview[data-has-selection="true"] {
+  border-color: var(--interactive-accent);
+  box-shadow: none;
+}
+
+.annotation-toolbar-ruby-add {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.annotation-toolbar-commit-bar {
+  display: none;
+  gap: 10px;
+  padding: 8px 0 0;
+  border-top: 2px solid var(--annotation-toolbar-border);
+  background: var(--annotation-toolbar-surface);
+  border-radius: 0;
+  flex-shrink: 0;
+}
+
+.annotation-toolbar-commit-save,
+.annotation-toolbar-commit-cancel {
+  min-height: 40px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.annotation-toolbar-commit-save:focus-visible,
+.annotation-toolbar-commit-cancel:focus-visible,
+.annotation-toolbar-action:focus-visible,
+.annotation-color-dot:focus-visible,
+.annotation-ruby-item-delete:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.annotation-toolbar-commit-cancel {
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
 .annotation-highlight-tooltip {
   position: fixed;
   z-index: 10000;
@@ -437,7 +1026,7 @@
   white-space: pre-wrap;
   word-break: break-all;
   pointer-events: none;
-  animation: annotation-tooltip-fade-in 0.15s ease-out;
+  animation: none;
 }
 
 .annotation-highlight-tooltip::before {
@@ -639,6 +1228,37 @@
   border: 2px dashed var(--text-muted);
 }
 
+.annotation-list-dot[class*="marker-preset-"] {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--marker-preview-color);
+}
+
+.annotation-list-dot.marker-preset-solid {
+  background: color-mix(in srgb, var(--marker-preview-color) 35%, transparent);
+}
+
+.annotation-list-dot.marker-preset-double-underline {
+  border-bottom: 3px double var(--marker-preview-color);
+}
+
+.annotation-list-dot.marker-preset-half-highlight {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--marker-preview-color) 45%, transparent) 0 55%,
+    transparent 55% 100%
+  );
+}
+
+.annotation-list-dot.marker-preset-wavy-underline {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--marker-preview-color);
+  text-decoration-thickness: 2px;
+}
+
 .annotation-list-text {
   flex: 1;
   font-size: 13px;
@@ -736,9 +1356,9 @@
 }
 
 .annotation-ruby-section {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 2px solid var(--annotation-toolbar-border, var(--text-normal));
 }
 
 .annotation-ruby-row {
@@ -881,4 +1501,348 @@
 .annotation-ruby-item-delete:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
+}
+
+.annotation-marker-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.annotation-marker-settings-item {
+  display: flex;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary-alt, var(--background-primary));
+  align-items: center;
+}
+
+.annotation-marker-settings-item.is-just-moved-up {
+  animation: annotation-settings-row-move-up 180ms ease-out;
+}
+
+.annotation-marker-settings-item.is-just-moved-down {
+  animation: annotation-settings-row-move-down 180ms ease-out;
+}
+
+.annotation-marker-settings-item.is-deleted {
+  opacity: 0.72;
+}
+
+.annotation-marker-settings-item.is-editing {
+  border-color: var(--interactive-accent);
+}
+
+.annotation-marker-settings-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  min-width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  align-self: center;
+}
+
+.annotation-marker-preview-chip {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-normal);
+  background: transparent;
+  font-size: var(--font-text-size);
+  line-height: 1;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.annotation-marker-preview-chip.marker-preset-solid {
+  background: color-mix(in srgb, var(--marker-preview-color) 35%, transparent);
+}
+
+.annotation-marker-preview-chip.marker-preset-double-underline {
+  border-bottom: 3px double var(--marker-preview-color);
+}
+
+.annotation-marker-preview-chip.marker-preset-half-highlight {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--marker-preview-color) 45%, transparent) 0 55%,
+    transparent 55% 100%
+  );
+}
+
+.annotation-marker-preview-chip.marker-preset-wavy-underline {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--marker-preview-color);
+  text-decoration-thickness: 2px;
+}
+
+.annotation-marker-settings-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+
+.annotation-marker-settings-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 22px;
+}
+
+.annotation-marker-settings-usage-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+}
+
+.annotation-marker-settings-usage-badge.is-used {
+  border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
+}
+
+.annotation-marker-settings-usage-badge.is-unused {
+  color: var(--text-muted);
+}
+
+.annotation-marker-settings-usage-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.annotation-marker-settings-main-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.annotation-settings-root h2,
+.annotation-settings-root h3 {
+  letter-spacing: 0;
+}
+
+.annotation-settings-root h2 {
+  margin-bottom: 8px;
+}
+
+.annotation-settings-root h3 {
+  margin-top: 18px;
+  margin-bottom: 10px;
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+
+.annotation-settings-root > .setting-item:first-of-type {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+.annotation-settings-root .setting-item {
+  border-color: var(--background-modifier-border);
+}
+
+.annotation-marker-settings-inline-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(120px, 0.9fr) 88px;
+  gap: 10px;
+  align-items: start;
+}
+
+.annotation-marker-settings-inline-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.annotation-marker-settings-inline-label {
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-muted);
+}
+
+.annotation-marker-settings-inline-field input[type="text"],
+.annotation-marker-settings-inline-field select,
+.annotation-marker-settings-inline-field input[type="color"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.annotation-marker-settings-inline-field.is-color input[type="color"] {
+  padding: 0;
+  height: calc(var(--input-height) - 2px);
+}
+
+.annotation-marker-settings-item:not(.is-editing) .annotation-marker-settings-inline-field input[type="text"],
+.annotation-marker-settings-item:not(.is-editing) .annotation-marker-settings-inline-field select {
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  border-color: var(--background-modifier-border);
+  box-shadow: none;
+}
+
+.annotation-marker-settings-item:not(.is-editing) .annotation-marker-settings-inline-field.is-color input[type="color"] {
+  opacity: 0.7;
+}
+
+.annotation-marker-settings-item.is-editing .annotation-marker-settings-inline-field input[type="text"],
+.annotation-marker-settings-item.is-editing .annotation-marker-settings-inline-field select,
+.annotation-marker-settings-item.is-editing .annotation-marker-settings-inline-field.is-color input[type="color"] {
+  background: var(--background-primary);
+}
+
+.annotation-marker-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: max-content;
+  justify-content: flex-end;
+  align-self: center;
+  padding-top: 0;
+  flex-wrap: wrap;
+}
+
+.annotation-marker-settings-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.annotation-marker-settings-actions button,
+.annotation-settings-root > .setting-item button {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.annotation-marker-settings-action {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.annotation-marker-settings-actions .mod-cta.annotation-marker-settings-action {
+  background: var(--background-primary);
+  color: var(--text-muted);
+  border-color: var(--background-modifier-border);
+}
+
+.annotation-marker-settings-action svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2px;
+}
+
+.annotation-marker-settings-action:hover:not(:disabled) {
+  color: var(--text-normal);
+  border-color: var(--text-normal);
+}
+
+.annotation-marker-settings-action.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.annotation-marker-settings-action.is-disabled-state {
+  background: var(--background-primary);
+  color: var(--text-muted);
+  border-color: var(--background-modifier-border);
+}
+
+.annotation-marker-settings-action.is-disabled-state:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--text-normal);
+}
+
+.annotation-marker-settings-action:disabled {
+  opacity: 0.45;
+}
+
+@keyframes annotation-settings-row-move-up {
+  from {
+    transform: translateY(5px);
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  }
+  to {
+    transform: translateY(0);
+    background: var(--background-primary-alt, var(--background-primary));
+  }
+}
+
+@keyframes annotation-settings-row-move-down {
+  from {
+    transform: translateY(-5px);
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  }
+  to {
+    transform: translateY(0);
+    background: var(--background-primary-alt, var(--background-primary));
+  }
+}
+
+.annotation-settings-root input[type="text"],
+.annotation-settings-root select,
+.annotation-settings-root input[type="color"] {
+  border-radius: 6px;
+}
+
+@media (max-width: 900px) {
+  .annotation-marker-settings-item {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .annotation-marker-settings-preview {
+    width: auto;
+    min-width: 0;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-self: auto;
+  }
+
+  .annotation-marker-settings-inline-row {
+    grid-template-columns: 1fr;
+  }
+
+  .annotation-marker-settings-main-row {
+    grid-template-columns: 1fr;
+  }
+
+  .annotation-marker-settings-actions {
+    min-width: 0;
+    justify-content: flex-start;
+    padding-top: 0;
+  }
 }

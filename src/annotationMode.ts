@@ -66,7 +66,7 @@ class LeafAnnotationState {
     this.addAnnotationCursorStyle();
     this.setupDOMContainers();
 
-    this.renderer = new AnnotationRenderer(view, this.elementContextMap, this.extractedElementTexts);
+    this.renderer = new AnnotationRenderer(view, this.dataManager.getMarkerManager(), this.elementContextMap, this.extractedElementTexts);
 
 
 
@@ -878,6 +878,13 @@ class LeafAnnotationState {
 
 
 
+        const selectionRects = Array.from(selectedRange.getClientRects()).map((clientRect) => ({
+          left: clientRect.left,
+          top: clientRect.top,
+          width: clientRect.width,
+          height: clientRect.height,
+        }));
+
         this.selectionMenu.show(
           rect.right,
           rect.bottom,
@@ -887,6 +894,7 @@ class LeafAnnotationState {
           startOffset,
           endOffset,
           this.currentFilePath!,
+          selectionRects,
           async () => {
             await this.loadAndRenderAnnotations();
           },

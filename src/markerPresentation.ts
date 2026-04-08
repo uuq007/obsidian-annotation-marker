@@ -34,7 +34,7 @@ export function buildListMarkerPreview(annotation: Annotation, marker: Marker | 
 }
 
 export function buildMarkerCssRule(marker: Marker): string {
-  const selector = `mark.annotation-marker[data-marker-id="${marker.id}"]`;
+  const selector = `.markdown-rendered mark.annotation-marker[data-marker-id="${marker.id}"], .markdown-preview-view mark.annotation-marker[data-marker-id="${marker.id}"]`;
   const noteSelector = `${selector}.annotation-marker-has-note`;
   const noteBadgeStyle = `
   position: relative;

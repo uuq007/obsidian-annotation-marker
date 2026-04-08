@@ -248,22 +248,26 @@
   text-decoration-thickness: 2px;
 }
 
-mark.annotation-marker {
+.markdown-rendered mark.annotation-marker,
+.markdown-preview-view mark.annotation-marker {
   cursor: pointer;
   border-radius: 2px;
 }
 
-mark.annotation-marker.annotation-marker-has-note {
+.markdown-rendered mark.annotation-marker.annotation-marker-has-note,
+.markdown-preview-view mark.annotation-marker.annotation-marker-has-note {
   overflow: visible;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 
-mark.annotation-marker.annotation-marker-has-note rt {
+.markdown-rendered mark.annotation-marker.annotation-marker-has-note rt,
+.markdown-preview-view mark.annotation-marker.annotation-marker-has-note rt {
   position: relative;
 }
 
-mark.annotation-marker.annotation-marker-has-note::before {
+.markdown-rendered mark.annotation-marker.annotation-marker-has-note::before,
+.markdown-preview-view mark.annotation-marker.annotation-marker-has-note::before {
   content: "";
   position: absolute;
   top: -0.18em;
@@ -1737,14 +1741,15 @@ mark.annotation-marker.annotation-marker-has-note::before {
 }
 
 .annotation-marker-settings-action.is-disabled-state {
-  background: var(--background-secondary);
-  color: var(--text-faint, var(--text-muted));
+  background: var(--background-primary);
+  color: var(--text-muted);
   border-color: var(--background-modifier-border);
 }
 
 .annotation-marker-settings-action.is-disabled-state:hover {
-  color: var(--text-faint, var(--text-muted));
-  border-color: var(--background-modifier-border);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--text-normal);
 }
 
 .annotation-marker-settings-action:disabled {

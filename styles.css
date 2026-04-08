@@ -252,10 +252,12 @@
 .markdown-preview-view mark.annotation-marker {
   cursor: pointer;
   border-radius: 2px;
+  --annotation-marker-color: currentColor;
 }
 
 .markdown-rendered mark.annotation-marker.annotation-marker-has-note,
 .markdown-preview-view mark.annotation-marker.annotation-marker-has-note {
+  position: relative;
   overflow: visible;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -274,10 +276,42 @@
   left: -0.14em;
   width: 0.34em;
   height: 0.34em;
-  background: var(--annotation-note-indicator-color, var(--interactive-accent));
+  background: var(--annotation-marker-color, var(--interactive-accent));
   border-radius: 999px;
   opacity: 0.75;
   pointer-events: none;
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-solid,
+.markdown-preview-view mark.annotation-marker.marker-preset-solid {
+  background: color-mix(in srgb, var(--annotation-marker-color) 38%, transparent);
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-double-underline,
+.markdown-preview-view mark.annotation-marker.marker-preset-double-underline {
+  background: transparent;
+  text-decoration-line: underline;
+  text-decoration-style: double;
+  text-decoration-color: var(--annotation-marker-color);
+  text-decoration-thickness: 2px;
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-half-highlight,
+.markdown-preview-view mark.annotation-marker.marker-preset-half-highlight {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--annotation-marker-color) 45%, transparent) 0 58%,
+    transparent 58% 100%
+  );
+}
+
+.markdown-rendered mark.annotation-marker.marker-preset-wavy-underline,
+.markdown-preview-view mark.annotation-marker.marker-preset-wavy-underline {
+  background: transparent;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--annotation-marker-color);
+  text-decoration-thickness: 2px;
 }
 
 .annotation-color-dot.color-red {

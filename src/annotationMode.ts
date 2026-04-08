@@ -66,7 +66,7 @@ class LeafAnnotationState {
     this.addAnnotationCursorStyle();
     this.setupDOMContainers();
 
-    this.renderer = new AnnotationRenderer(view, this.elementContextMap, this.extractedElementTexts);
+    this.renderer = new AnnotationRenderer(view, this.dataManager.getMarkerManager(), this.elementContextMap, this.extractedElementTexts);
 
 
 

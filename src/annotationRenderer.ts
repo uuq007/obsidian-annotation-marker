@@ -3,6 +3,7 @@ import { Annotation, MATCH_THRESHOLD, CONTEXT_LENGTH_BEFORE, CONTEXT_LENGTH_AFTE
 import { calculateSimilarity } from "./utils/helpers";
 import { MarkdownPostProcessorContext } from "obsidian";
 import { buildRenderedAnnotationAttrs } from "./markerPresentation";
+import { MarkerManager } from "./markerManager";
 
 export interface RenderResult {
   lostAnnotations: Annotation[];
@@ -35,13 +36,16 @@ export class AnnotationRenderer {
   private domTextCache: Map<string, string> = new Map();
   private elementContextMap: WeakMap<HTMLElement, MarkdownPostProcessorContext>;
   private extractedElementTexts: Map<HTMLElement, string>;
+  private markerManager: MarkerManager | null;
 
   constructor(
     view: MarkdownView, 
+    markerManager?: MarkerManager | null,
     elementContextMap?: WeakMap<HTMLElement, MarkdownPostProcessorContext>,
     extractedElementTexts?: Map<HTMLElement, string>
   ) {
     this.view = view;
+    this.markerManager = markerManager ?? null;
     this.elementContextMap = elementContextMap || new WeakMap();
     this.extractedElementTexts = extractedElementTexts || new Map();
   }
@@ -229,10 +233,19 @@ export class AnnotationRenderer {
   }
 
   private applyMarkerPresentation(element: HTMLElement, annotation: Annotation): void {
-    const attrs = buildRenderedAnnotationAttrs(annotation);
+    const marker =
+      this.markerManager?.getMarkerById(annotation.markerId) ??
+      this.markerManager?.getMarkerForLegacyColor(annotation.color) ??
+      null;
+    const attrs = buildRenderedAnnotationAttrs(annotation, marker);
     attrs.classNames.forEach((className) => element.addClass(className));
     if (attrs.markerId) {
       element.dataset.markerId = attrs.markerId;
+    }
+    if (attrs.markerColor) {
+      element.style.setProperty("--annotation-marker-color", attrs.markerColor);
+    } else {
+      element.style.removeProperty("--annotation-marker-color");
     }
   }
 

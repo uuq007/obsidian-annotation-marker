@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Annotation, Marker } from "./types";
-import { buildListMarkerPreview, buildMarkerCssRule, buildRenderedAnnotationAttrs } from "./markerPresentation";
+import { buildListMarkerPreview, buildRenderedAnnotationAttrs } from "./markerPresentation";
 
 const baseTime = "2026-04-08T00:00:00.000Z";
 
@@ -40,14 +40,21 @@ function createAnnotation(overrides: Partial<Annotation>): Annotation {
 
 describe("markerPresentation", () => {
   it("builds rendered annotation attributes from marker identity and note state", () => {
+    const marker = createMarker({
+      id: "m1",
+      preset: "half-highlight",
+      color: "#26c281",
+    });
     const attrs = buildRenderedAnnotationAttrs(createAnnotation({
       markerId: "m1",
       note: "has note",
-    }));
+    }), marker);
 
     expect(attrs.classNames).toContain("annotation-marker");
+    expect(attrs.classNames).toContain("marker-preset-half-highlight");
     expect(attrs.classNames).toContain("annotation-marker-has-note");
     expect(attrs.markerId).toBe("m1");
+    expect(attrs.markerColor).toBe("#26c281");
   });
 
   it("builds list preview from marker label and marker preset", () => {
@@ -72,15 +79,12 @@ describe("markerPresentation", () => {
     expect(preview.deleted).toBe(true);
   });
 
-  it("builds preset css rules from marker config", () => {
-    const rule = buildMarkerCssRule(createMarker({
-      id: "m4",
-      preset: "double-underline",
-      color: "#26c281",
-    }));
+  it("still returns base attrs without marker metadata", () => {
+    const attrs = buildRenderedAnnotationAttrs(createAnnotation({
+      markerId: "m4",
+    }), null);
 
-    expect(rule).toContain('mark.annotation-marker[data-marker-id="m4"]');
-    expect(rule).toContain("text-decoration-style: double");
-    expect(rule).toContain("#26c281");
+    expect(attrs.classNames).toEqual(["annotation-marker"]);
+    expect(attrs.markerColor).toBeUndefined();
   });
 });

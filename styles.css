@@ -369,22 +369,6 @@ mark.annotation-marker.annotation-marker-has-note::after {
   margin-bottom: 10px;
 }
 
-.annotation-edit-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.annotation-edit-tab {
-  flex: 0 0 auto;
-  min-width: 72px;
-}
-
-.annotation-edit-tab.is-active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
 .annotation-edit-modal .annotation-note-input,
 .annotation-edit-modal .annotation-ruby-input,
 .annotation-edit-modal .annotation-note-input-small {
@@ -395,6 +379,11 @@ mark.annotation-marker.annotation-marker-has-note::after {
   margin-top: 12px;
   padding-top: 8px;
   border-top: 2px solid var(--annotation-toolbar-border, var(--text-normal));
+}
+
+.annotation-edit-modal .annotation-ruby-input-container {
+  gap: 8px;
+  padding-top: 0;
 }
 
 .annotation-btn {

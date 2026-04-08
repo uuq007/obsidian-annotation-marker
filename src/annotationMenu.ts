@@ -1,9 +1,9 @@
 import { App, Modal, Notice, setIcon } from "obsidian";
 import { Annotation, AnnotationColor, Marker } from "./types";
 import { DataManager } from "./dataManager";
-import { calculateRangeOffsetInElement } from "./utils/helpers";
 import { AnnotationMode } from "./annotationMode";
 import { buildExistingMarkerSelection } from "./markerSelection";
+import { renderNoteEditor, renderRubyEditor } from "./annotationEditorSections";
 
 export class AnnotationMenu {
   private app: App;
@@ -181,15 +181,8 @@ class EditNoteModal extends Modal {
   private onSave: (note: string, marker: Marker, rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>) => void;
   private noteInput: HTMLTextAreaElement | null = null;
   private currentMarker: Marker;
-  private rubyTextEnabled: boolean = false;
   private rubyTexts: Array<{ startIndex: number; length: number; ruby: string }> = [];
   private rubyTextInput: HTMLInputElement | null = null;
-  private rubyTextContainer: HTMLElement | null = null;
-  private rubyPreview: HTMLElement | null = null;
-  private rubyTextPreview: HTMLElement | null = null;
-  private selectedRubyRange: { start: number; end: number } | null = null;
-  private updateRubyList: (() => void) | null = null;
-  private activeTab: "note" | "ruby" = "note";
 
   constructor(app: App, dataManager: DataManager, annotation: Annotation, onSave: (note: string, marker: Marker, rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>) => void) {
     super(app);
@@ -204,12 +197,9 @@ class EditNoteModal extends Modal {
         length: annotation.text.length,
         ruby: annotation.rubyText
       }];
-      this.rubyTextEnabled = true;
     } else {
-      this.rubyTextEnabled = !!annotation.rubyTexts && annotation.rubyTexts.length > 0;
       this.rubyTexts = annotation.rubyTexts || [];
     }
-    this.activeTab = this.rubyTextEnabled && !annotation.note ? "ruby" : "note";
   }
 
   onOpen(): void {
@@ -222,11 +212,6 @@ class EditNoteModal extends Modal {
     setIcon(titleIcon, "square-pen");
     title.createSpan({ cls: "annotation-panel-title-text", text: this.annotation.note ? "编辑批注" : "添加批注" });
     header.createSpan({ cls: "annotation-panel-meta", text: this.rubyTexts.length > 0 ? `${this.rubyTexts.length} 项注音` : "编辑模式" });
-
-    const previewEl = contentEl.createDiv({ cls: "annotation-modal-preview annotation-toolbar-preview" });
-    previewEl.createEl("label", { text: "原文" });
-    const previewText = this.annotation.text.length > 50 ? this.annotation.text.substring(0, 50) + "..." : this.annotation.text;
-    previewEl.createEl("span", { text: previewText });
 
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker annotation-toolbar-panel-field" });
     colorContainer.createEl("label", { text: "记号" });
@@ -258,173 +243,29 @@ class EditNoteModal extends Modal {
       });
     }
 
-    const tabs = contentEl.createDiv({ cls: "annotation-edit-tabs" });
-    const noteTabBtn = tabs.createEl("button", {
-      cls: `annotation-btn annotation-btn-secondary annotation-edit-tab${this.activeTab === "note" ? " is-active" : ""}`,
-      text: "批注",
-      attr: { type: "button" },
-    });
-    const rubyTabBtn = tabs.createEl("button", {
-      cls: `annotation-btn annotation-btn-secondary annotation-edit-tab${this.activeTab === "ruby" ? " is-active" : ""}`,
-      text: "注音",
-      attr: { type: "button" },
-    });
-
     const noteContainer = contentEl.createDiv({ cls: "annotation-note-container annotation-toolbar-panel-field" });
-    noteContainer.createEl("label", { text: "批注内容" });
-    this.noteInput = noteContainer.createEl("textarea", { cls: "annotation-note-input" });
-    this.noteInput.setAttribute("maxlength", "400");
-    this.noteInput.setAttribute("rows", "4");
-    this.noteInput.setAttribute("placeholder", "请输入批注内容...");
-    this.noteInput.value = this.annotation.note;
-
-    const charCount = noteContainer.createDiv({ cls: "annotation-char-count", text: `${this.annotation.note.length}/400` });
-    this.noteInput.addEventListener("input", () => {
-      const len = this.noteInput?.value.length ?? 0;
-      charCount.textContent = `${len}/400`;
+    const noteEditor = renderNoteEditor({
+      container: noteContainer,
+      selectedText: this.annotation.text,
+      note: this.annotation.note,
+      previewLabel: "原文",
+      contentLabel: "批注内容",
+      textareaClassName: "annotation-note-input",
     });
+    this.noteInput = noteEditor.input;
 
     const rubySection = contentEl.createDiv({ cls: "annotation-ruby-section annotation-toolbar-panel-field" });
-    this.rubyTextContainer = rubySection.createDiv({ cls: "annotation-ruby-input-container" });
-
-    this.rubyPreview = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-preview" });
-    this.rubyPreview.createEl("label", { text: "划选需要注音的文字：" });
-    this.rubyTextPreview = this.rubyPreview.createDiv({ cls: "annotation-ruby-text-preview", text: this.annotation.text });
-    this.rubyTextPreview.setAttribute("data-selected-text", this.annotation.text);
-
-    const rubyInputRow = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-input-row" });
-    rubyInputRow.createEl("label", { text: "注音内容：" });
-    this.rubyTextInput = rubyInputRow.createEl("input", { type: "text", cls: "annotation-ruby-input", placeholder: "输入注音内容..." });
-
-    this.rubyTextPreview.addEventListener("mouseup", () => {
-      setTimeout(() => {
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) {
-          const range = selection.getRangeAt(0);
-          const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-
-          if (rubyTextOffset) {
-            this.selectedRubyRange = {
-              start: rubyTextOffset.start,
-              end: rubyTextOffset.end
-            };
-          }
-        }
-      }, 10);
+    rubySection.createEl("label", { text: "注音编辑" });
+    const rubyEditor = renderRubyEditor({
+      container: rubySection,
+      selectedText: this.annotation.text,
+      rubyTexts: this.rubyTexts,
+      onItemsChange: (items) => {
+        this.rubyTexts = items;
+        header.querySelector(".annotation-panel-meta")!.textContent = items.length > 0 ? `${items.length} 项注音` : "编辑模式";
+      },
     });
-
-    this.rubyTextInput.addEventListener("focus", () => {
-      if (this.selectedRubyRange) {
-        const selection = window.getSelection();
-        if (selection) {
-          const fullText = this.rubyTextPreview!.textContent || "";
-          const textNode = this.rubyTextPreview!.firstChild;
-          if (textNode) {
-            const range = document.createRange();
-            range.setStart(textNode, this.selectedRubyRange.start);
-            range.setEnd(textNode, this.selectedRubyRange.end);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        }
-      }
-    });
-
-    const addRubyBtn = rubyInputRow.createEl("button", { text: "添加", cls: "annotation-btn annotation-btn-small" });
-    addRubyBtn.addEventListener("click", () => {
-      const selection = window.getSelection();
-      let selectedRubyText = "";
-      let rubyStart = 0;
-
-      if (selection && !selection.isCollapsed) {
-        selectedRubyText = selection.toString();
-        const range = selection.getRangeAt(0);
-        const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-        if (rubyTextOffset) {
-          rubyStart = rubyTextOffset.start;
-        }
-      } else if (this.selectedRubyRange) {
-        selectedRubyText = this.annotation.text.substring(this.selectedRubyRange.start, this.selectedRubyRange.end);
-        rubyStart = this.selectedRubyRange.start;
-      }
-
-      if (selectedRubyText && this.rubyTextInput!.value.trim()) {
-        this.rubyTexts.push({
-          startIndex: rubyStart,
-          length: selectedRubyText.length,
-          ruby: this.rubyTextInput!.value.trim()
-        });
-        this.rubyTextInput!.value = "";
-        this.selectedRubyRange = null;
-        if (selection) {
-          selection.removeAllRanges();
-        }
-        this.updateRubyList?.();
-      } else {
-        if (!selectedRubyText) {
-          if (this.annotation.text.length === 1) {
-            this.rubyTexts.push({
-              startIndex: 0,
-              length: 1,
-              ruby: this.rubyTextInput!.value.trim()
-            });
-            this.rubyTextInput!.value = "";
-            this.selectedRubyRange = null;
-            this.updateRubyList?.();
-          } else {
-            new Notice("请先划选需要注音的文字");
-          }
-        } else {
-          new Notice("请输入注音内容");
-        }
-      }
-    });
-
-    const rubyListContainer = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-list-container" });
-    rubyListContainer.createEl("label", { text: "已添加的注音：" });
-    const rubyList = rubyListContainer.createDiv({ cls: "annotation-ruby-list" });
-    this.updateRubyList = () => {
-      rubyList.empty();
-      if (this.rubyTexts.length === 0) {
-        rubyList.createDiv({ text: "暂无注音", cls: "annotation-ruby-empty" });
-      } else {
-        this.rubyTexts.forEach((ruby, index) => {
-          const item = rubyList.createDiv({ cls: "annotation-ruby-item" });
-          const textPart = item.createSpan({ text: `${this.annotation.text.substring(ruby.startIndex, ruby.startIndex + ruby.length)} → ${ruby.ruby}`, cls: "annotation-ruby-item-text" });
-          const deleteBtn = item.createEl("button", { text: "×", cls: "annotation-ruby-item-delete" });
-          deleteBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            this.rubyTexts.splice(index, 1);
-            this.updateRubyList?.();
-          });
-        });
-      }
-    };
-    this.updateRubyList();
-
-    const syncTabs = () => {
-      noteTabBtn.toggleClass("is-active", this.activeTab === "note");
-      rubyTabBtn.toggleClass("is-active", this.activeTab === "ruby");
-      noteContainer.style.display = this.activeTab === "note" ? "block" : "none";
-      rubySection.style.display = this.activeTab === "ruby" ? "block" : "none";
-      if (this.activeTab === "ruby") {
-        this.rubyTextEnabled = true;
-      }
-    };
-
-    noteTabBtn.addEventListener("click", () => {
-      this.activeTab = "note";
-      syncTabs();
-    });
-
-    rubyTabBtn.addEventListener("click", () => {
-      this.activeTab = "ruby";
-      this.rubyTextEnabled = true;
-      syncTabs();
-      this.rubyTextInput?.focus();
-    });
-
-    syncTabs();
+    this.rubyTextInput = rubyEditor.input;
 
     const buttonContainer = contentEl.createDiv({ cls: "annotation-modal-buttons" });
     buttonContainer.createEl("button", { text: "取消", cls: "annotation-btn annotation-btn-secondary" }).addEventListener("click", () => {
@@ -433,7 +274,7 @@ class EditNoteModal extends Modal {
     const saveBtn = buttonContainer.createEl("button", { text: "保存", cls: "annotation-btn annotation-btn-primary" });
     saveBtn.addEventListener("click", () => {
       const note = this.noteInput?.value ?? "";
-      const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : undefined;
+      const rubyTexts = this.rubyTexts.length > 0 ? this.rubyTexts : undefined;
       this.onSave(note, this.currentMarker, rubyTexts);
       this.close();
     });

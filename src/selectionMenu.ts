@@ -1,8 +1,8 @@
 import { App, Notice, setIcon } from "obsidian";
 import { AnnotationColor, ExtractedRubyInfo, Marker, OriginalRuby, PartialAnnotationInfo, SelectionRectSnapshot } from "./types";
 import { DataManager } from "./dataManager";
-import { calculateRangeOffsetInElement } from "./utils/helpers";
 import { buildCreationMarkerSelection } from "./markerSelection";
+import { renderNoteEditor, renderRubyEditor } from "./annotationEditorSections";
 
 type RubyText = { startIndex: number; length: number; ruby: string };
 
@@ -23,7 +23,6 @@ export class SelectionMenu {
   private initialRubyTexts: RubyText[] = [];
   private rubyTextInput: HTMLInputElement | null = null;
   private rubyTextPreview: HTMLElement | null = null;
-  private selectedRubyRange: { start: number; end: number } | null = null;
   private extractedRubyInfo: ExtractedRubyInfo | null = null;
   private partialAnnotationInfo: PartialAnnotationInfo | null = null;
   private startLineInstance = 0;
@@ -313,31 +312,17 @@ export class SelectionMenu {
     title.createSpan({ cls: "annotation-panel-title-text", text: "批注" });
     header.createSpan({ cls: "annotation-panel-meta", text: `${this.pendingNote.length}/400` });
 
-    const preview = this.notePanelEl.createDiv({ cls: "annotation-menu-preview annotation-toolbar-preview" });
-    preview.createEl("label", { text: "原文本" });
-    const previewText = this.selectedText.length > 100 ? `${this.selectedText.substring(0, 100)}...` : this.selectedText;
-    preview.createEl("span", { text: `"${previewText}"` });
-
-    const noteLabel = this.notePanelEl.createDiv({ cls: "annotation-panel-field-label-row" });
-    noteLabel.createEl("label", { text: "批注内容" });
-    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: `${this.pendingNote.length}/400` });
-
-    this.noteInput = this.notePanelEl.createEl("textarea", {
-      cls: "annotation-note-input-small annotation-toolbar-note-input",
-      attr: {
-        maxlength: "400",
-        placeholder: "输入批注内容（可选，最多400字）...",
+    const noteEditor = renderNoteEditor({
+      container: this.notePanelEl,
+      selectedText: this.selectedText,
+      note: this.pendingNote,
+      onChange: (value) => {
+        this.pendingNote = value;
+        header.querySelector(".annotation-panel-meta")!.textContent = `${value.length}/400`;
+        this.syncUiState();
       },
     });
-    this.noteInput.value = this.pendingNote;
-    this.noteInput.addEventListener("input", () => {
-      const value = this.noteInput?.value ?? "";
-      this.pendingNote = value;
-      charCount.textContent = `${value.length}/400`;
-      charCount.toggleClass("annotation-char-count-error", value.length > 400);
-      header.querySelector(".annotation-panel-meta")!.textContent = `${value.length}/400`;
-      this.syncUiState();
-    });
+    this.noteInput = noteEditor.input;
   }
 
   private renderRubyPanel(): void {
@@ -351,157 +336,22 @@ export class SelectionMenu {
     title.createSpan({ cls: "annotation-panel-title-text", text: "注音" });
     header.createSpan({ cls: "annotation-panel-meta", text: `${this.rubyTexts.length} 项` });
 
-    const inputRow = this.rubyPanelEl.createDiv({ cls: "annotation-ruby-input-row annotation-toolbar-ruby-input-row" });
-    inputRow.createEl("label", { cls: "annotation-panel-field-label", text: "注音内容" });
-    this.rubyTextInput = inputRow.createEl("input", {
-      type: "text",
-      cls: "annotation-ruby-input",
-      attr: { placeholder: "输入注音内容..." },
-    });
-    this.rubyTextInput.addEventListener("input", () => {
-      this.syncRubyAddButton();
-    });
-    this.rubyTextInput.addEventListener("focus", () => {
-      if (!this.selectedRubyRange || !this.rubyTextPreview) {
-        return;
-      }
-
-      const selection = window.getSelection();
-      const textNode = this.rubyTextPreview.firstChild;
-      if (!selection || !textNode) {
-        return;
-      }
-
-      const range = document.createRange();
-      range.setStart(textNode, this.selectedRubyRange.start);
-      range.setEnd(textNode, this.selectedRubyRange.end);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    });
-
-    const preview = this.rubyPanelEl.createDiv({ cls: "annotation-ruby-preview annotation-toolbar-ruby-preview" });
-    preview.createEl("label", { text: "原文本内选择注音范围" });
-    this.rubyTextPreview = preview.createDiv({
-      cls: "annotation-ruby-text-preview",
-      text: this.selectedText,
-    });
-    this.rubyTextPreview.setAttribute("data-selected-text", this.selectedText);
-    this.rubyTextPreview.setAttribute("data-has-selection", "false");
-
-    const helper = preview.createDiv({
-      cls: "annotation-toolbar-ruby-helper",
-      text: "",
-    });
-
-    this.rubyTextPreview.addEventListener("mouseup", () => {
-      setTimeout(() => {
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) {
-          const range = selection.getRangeAt(0);
-          const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-          if (rubyTextOffset) {
-            this.selectedRubyRange = {
-              start: rubyTextOffset.start,
-              end: rubyTextOffset.end,
-            };
-            this.rubyTextPreview?.setAttribute("data-has-selection", "true");
-            helper.textContent = this.selectedText.substring(rubyTextOffset.start, rubyTextOffset.end);
-          }
-        } else {
-          this.selectedRubyRange = null;
-          this.rubyTextPreview?.setAttribute("data-has-selection", "false");
-          helper.textContent = "";
-        }
-        this.syncRubyAddButton();
-      }, 10);
-    });
-
-    this.addRubyBtn = this.rubyPanelEl.createEl("button", {
-      cls: "annotation-btn annotation-btn-secondary annotation-toolbar-ruby-add",
-      text: "添加",
-      attr: { type: "button" },
-    });
-    this.addRubyBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (!this.canAddRuby()) {
-        return;
-      }
-
-      const rubyValue = this.rubyTextInput?.value.trim() ?? "";
-      const selection = window.getSelection();
-      let selectedRubyText = "";
-      let rubyStart = 0;
-
-      if (selection && !selection.isCollapsed) {
-        selectedRubyText = selection.toString();
-        const range = selection.getRangeAt(0);
-        const rubyTextOffset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-        if (rubyTextOffset) {
-          rubyStart = rubyTextOffset.start;
-        }
-      } else if (this.selectedRubyRange) {
-        selectedRubyText = this.selectedText.substring(this.selectedRubyRange.start, this.selectedRubyRange.end);
-        rubyStart = this.selectedRubyRange.start;
-      } else if (this.selectedText.length === 1) {
-        selectedRubyText = this.selectedText;
-        rubyStart = 0;
-      }
-
-      this.rubyTexts.push({
-        startIndex: rubyStart,
-        length: selectedRubyText.length,
-        ruby: rubyValue,
-      });
-
-      if (selection) {
-        selection.removeAllRanges();
-      }
-      this.selectedRubyRange = null;
-      this.rubyTextInput!.value = "";
-      this.rubyTextPreview?.setAttribute("data-has-selection", "false");
-      helper.textContent = "";
-      this.renderRubyList();
-      this.syncUiState();
-      this.syncRubyAddButton();
-    });
-
-    this.rubyPanelEl.createDiv({ cls: "annotation-ruby-list" });
-    this.renderRubyList();
-    this.syncRubyAddButton();
-  }
-
-  private renderRubyList(): void {
-    const rubyList = this.rubyPanelEl?.querySelector(".annotation-ruby-list") as HTMLElement | null;
-    if (!rubyList) return;
-
-    rubyList.empty();
-    const rubyMeta = this.rubyPanelEl?.querySelector(".annotation-panel-meta") as HTMLElement | null;
-    if (rubyMeta) {
-      rubyMeta.textContent = `${this.rubyTexts.length} 项`;
-    }
-    if (this.rubyTexts.length === 0) {
-      rubyList.createDiv({ text: "暂无注音", cls: "annotation-ruby-empty" });
-      return;
-    }
-
-    this.rubyTexts.forEach((ruby, index) => {
-      const item = rubyList.createDiv({ cls: "annotation-ruby-item" });
-      item.createSpan({
-        text: `${this.selectedText.substring(ruby.startIndex, ruby.startIndex + ruby.length)} → ${ruby.ruby}`,
-        cls: "annotation-ruby-item-text",
-      });
-      const deleteBtn = item.createEl("button", {
-        text: "×",
-        cls: "annotation-ruby-item-delete",
-        attr: { type: "button", "aria-label": "删除注音" },
-      });
-      deleteBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.rubyTexts.splice(index, 1);
-        this.renderRubyList();
+    const rubyEditor = renderRubyEditor({
+      container: this.rubyPanelEl,
+      selectedText: this.selectedText,
+      rubyTexts: this.rubyTexts,
+      onItemsChange: (items) => {
+        this.rubyTexts = items;
+        header.querySelector(".annotation-panel-meta")!.textContent = `${items.length} 项`;
         this.syncUiState();
-      });
+      },
+      onDraftChange: () => {
+        this.syncUiState();
+      },
     });
+    this.rubyTextInput = rubyEditor.input;
+    this.rubyTextPreview = rubyEditor.preview;
+    this.addRubyBtn = rubyEditor.addButton;
   }
 
   private toggleNotePanel(): void {
@@ -519,7 +369,6 @@ export class SelectionMenu {
   private toggleRubyPanel(): void {
     if (this.isRubyPanelOpen && this.rubyTexts.length === 0) {
       this.isRubyPanelOpen = false;
-      this.selectedRubyRange = null;
       this.rubyTextPreview?.setAttribute("data-has-selection", "false");
     } else {
       this.isRubyPanelOpen = true;
@@ -528,12 +377,6 @@ export class SelectionMenu {
     if (this.isRubyPanelOpen) {
       this.rubyTextInput?.focus();
     }
-  }
-
-  private canAddRuby(): boolean {
-    const rubyValue = this.rubyTextInput?.value.trim() ?? "";
-    const hasSelection = !!this.selectedRubyRange || this.selectedText.length === 1;
-    return rubyValue.length > 0 && hasSelection;
   }
 
   private isDirty(): boolean {
@@ -599,13 +442,7 @@ export class SelectionMenu {
       this.saveBtn.disabled = !dirty;
     }
 
-    this.syncRubyAddButton();
     requestAnimationFrame(() => this.positionMenu());
-  }
-
-  private syncRubyAddButton(): void {
-    if (!this.addRubyBtn) return;
-    this.addRubyBtn.disabled = !this.canAddRuby();
   }
 
   private bindOutsideClick(): void {
@@ -715,7 +552,6 @@ export class SelectionMenu {
     this.initialRubyTexts = [];
     this.rubyTextInput = null;
     this.rubyTextPreview = null;
-    this.selectedRubyRange = null;
     this.notePanelEl = null;
     this.rubyPanelEl = null;
     this.panelStackEl = null;

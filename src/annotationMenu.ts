@@ -85,7 +85,6 @@ export class AnnotationMenu {
     const titleIcon = title.createSpan({ cls: "annotation-panel-title-icon" });
     setIcon(titleIcon, "highlighter");
     title.createSpan({ text: "标注预览", cls: "annotation-panel-title-text" });
-    panelHeader.createSpan({ cls: "annotation-panel-meta", text: annotation.note?.trim() ? "含批注" : "仅记号" });
 
     const textPreview = detailPanel.createDiv({ cls: "annotation-menu-text annotation-toolbar-preview" });
     const textHeader = textPreview.createDiv({ cls: "annotation-panel-field-label-row" });
@@ -246,7 +245,9 @@ class EditNoteModal extends Modal {
     title.createSpan({ cls: "annotation-panel-title-text", text: this.annotation.note ? "编辑批注" : "添加批注" });
     header.createSpan({ cls: "annotation-panel-meta", text: this.rubyTexts.length > 0 ? `${this.rubyTexts.length} 项注音` : "编辑模式" });
 
-    const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker annotation-toolbar-panel-field" });
+    const body = contentEl.createDiv({ cls: "annotation-edit-body" });
+
+    const colorContainer = body.createDiv({ cls: "annotation-color-picker annotation-toolbar-panel-field" });
     colorContainer.createEl("label", { text: "记号" });
 
     const markerButtons = colorContainer.createDiv({ cls: "annotation-color-buttons annotation-toolbar-marker-row" });
@@ -270,13 +271,13 @@ class EditNoteModal extends Modal {
     });
 
     if (markerSelection.options.some((option) => option.marker.id === this.annotation.markerId && option.disabled)) {
-      contentEl.createDiv({
+      body.createDiv({
         cls: "annotation-marker-settings-status",
         text: "当前记号已删除，保存时请选择一个新的可用记号。",
       });
     }
 
-    const noteContainer = contentEl.createDiv({ cls: "annotation-note-container annotation-toolbar-panel-field" });
+    const noteContainer = body.createDiv({ cls: "annotation-note-container annotation-toolbar-panel-field" });
     const noteEditor = renderNoteEditor({
       container: noteContainer,
       selectedText: this.annotation.text,
@@ -287,7 +288,7 @@ class EditNoteModal extends Modal {
     });
     this.noteInput = noteEditor.input;
 
-    const rubySection = contentEl.createDiv({ cls: "annotation-ruby-section annotation-toolbar-panel-field" });
+    const rubySection = body.createDiv({ cls: "annotation-ruby-section annotation-toolbar-panel-field" });
     rubySection.createEl("label", { text: "注音编辑" });
     const rubyEditor = renderRubyEditor({
       container: rubySection,

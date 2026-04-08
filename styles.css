@@ -353,6 +353,12 @@ mark.annotation-marker.annotation-marker-has-note::after {
 
 .annotation-edit-modal {
   padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 96px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .annotation-edit-modal h3 {
@@ -370,6 +376,16 @@ mark.annotation-marker.annotation-marker-has-note::after {
   margin-bottom: 10px;
 }
 
+.annotation-edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
 .annotation-edit-modal .annotation-note-input,
 .annotation-edit-modal .annotation-ruby-input,
 .annotation-edit-modal .annotation-note-input-small {
@@ -377,9 +393,11 @@ mark.annotation-marker.annotation-marker-has-note::after {
 }
 
 .annotation-edit-modal .annotation-modal-buttons {
-  margin-top: 12px;
+  margin-top: 0;
   padding-top: 8px;
   border-top: 2px solid var(--annotation-toolbar-border, var(--text-normal));
+  flex: 0 0 auto;
+  background: var(--background-primary);
 }
 
 .annotation-edit-modal .annotation-ruby-input-container {
@@ -479,7 +497,7 @@ mark.annotation-marker.annotation-marker-has-note::after {
 }
 
 .annotation-note-container {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .annotation-note-container label {
@@ -521,7 +539,7 @@ mark.annotation-marker.annotation-marker-has-note::after {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 0;
 }
 
 .annotation-modal-buttons .annotation-btn {
@@ -1294,9 +1312,9 @@ mark.annotation-marker.annotation-marker-has-note::after {
 }
 
 .annotation-ruby-section {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 2px solid var(--annotation-toolbar-border, var(--text-normal));
 }
 
 .annotation-ruby-row {

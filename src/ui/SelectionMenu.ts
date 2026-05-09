@@ -13,6 +13,9 @@ export class SelectionMenu {
   private selectedText = "";
   private contextBefore = "";
   private contextAfter = "";
+  private startLine: number | undefined;
+  private endLine: number | undefined;
+  private occurrence: number | undefined;
   private onAddCallback: (() => void) | null = null;
   private pendingNote = "";
   private noteInput: HTMLTextAreaElement | null = null;
@@ -36,6 +39,9 @@ export class SelectionMenu {
     contextBefore: string;
     contextAfter: string;
     notePath: string;
+    startLine?: number;
+    endLine?: number;
+    occurrence?: number;
     onAdd: () => void;
   }): void {
     this.hide();
@@ -44,6 +50,9 @@ export class SelectionMenu {
     this.selectedText = params.selectedText;
     this.contextBefore = params.contextBefore;
     this.contextAfter = params.contextAfter;
+    this.startLine = params.startLine;
+    this.endLine = params.endLine;
+    this.occurrence = params.occurrence;
     this.onAddCallback = params.onAdd;
     this.selectedColor = "yellow";
     this.pendingNote = "";
@@ -348,6 +357,9 @@ export class SelectionMenu {
         rubyTexts,
         contextBefore: this.contextBefore,
         contextAfter: this.contextAfter,
+        startLine: this.startLine,
+        endLine: this.endLine,
+        occurrence: this.occurrence,
       });
 
       if (result) {

@@ -10,7 +10,7 @@ import { DEFAULT_SETTINGS, type AnnotationPluginSettings } from "./types";
 import { SelectionMenu } from "./ui/SelectionMenu";
 import { AnnotationMenu } from "./ui/AnnotationMenu";
 import { AnnotationListPanel } from "./ui/AnnotationListPanel";
-import { extractSelectionContext } from "./utils/contentMapper";
+import { extractSelectionContext, calculateOffsetInBlock } from "./utils/contentMapper";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -18,6 +18,9 @@ export default class AnnotationPlugin extends Plugin {
 
   // 原始文件路径 → 标注文件路径的映射
   activeAnnotationSessions: Map<string, string> = new Map();
+
+  // DOM 元素 → 源文件行号的映射（由 MarkdownPostProcessor 填充）
+  sectionLineMap: WeakMap<HTMLElement, { lineStart: number; lineEnd: number }> = new WeakMap();
 
   // UI 组件
   selectionMenu!: SelectionMenu;
@@ -38,6 +41,7 @@ export default class AnnotationPlugin extends Plugin {
     this.registerCommands();
     this.registerCacheListeners();
     this.registerAnnotationInteraction();
+    this.registerSectionLineCapture();
 
     this.addRibbonIcon("lucide-highlighter", "标注模式", () => {
       this.toggleAnnotationView();
@@ -300,6 +304,20 @@ export default class AnnotationPlugin extends Plugin {
         const context = extractSelectionContext(selection);
         if (!context || !context.text) return;
 
+        // 从选区元素查找行号信息
+        const range = selection.getRangeAt(0);
+        const node = range.startContainer;
+        const el = node instanceof HTMLElement ? node : node.parentElement;
+        const lineInfo = el ? this.findSectionLineInfo(el) : undefined;
+
+        // 计算选中文本在 section 内是第几次出现
+        const sectionEl = lineInfo?.sectionEl;
+        const offset = sectionEl
+          ? calculateOffsetInBlock(range, sectionEl)
+          : 0;
+        const sectionText = sectionEl?.textContent || "";
+        const occurrence = countOccurrenceIndex(sectionText, context.text, offset);
+
         this.annotationMenu.hide();
 
         this.selectionMenu.show({
@@ -309,6 +327,9 @@ export default class AnnotationPlugin extends Plugin {
           contextBefore: context.contextBefore,
           contextAfter: context.contextAfter,
           notePath,
+          startLine: lineInfo?.lineStart,
+          endLine: lineInfo?.lineEnd,
+          occurrence,
           onAdd: () => this.refreshAnnotationView(notePath),
         });
       }, 10);
@@ -378,6 +399,32 @@ export default class AnnotationPlugin extends Plugin {
     this.annotationListPanel.refresh();
   }
 
+  // ========== Section 行号捕获 ==========
+
+  // 注册 MarkdownPostProcessor，捕获每个 section 的行号信息
+  private registerSectionLineCapture() {
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      const sectionInfo = ctx.getSectionInfo(el);
+      if (sectionInfo) {
+        this.sectionLineMap.set(el, {
+          lineStart: sectionInfo.lineStart,
+          lineEnd: sectionInfo.lineEnd,
+        });
+      }
+    });
+  }
+
+  // 从 DOM 元素向上查找最近的 sectionLineMap 条目（同时返回 section 元素）
+  private findSectionLineInfo(el: HTMLElement): { lineStart: number; lineEnd: number; sectionEl: HTMLElement } | null {
+    let current: HTMLElement | null = el;
+    while (current) {
+      const info = this.sectionLineMap.get(current);
+      if (info) return { ...info, sectionEl: current };
+      current = current.parentElement;
+    }
+    return null;
+  }
+
   // ========== 事件和命令 ==========
 
   registerEvents() {
@@ -425,4 +472,30 @@ export default class AnnotationPlugin extends Plugin {
       },
     });
   }
+}
+
+// 计算选中文本在 section 文本中是第几次出现（0-indexed）
+// 找到所有出现位置，返回离 offset 最近的那个的索引
+function countOccurrenceIndex(text: string, searchText: string, offset: number): number {
+  const positions: number[] = [];
+  let pos = 0;
+  while (true) {
+    const idx = text.indexOf(searchText, pos);
+    if (idx < 0) break;
+    positions.push(idx);
+    pos = idx + 1;
+  }
+  if (positions.length === 0) return 0;
+
+  // 找离 offset 最近的出现位置
+  let bestIdx = 0;
+  let bestDist = Math.abs(positions[0]! - offset);
+  for (let i = 1; i < positions.length; i++) {
+    const dist = Math.abs(positions[i]! - offset);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
 }

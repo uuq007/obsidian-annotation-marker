@@ -186,66 +186,180 @@ function parseAnnotations(content) {
 }
 
 // src/utils/contentMapper.ts
-function buildContentMap(content) {
-  const segments = [];
-  const strippedChars = [];
-  const strippedToSource = [];
-  const tagRegex = /<(?:mark|ruby|rt|span)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt|span)>/g;
-  let lastIndex = 0;
-  let match;
-  while ((match = tagRegex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      const text = content.substring(lastIndex, match.index);
-      segments.push({ text, isTag: false, sourceOffset: lastIndex });
-      for (let i = 0; i < text.length; i++) {
-        strippedChars.push(text.charAt(i));
-        strippedToSource.push(lastIndex + i);
-      }
-    }
-    segments.push({ text: match[0], isTag: true, sourceOffset: match.index });
-    lastIndex = tagRegex.lastIndex;
-  }
-  if (lastIndex < content.length) {
-    const text = content.substring(lastIndex);
-    segments.push({ text, isTag: false, sourceOffset: lastIndex });
-    for (let i = 0; i < text.length; i++) {
-      strippedChars.push(text.charAt(i));
-      strippedToSource.push(lastIndex + i);
-    }
-  }
-  return {
-    segments,
-    strippedContent: strippedChars.join(""),
-    strippedToSource
-  };
-}
-function findTextInSource(sourceContent, searchText, contextBefore, contextAfter) {
+function findTextInSource(sourceContent, searchText, contextBefore, contextAfter, searchStartLine, searchEndLine, occurrence) {
   var _a, _b;
   if (!searchText) return null;
-  const map = buildContentMap(sourceContent);
-  const { strippedContent, strippedToSource } = map;
-  let index = -1;
-  if (contextBefore) {
-    const contextIndex = strippedContent.indexOf(contextBefore);
-    if (contextIndex >= 0) {
-      const searchStart = contextIndex + contextBefore.length;
-      const found = strippedContent.indexOf(searchText, Math.max(0, searchStart - searchText.length));
-      if (found >= 0 && found <= searchStart + searchText.length) {
-        index = found;
+  let searchContent = sourceContent;
+  let lineOffset = 0;
+  if (searchStartLine !== void 0 && searchEndLine !== void 0) {
+    const lines = sourceContent.split("\n");
+    const startLine = Math.max(0, searchStartLine);
+    const endLine = Math.min(lines.length - 1, searchEndLine);
+    searchContent = lines.slice(startLine, endLine + 1).join("\n");
+    lineOffset = lines.slice(0, startLine).join("\n").length;
+    if (startLine > 0) lineOffset += 1;
+  }
+  const map = buildCleanedMap(searchContent);
+  const { cleaned, cleanedToSource } = map;
+  const occurrences = [];
+  let searchFrom = 0;
+  while (true) {
+    const idx = cleaned.indexOf(searchText, searchFrom);
+    if (idx < 0) break;
+    occurrences.push(idx);
+    searchFrom = idx + 1;
+  }
+  if (occurrences.length === 0) return null;
+  const targetCleanedIdx = occurrence !== void 0 && occurrence < occurrences.length ? occurrences[occurrence] : occurrences[0];
+  const cleanedStart = targetCleanedIdx;
+  const cleanedEnd = targetCleanedIdx + searchText.length;
+  if (cleanedEnd > cleanedToSource.length) return null;
+  return {
+    start: ((_a = cleanedToSource[cleanedStart]) != null ? _a : 0) + lineOffset,
+    end: ((_b = cleanedToSource[cleanedEnd - 1]) != null ? _b : 0) + 1 + lineOffset
+  };
+}
+function buildCleanedMap(source) {
+  const cleanedChars = [];
+  const cleanedToSource = [];
+  const syntaxRegex = new RegExp([
+    "<rt[^>]*>[\\s\\S]*?<\\/rt>",
+    // <rt>内容</rt> 整体去除
+    "|<[^<>]+>",
+    // HTML 标签去除（保留标签间文本）
+    "|\\*\\*\\*([^\\*]+)\\*\\*\\*",
+    // ***粗斜体*** → 保留内文本
+    "|\\*\\*([^\\*]+)\\*\\*",
+    // **粗体** → 保留内文本
+    "|\\*([^\\*]+)\\*",
+    // *斜体* → 保留内文本
+    "|``([^`]+)``",
+    // ``代码`` → 保留内文本
+    "|`([^`]+)`",
+    // `代码` → 保留内文本
+    "|_([^_]+)_",
+    // _斜体_ → 保留内文本
+    "|==([^=]+)==",
+    // ==高亮== → 保留内文本
+    "|~~([^~]+)~~",
+    // ~~删除线~~ → 保留内文本
+    "|!\\[\\[[^\\[\\]]+\\]\\]",
+    // ![[图片]] 整体去除
+    "|\\[\\[(?:[^\\[\\]\\|]*\\|)?([^\\[\\]]+)\\]\\]",
+    // [[链接]] 或 [[目标|显示]] → 保留显示文本
+    "|!\\[[^\\[\\]\\(\\)]*\\]\\([^)]+\\)",
+    // ![图片](url) 整体去除
+    "|\\[([^\\[\\]\\(\\)]+)\\]\\([^)]+\\)",
+    // [链接](url) → 保留链接文本
+    "|^#{1,6}\\s*",
+    // 标题标记去除
+    "|^\\>\\s?",
+    // 引用标记去除
+    "|^[-*+]\\s(?:\\[[ x]\\]\\s)?",
+    // 列表标记去除
+    "|^\\d+\\.\\s",
+    // 有序列表标记去除
+    "|^-{3,}$",
+    // --- 水平线整体去除
+    "|^\\*{3,}$"
+    // *** 水平线整体去除
+  ].join(""), "gm");
+  const prefixLengths = {
+    1: 3,
+    // ***
+    2: 2,
+    // **
+    3: 1,
+    // *
+    4: 2,
+    // ``
+    5: 1,
+    // `
+    6: 1,
+    // _
+    7: 2,
+    // ==
+    8: 2
+    // ~~
+  };
+  let lastIndex = 0;
+  let match;
+  while ((match = syntaxRegex.exec(source)) !== null) {
+    if (match.index > lastIndex) {
+      const text = source.substring(lastIndex, match.index);
+      for (let i = 0; i < text.length; i++) {
+        cleanedChars.push(text.charAt(i));
+        cleanedToSource.push(lastIndex + i);
       }
     }
+    let keptText = null;
+    let keptSourceStart = 0;
+    if (match[1] !== void 0) {
+      keptText = match[1];
+      keptSourceStart = match.index + 3;
+    } else if (match[2] !== void 0) {
+      keptText = match[2];
+      keptSourceStart = match.index + 2;
+    } else if (match[3] !== void 0) {
+      keptText = match[3];
+      keptSourceStart = match.index + 1;
+    } else if (match[4] !== void 0) {
+      keptText = match[4];
+      keptSourceStart = match.index + 2;
+    } else if (match[5] !== void 0) {
+      keptText = match[5];
+      keptSourceStart = match.index + 1;
+    } else if (match[6] !== void 0) {
+      keptText = match[6];
+      keptSourceStart = match.index + 1;
+    } else if (match[7] !== void 0) {
+      keptText = match[7];
+      keptSourceStart = match.index + 2;
+    } else if (match[8] !== void 0) {
+      keptText = match[8];
+      keptSourceStart = match.index + 2;
+    } else if (match[9] !== void 0) {
+      keptText = match[9];
+      const fullMatch = match[0];
+      const displayOffset = fullMatch.indexOf(keptText);
+      keptSourceStart = match.index + displayOffset;
+    } else if (match[10] !== void 0) {
+      keptText = match[10];
+      keptSourceStart = match.index + 1;
+    }
+    if (keptText) {
+      for (let i = 0; i < keptText.length; i++) {
+        cleanedChars.push(keptText.charAt(i));
+        cleanedToSource.push(keptSourceStart + i);
+      }
+    }
+    lastIndex = syntaxRegex.lastIndex;
   }
-  if (index < 0) {
-    index = strippedContent.indexOf(searchText);
+  if (lastIndex < source.length) {
+    const text = source.substring(lastIndex);
+    for (let i = 0; i < text.length; i++) {
+      cleanedChars.push(text.charAt(i));
+      cleanedToSource.push(lastIndex + i);
+    }
   }
-  if (index < 0) return null;
-  const strippedStart = index;
-  const strippedEnd = index + searchText.length;
-  if (strippedEnd > strippedToSource.length) return null;
   return {
-    start: (_a = strippedToSource[strippedStart]) != null ? _a : 0,
-    end: ((_b = strippedToSource[strippedEnd - 1]) != null ? _b : 0) + 1
+    cleaned: cleanedChars.join(""),
+    cleanedToSource
   };
+}
+function calculateOffsetInBlock(range, block) {
+  var _a, _b, _c;
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+  let offset = 0;
+  let node;
+  while (node = walker.nextNode()) {
+    if (((_a = node.parentElement) == null ? void 0 : _a.tagName) === "RT") continue;
+    if (node === range.startContainer) {
+      return offset + range.startOffset;
+    }
+    offset += (_c = (_b = node.textContent) == null ? void 0 : _b.length) != null ? _c : 0;
+  }
+  return offset;
 }
 function extractSelectionContext(selection) {
   if (!selection.rangeCount) return null;
@@ -257,7 +371,7 @@ function extractSelectionContext(selection) {
   const block = container instanceof HTMLElement ? container : container.parentElement;
   if (!block) return null;
   const blockText = block.textContent || "";
-  const selIndex = blockText.indexOf(text);
+  const selIndex = calculateOffsetInBlock(range, block);
   if (selIndex < 0) return { text, contextBefore: "", contextAfter: "" };
   const CONTEXT_LEN = 50;
   const contextBefore = blockText.substring(Math.max(0, selIndex - CONTEXT_LEN), selIndex);
@@ -294,20 +408,35 @@ function buildMarkTag(id, text, color, note, rubyTexts, createdAt) {
 function insertAnnotation(content, annotation) {
   const id = generateId();
   let start = -1;
+  let end = -1;
   if (annotation.position) {
     start = annotation.position.start;
+    end = annotation.position.end;
   } else {
-    const found = findTextInSource(content, annotation.text, annotation.contextBefore, annotation.contextAfter);
+    const found = findTextInSource(
+      content,
+      annotation.text,
+      annotation.contextBefore,
+      annotation.contextAfter,
+      annotation.startLine,
+      annotation.endLine,
+      annotation.occurrence
+    );
     if (found) {
       start = found.start;
+      end = found.end;
     }
   }
   if (start < 0) {
     return { content, id };
   }
-  const tag = buildMarkTag(id, annotation.text, annotation.color, annotation.note, annotation.rubyTexts);
+  if (end < 0) {
+    end = start + annotation.text.length;
+  }
+  const sourceSlice = content.substring(start, end);
+  const tag = sourceSlice === annotation.text ? buildMarkTag(id, sourceSlice, annotation.color, annotation.note, annotation.rubyTexts) : buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
   return {
-    content: content.substring(0, start) + tag + content.substring(start + annotation.text.length),
+    content: content.substring(0, start) + tag + content.substring(end),
     id
   };
 }
@@ -552,6 +681,9 @@ var SelectionMenu = class {
     this.selectedText = params.selectedText;
     this.contextBefore = params.contextBefore;
     this.contextAfter = params.contextAfter;
+    this.startLine = params.startLine;
+    this.endLine = params.endLine;
+    this.occurrence = params.occurrence;
     this.onAddCallback = params.onAdd;
     this.selectedColor = "yellow";
     this.pendingNote = "";
@@ -803,7 +935,10 @@ var SelectionMenu = class {
         note: note || void 0,
         rubyTexts,
         contextBefore: this.contextBefore,
-        contextAfter: this.contextAfter
+        contextAfter: this.contextAfter,
+        startLine: this.startLine,
+        endLine: this.endLine,
+        occurrence: this.occurrence
       });
       if (result) {
         (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
@@ -1337,9 +1472,9 @@ var AnnotationListPanel = class {
     };
     setTimeout(() => document.addEventListener("click", handler), 10);
   }
-  // 滚动到指定标注位置
-  // 使用 renderer.applyScroll 先滚到目标行，等懒渲染完成后高亮元素
+  // 滚动到指定标注位置并高亮
   async scrollToAnnotation(annotation) {
+    var _a;
     this.hidePanel();
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath);
     const lineIndex = content.substring(0, annotation.position.start).split("\n").length - 1;
@@ -1351,30 +1486,23 @@ var AnnotationListPanel = class {
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const highlightEl = document.querySelector(
+    const containerEl = (_a = view == null ? void 0 : view.previewMode) == null ? void 0 : _a.containerEl;
+    const highlightEl = containerEl == null ? void 0 : containerEl.querySelector(
       `mark[data-annotation-id="${annotation.id}"]`
     );
     if (highlightEl) {
-      highlightEl.style.transition = "box-shadow 0.3s ease";
-      highlightEl.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-      setTimeout(() => {
-        highlightEl.style.boxShadow = "";
-      }, 2e3);
+      this.highlightElement(highlightEl);
     } else {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const retryEl = document.querySelector(
-        `mark[data-annotation-id="${annotation.id}"]`
-      );
-      if (retryEl) {
-        retryEl.style.transition = "box-shadow 0.3s ease";
-        retryEl.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-        setTimeout(() => {
-          retryEl.style.boxShadow = "";
-        }, 2e3);
-      } else {
-        new import_obsidian5.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8\uFF0C\u53EF\u80FD\u6587\u6863\u5185\u5BB9\u5DF2\u66F4\u6539");
-      }
+      new import_obsidian5.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8\uFF0C\u53EF\u80FD\u6587\u6863\u5185\u5BB9\u5DF2\u66F4\u6539");
     }
+  }
+  // 给标注元素添加临时蓝色边框高亮
+  highlightElement(el) {
+    el.style.transition = "box-shadow 0.3s ease";
+    el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+    setTimeout(() => {
+      el.style.boxShadow = "";
+    }, 2e3);
   }
   hidePanel() {
     if (this.panelClickHandler) {
@@ -1406,6 +1534,8 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     super(...arguments);
     // 原始文件路径 → 标注文件路径的映射
     this.activeAnnotationSessions = /* @__PURE__ */ new Map();
+    // DOM 元素 → 源文件行号的映射（由 MarkdownPostProcessor 填充）
+    this.sectionLineMap = /* @__PURE__ */ new WeakMap();
   }
   async onload() {
     var _a;
@@ -1419,6 +1549,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     this.registerCommands();
     this.registerCacheListeners();
     this.registerAnnotationInteraction();
+    this.registerSectionLineCapture();
     this.addRibbonIcon("lucide-highlighter", "\u6807\u6CE8\u6A21\u5F0F", () => {
       this.toggleAnnotationView();
     });
@@ -1625,6 +1756,14 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
         if (!selection || selection.isCollapsed) return;
         const context = extractSelectionContext(selection);
         if (!context || !context.text) return;
+        const range = selection.getRangeAt(0);
+        const node = range.startContainer;
+        const el = node instanceof HTMLElement ? node : node.parentElement;
+        const lineInfo = el ? this.findSectionLineInfo(el) : void 0;
+        const sectionEl = lineInfo == null ? void 0 : lineInfo.sectionEl;
+        const offset = sectionEl ? calculateOffsetInBlock(range, sectionEl) : 0;
+        const sectionText = (sectionEl == null ? void 0 : sectionEl.textContent) || "";
+        const occurrence = countOccurrenceIndex(sectionText, context.text, offset);
         this.annotationMenu.hide();
         this.selectionMenu.show({
           x: e.clientX,
@@ -1633,6 +1772,9 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
           contextBefore: context.contextBefore,
           contextAfter: context.contextAfter,
           notePath,
+          startLine: lineInfo == null ? void 0 : lineInfo.lineStart,
+          endLine: lineInfo == null ? void 0 : lineInfo.lineEnd,
+          occurrence,
           onAdd: () => this.refreshAnnotationView(notePath)
         });
       }, 10);
@@ -1682,6 +1824,29 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     }
     this.annotationListPanel.refresh();
   }
+  // ========== Section 行号捕获 ==========
+  // 注册 MarkdownPostProcessor，捕获每个 section 的行号信息
+  registerSectionLineCapture() {
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      const sectionInfo = ctx.getSectionInfo(el);
+      if (sectionInfo) {
+        this.sectionLineMap.set(el, {
+          lineStart: sectionInfo.lineStart,
+          lineEnd: sectionInfo.lineEnd
+        });
+      }
+    });
+  }
+  // 从 DOM 元素向上查找最近的 sectionLineMap 条目（同时返回 section 元素）
+  findSectionLineInfo(el) {
+    let current = el;
+    while (current) {
+      const info = this.sectionLineMap.get(current);
+      if (info) return { ...info, sectionEl: current };
+      current = current.parentElement;
+    }
+    return null;
+  }
   // ========== 事件和命令 ==========
   registerEvents() {
     this.registerEvent(
@@ -1725,3 +1890,24 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     });
   }
 };
+function countOccurrenceIndex(text, searchText, offset) {
+  const positions = [];
+  let pos = 0;
+  while (true) {
+    const idx = text.indexOf(searchText, pos);
+    if (idx < 0) break;
+    positions.push(idx);
+    pos = idx + 1;
+  }
+  if (positions.length === 0) return 0;
+  let bestIdx = 0;
+  let bestDist = Math.abs(positions[0] - offset);
+  for (let i = 1; i < positions.length; i++) {
+    const dist = Math.abs(positions[i] - offset);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}

@@ -31,9 +31,14 @@ export interface NewAnnotation {
     start: number;
     end: number;
   };
+  // 行号范围（辅助定位，缩小搜索范围）
+  startLine?: number;
+  endLine?: number;
   // 上下文辅助定位（position 为空时使用）
   contextBefore?: string;
   contextAfter?: string;
+  // 选中文本在 section 内是第几次出现（0-indexed，用于同段落重复文本定位）
+  occurrence?: number;
 }
 
 // 更新标注时的参数

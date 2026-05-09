@@ -51,15 +51,23 @@ export function insertAnnotation(content: string, annotation: NewAnnotation): { 
   const id = generateId();
 
   let start = -1;
+  let end = -1;
 
   // 优先使用精确位置
   if (annotation.position) {
     start = annotation.position.start;
+    end = annotation.position.end;
   } else {
-    // 通过文本搜索定位
-    const found = findTextInSource(content, annotation.text, annotation.contextBefore, annotation.contextAfter);
+    // 通过文本搜索定位（含行号范围和出现序号）
+    const found = findTextInSource(
+      content, annotation.text,
+      annotation.contextBefore, annotation.contextAfter,
+      annotation.startLine, annotation.endLine,
+      annotation.occurrence
+    );
     if (found) {
       start = found.start;
+      end = found.end;
     }
   }
 
@@ -68,10 +76,21 @@ export function insertAnnotation(content: string, annotation: NewAnnotation): { 
     return { content, id };
   }
 
-  const tag = buildMarkTag(id, annotation.text, annotation.color, annotation.note, annotation.rubyTexts);
+  // 如果没有 end（精确位置模式），用 text.length 计算
+  if (end < 0) {
+    end = start + annotation.text.length;
+  }
+
+  // 获取源码切片（可能包含 markdown 语法，如 "一段**示例"）
+  const sourceSlice = content.substring(start, end);
+
+  // 根据源码切片是否与纯文本一致，决定是否处理注音
+  const tag = (sourceSlice === annotation.text)
+    ? buildMarkTag(id, sourceSlice, annotation.color, annotation.note, annotation.rubyTexts)
+    : buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
 
   return {
-    content: content.substring(0, start) + tag + content.substring(start + annotation.text.length),
+    content: content.substring(0, start) + tag + content.substring(end),
     id,
   };
 }

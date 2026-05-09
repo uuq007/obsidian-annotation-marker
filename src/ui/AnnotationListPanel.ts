@@ -223,16 +223,15 @@ export class AnnotationListPanel {
     setTimeout(() => document.addEventListener("click", handler), 10);
   }
 
-  // 滚动到指定标注位置
-  // 使用 renderer.applyScroll 先滚到目标行，等懒渲染完成后高亮元素
+  // 滚动到指定标注位置并高亮
   private async scrollToAnnotation(annotation: ParsedAnnotation): Promise<void> {
     this.hidePanel();
 
-    // 从字符偏移计算行号
+    // 计算行号
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath!);
     const lineIndex = content.substring(0, annotation.position.start).split("\n").length - 1;
 
-    // 通过 renderer.applyScroll 滚动到目标行（触发懒渲染）
+    // applyScroll 滚动到目标行
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (view?.previewMode) {
       const renderer = (view.previewMode as any).renderer;
@@ -241,36 +240,28 @@ export class AnnotationListPanel {
       }
     }
 
-    // 等待懒渲染完成
+    // 等待渲染完成后查找并高亮
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    // 查找并高亮标注元素
-    const highlightEl = document.querySelector(
+    const containerEl = view?.previewMode?.containerEl;
+    const highlightEl = containerEl?.querySelector(
       `mark[data-annotation-id="${annotation.id}"]`
     ) as HTMLElement;
 
     if (highlightEl) {
-      highlightEl.style.transition = "box-shadow 0.3s ease";
-      highlightEl.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-      setTimeout(() => {
-        highlightEl.style.boxShadow = "";
-      }, 2000);
+      this.highlightElement(highlightEl);
     } else {
-      // 重试一次（渲染可能需要更长时间）
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const retryEl = document.querySelector(
-        `mark[data-annotation-id="${annotation.id}"]`
-      ) as HTMLElement;
-      if (retryEl) {
-        retryEl.style.transition = "box-shadow 0.3s ease";
-        retryEl.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-        setTimeout(() => {
-          retryEl.style.boxShadow = "";
-        }, 2000);
-      } else {
-        new Notice("未能定位到标注，可能文档内容已更改");
-      }
+      new Notice("未能定位到标注，可能文档内容已更改");
     }
+  }
+
+  // 给标注元素添加临时蓝色边框高亮
+  private highlightElement(el: HTMLElement): void {
+    el.style.transition = "box-shadow 0.3s ease";
+    el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+    setTimeout(() => {
+      el.style.boxShadow = "";
+    }, 2000);
   }
 
   private hidePanel(): void {

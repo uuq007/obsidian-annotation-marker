@@ -394,11 +394,16 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
     this.registerEvents();
     this.registerCommands();
+    this.registerCacheListeners();
     this.addRibbonIcon("lucide-highlighter", "\u6807\u6CE8\u6A21\u5F0F", () => {
       this.toggleAnnotationView();
     });
   }
   onunload() {
+    for (const [, annotationPath] of this.activeAnnotationSessions) {
+      this.removeFakeTFile(annotationPath);
+      this.removeMetadataCache(annotationPath);
+    }
     this.activeAnnotationSessions.clear();
   }
   async loadSettings() {
@@ -421,6 +426,59 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
   // 从 vault.fileMap 中移除假文件
   removeFakeTFile(path) {
     delete this.app.vault.fileMap[path];
+  }
+  // 为标注文件注入原笔记的元数据缓存，使内部链接和大纲视图正常工作
+  injectMetadataCache(annotationPath, originalPath, fakeTFile) {
+    const cacheInternal = this.app.metadataCache;
+    const originalCache = cacheInternal.metadataCache[originalPath];
+    if (originalCache) {
+      cacheInternal.metadataCache[annotationPath] = originalCache;
+    }
+    const originalFileCache = cacheInternal.fileCache[originalPath];
+    if (originalFileCache) {
+      cacheInternal.fileCache[annotationPath] = originalFileCache;
+    }
+    if (originalCache) {
+      this.app.metadataCache.trigger("changed", fakeTFile, "", originalCache);
+    }
+  }
+  // 清理标注文件的元数据缓存
+  removeMetadataCache(annotationPath) {
+    const cacheInternal = this.app.metadataCache;
+    delete cacheInternal.metadataCache[annotationPath];
+    delete cacheInternal.fileCache[annotationPath];
+  }
+  // 注册元数据缓存相关的全局事件监听
+  registerCacheListeners() {
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor, info) => {
+        var _a;
+        const filePath = (_a = info.file) == null ? void 0 : _a.path;
+        if (!filePath) return;
+        const originalPath = this.getOriginalPathByAnnotationPath(filePath);
+        if (originalPath) {
+          this.injectMetadataCache(filePath, originalPath, info.file);
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => {
+        for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
+          let isStillOpen = false;
+          this.app.workspace.iterateAllLeaves((l) => {
+            var _a, _b;
+            if (((_b = (_a = l.view) == null ? void 0 : _a.file) == null ? void 0 : _b.path) === annotationPath) {
+              isStillOpen = true;
+            }
+          });
+          if (!isStillOpen) {
+            this.removeFakeTFile(annotationPath);
+            this.removeMetadataCache(annotationPath);
+            this.activeAnnotationSessions.delete(originalPath);
+          }
+        }
+      })
+    );
   }
   // 根据标注文件路径查找原始文件路径
   getOriginalPathByAnnotationPath(annotationPath) {
@@ -460,6 +518,7 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
     console.log("[\u6807\u6CE8] fakeTFile:", fakeTFile.path, "basename:", fakeTFile.basename, "ext:", fakeTFile.extension, "deleted:", fakeTFile.deleted);
     this.activeAnnotationSessions.set(notePath, annotationPath);
     try {
+      this.injectMetadataCache(annotationPath, notePath, fakeTFile);
       await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
       console.log("[\u6807\u6CE8] openFile \u5B8C\u6210, \u5F53\u524D view:", (_b = (_a = leaf.view) == null ? void 0 : _a.constructor) == null ? void 0 : _b.name);
     } catch (e) {
@@ -473,12 +532,18 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
     if (!(originalFile instanceof import_obsidian2.TFile)) {
       new import_obsidian2.Notice("\u539F\u59CB\u6587\u4EF6\u4E0D\u5B58\u5728");
-      if (annotationPath) this.removeFakeTFile(annotationPath);
+      if (annotationPath) {
+        this.removeFakeTFile(annotationPath);
+        this.removeMetadataCache(annotationPath);
+      }
       this.activeAnnotationSessions.delete(originalPath);
       return;
     }
     await leaf.openFile(originalFile);
-    if (annotationPath) this.removeFakeTFile(annotationPath);
+    if (annotationPath) {
+      this.removeFakeTFile(annotationPath);
+      this.removeMetadataCache(annotationPath);
+    }
     this.activeAnnotationSessions.delete(originalPath);
   }
   // 注册事件

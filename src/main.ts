@@ -23,6 +23,7 @@ export default class AnnotationPlugin extends Plugin {
 
     this.registerEvents();
     this.registerCommands();
+    this.registerCacheListeners();
 
     this.addRibbonIcon("lucide-highlighter", "标注模式", () => {
       this.toggleAnnotationView();
@@ -30,6 +31,11 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   onunload() {
+    // 清理所有假文件和元数据缓存
+    for (const [, annotationPath] of this.activeAnnotationSessions) {
+      this.removeFakeTFile(annotationPath);
+      this.removeMetadataCache(annotationPath);
+    }
     this.activeAnnotationSessions.clear();
   }
 
@@ -62,6 +68,70 @@ export default class AnnotationPlugin extends Plugin {
   // 从 vault.fileMap 中移除假文件
   private removeFakeTFile(path: string) {
     delete (this.app.vault as any).fileMap[path];
+  }
+
+  // 为标注文件注入原笔记的元数据缓存，使内部链接和大纲视图正常工作
+  private injectMetadataCache(annotationPath: string, originalPath: string, fakeTFile: TFile) {
+    const cacheInternal = this.app.metadataCache as any;
+
+    // 从原笔记路径获取已有的 CachedMetadata，注入到标注文件路径
+    const originalCache = cacheInternal.metadataCache[originalPath];
+    if (originalCache) {
+      cacheInternal.metadataCache[annotationPath] = originalCache;
+    }
+
+    // 同时注入 fileCache 条目（hash/mtime/size）
+    const originalFileCache = cacheInternal.fileCache[originalPath];
+    if (originalFileCache) {
+      cacheInternal.fileCache[annotationPath] = originalFileCache;
+    }
+
+    // 触发 changed 事件，让大纲视图等原生插件同步
+    if (originalCache) {
+      this.app.metadataCache.trigger("changed", fakeTFile, "", originalCache);
+    }
+  }
+
+  // 清理标注文件的元数据缓存
+  private removeMetadataCache(annotationPath: string) {
+    const cacheInternal = this.app.metadataCache as any;
+    delete cacheInternal.metadataCache[annotationPath];
+    delete cacheInternal.fileCache[annotationPath];
+  }
+
+  // 注册元数据缓存相关的全局事件监听
+  private registerCacheListeners() {
+    // 编辑时重新注入缓存
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor, info) => {
+        const filePath = (info as any).file?.path;
+        if (!filePath) return;
+        const originalPath = this.getOriginalPathByAnnotationPath(filePath);
+        if (originalPath) {
+          this.injectMetadataCache(filePath, originalPath, (info as any).file);
+        }
+      })
+    );
+
+    // 标签页关闭时清理假文件和缓存
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => {
+        for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
+          let isStillOpen = false;
+          this.app.workspace.iterateAllLeaves((l) => {
+            if ((l.view as any)?.file?.path === annotationPath) {
+              isStillOpen = true;
+            }
+          });
+
+          if (!isStillOpen) {
+            this.removeFakeTFile(annotationPath);
+            this.removeMetadataCache(annotationPath);
+            this.activeAnnotationSessions.delete(originalPath);
+          }
+        }
+      })
+    );
   }
 
   // 根据标注文件路径查找原始文件路径
@@ -114,6 +184,9 @@ export default class AnnotationPlugin extends Plugin {
     this.activeAnnotationSessions.set(notePath, annotationPath);
 
     try {
+      // 注入原笔记的元数据缓存，使内部链接跳转和大纲视图正常工作
+      this.injectMetadataCache(annotationPath, notePath, fakeTFile);
+
       await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
       console.log("[标注] openFile 完成, 当前 view:", (leaf.view as any)?.constructor?.name);
     } catch (e) {
@@ -129,15 +202,21 @@ export default class AnnotationPlugin extends Plugin {
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
     if (!(originalFile instanceof TFile)) {
       new Notice("原始文件不存在");
-      if (annotationPath) this.removeFakeTFile(annotationPath);
+      if (annotationPath) {
+        this.removeFakeTFile(annotationPath);
+        this.removeMetadataCache(annotationPath);
+      }
       this.activeAnnotationSessions.delete(originalPath);
       return;
     }
 
     await leaf.openFile(originalFile);
 
-    // 清理假文件
-    if (annotationPath) this.removeFakeTFile(annotationPath);
+    // 清理假文件和元数据缓存
+    if (annotationPath) {
+      this.removeFakeTFile(annotationPath);
+      this.removeMetadataCache(annotationPath);
+    }
     this.activeAnnotationSessions.delete(originalPath);
   }
 

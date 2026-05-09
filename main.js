@@ -480,6 +480,24 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
       })
     );
   }
+  // 获取当前视图的滚动位置
+  getSavedScroll(leaf) {
+    var _a;
+    const view = leaf == null ? void 0 : leaf.view;
+    if ((_a = view == null ? void 0 : view.currentMode) == null ? void 0 : _a.getScroll) {
+      const scroll = view.currentMode.getScroll();
+      return typeof scroll === "number" ? scroll : 0;
+    }
+    return 0;
+  }
+  // 恢复视图的滚动位置
+  restoreScroll(leaf, scroll) {
+    if (!scroll) return;
+    const view = leaf == null ? void 0 : leaf.view;
+    if (view == null ? void 0 : view.setEphemeralState) {
+      view.setEphemeralState({ scroll });
+    }
+  }
   // 根据标注文件路径查找原始文件路径
   getOriginalPathByAnnotationPath(annotationPath) {
     for (const [originalPath, aPath] of this.activeAnnotationSessions) {
@@ -507,6 +525,7 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
   // 打开标注视图
   async openAnnotationView(leaf, notePath) {
     var _a, _b;
+    const savedScroll = this.getSavedScroll(leaf);
     const ok = await this.fileManager.ensureAnnotationFile(notePath);
     if (!ok) {
       new import_obsidian2.Notice("\u6807\u6CE8\u6587\u4EF6\u521B\u5EFA\u5931\u8D25");
@@ -521,6 +540,11 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
       this.injectMetadataCache(annotationPath, notePath, fakeTFile);
       await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
       console.log("[\u6807\u6CE8] openFile \u5B8C\u6210, \u5F53\u524D view:", (_b = (_a = leaf.view) == null ? void 0 : _a.constructor) == null ? void 0 : _b.name);
+      if (savedScroll) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
+        });
+      }
     } catch (e) {
       console.error("[\u6807\u6CE8] openFile \u5931\u8D25:", e);
       new import_obsidian2.Notice("\u6253\u5F00\u6807\u6CE8\u6587\u4EF6\u5931\u8D25: " + e);
@@ -528,6 +552,7 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
   }
   // 关闭标注视图，切回原文件
   async closeAnnotationView(leaf, originalPath) {
+    const savedScroll = this.getSavedScroll(leaf);
     const annotationPath = this.activeAnnotationSessions.get(originalPath);
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
     if (!(originalFile instanceof import_obsidian2.TFile)) {
@@ -545,6 +570,11 @@ var AnnotationPlugin = class extends import_obsidian2.Plugin {
       this.removeMetadataCache(annotationPath);
     }
     this.activeAnnotationSessions.delete(originalPath);
+    if (savedScroll) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
+      });
+    }
   }
   // 注册事件
   registerEvents() {

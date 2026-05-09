@@ -134,6 +134,25 @@ export default class AnnotationPlugin extends Plugin {
     );
   }
 
+  // 获取当前视图的滚动位置
+  private getSavedScroll(leaf: any): number {
+    const view = leaf?.view;
+    if (view?.currentMode?.getScroll) {
+      const scroll = view.currentMode.getScroll();
+      return typeof scroll === "number" ? scroll : 0;
+    }
+    return 0;
+  }
+
+  // 恢复视图的滚动位置
+  private restoreScroll(leaf: any, scroll: number) {
+    if (!scroll) return;
+    const view = leaf?.view;
+    if (view?.setEphemeralState) {
+      view.setEphemeralState({ scroll });
+    }
+  }
+
   // 根据标注文件路径查找原始文件路径
   private getOriginalPathByAnnotationPath(annotationPath: string): string | null {
     for (const [originalPath, aPath] of this.activeAnnotationSessions) {
@@ -166,6 +185,9 @@ export default class AnnotationPlugin extends Plugin {
 
   // 打开标注视图
   async openAnnotationView(leaf: any, notePath: string) {
+    // 保存当前滚动位置
+    const savedScroll = this.getSavedScroll(leaf);
+
     // 确保标注文件存在
     const ok = await this.fileManager.ensureAnnotationFile(notePath);
     if (!ok) {
@@ -189,6 +211,13 @@ export default class AnnotationPlugin extends Plugin {
 
       await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
       console.log("[标注] openFile 完成, 当前 view:", (leaf.view as any)?.constructor?.name);
+
+      // 恢复滚动位置（双 rAF 等渲染完成后恢复）
+      if (savedScroll) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
+        });
+      }
     } catch (e) {
       console.error("[标注] openFile 失败:", e);
       new Notice("打开标注文件失败: " + e);
@@ -197,6 +226,9 @@ export default class AnnotationPlugin extends Plugin {
 
   // 关闭标注视图，切回原文件
   async closeAnnotationView(leaf: any, originalPath: string) {
+    // 保存当前滚动位置
+    const savedScroll = this.getSavedScroll(leaf);
+
     const annotationPath = this.activeAnnotationSessions.get(originalPath);
 
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
@@ -218,6 +250,13 @@ export default class AnnotationPlugin extends Plugin {
       this.removeMetadataCache(annotationPath);
     }
     this.activeAnnotationSessions.delete(originalPath);
+
+    // 恢复滚动位置（双 rAF 等渲染完成后恢复）
+    if (savedScroll) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
+      });
+    }
   }
 
   // 注册事件

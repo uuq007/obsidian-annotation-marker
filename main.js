@@ -103,8 +103,6 @@ function calculateRangeOffsetInElement(range, element) {
 }
 
 // src/annotationFile/annotationParser.ts
-var MARK_REGEX = /<mark\s+([^>]*)>([\s\S]*?)<\/mark>/g;
-var RUBY_REGEX = /<ruby\s+([^>]*)>([\s\S]*?)<\/ruby>/g;
 function getAttr(attrs, name) {
   const regex = new RegExp(`${name}="([^"]*)"`, "i");
   const match = attrs.match(regex);
@@ -118,13 +116,74 @@ function extractColorFromStyle(style) {
   }
   return "yellow";
 }
-function parseRubyTags(content, parentAnnotationId) {
+function stripTags(html) {
+  return html.replace(/<[^>]+>/g, "");
+}
+function stripAnnotationTags(content) {
+  let result = content.replace(
+    /<ruby\s+[^>]*><span\s+[^>]*>([\s\S]*?)<\/span><rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
+    "$1"
+  );
+  result = stripNestedMarks(result);
+  return result;
+}
+function stripNestedMarks(content) {
+  const openRe = /<mark\s+[^>]*>/g;
+  const closeRe = /<\/mark>/g;
+  const segments = [];
+  const tags = [];
+  let m;
+  openRe.lastIndex = 0;
+  while ((m = openRe.exec(content)) !== null) {
+    tags.push({ index: m.index, length: m[0].length, isOpen: true });
+  }
+  closeRe.lastIndex = 0;
+  while ((m = closeRe.exec(content)) !== null) {
+    tags.push({ index: m.index, length: m[0].length, isOpen: false });
+  }
+  tags.sort((a, b) => a.index - b.index);
+  let lastIdx = 0;
+  for (const tag of tags) {
+    if (tag.index > lastIdx) {
+      segments.push({ text: content.substring(lastIdx, tag.index), isTag: false, index: lastIdx });
+    }
+    lastIdx = tag.index + tag.length;
+  }
+  if (lastIdx < content.length) {
+    segments.push({ text: content.substring(lastIdx), isTag: false, index: lastIdx });
+  }
+  return segments.map((s) => s.text).join("");
+}
+function findMatchingCloseMark(content, openTagEnd) {
+  let depth = 1;
+  let pos = openTagEnd;
+  while (depth > 0 && pos < content.length) {
+    const nextOpen = content.indexOf("<mark ", pos);
+    const nextOpenSelf = content.indexOf("<mark>", pos);
+    const nextClose = content.indexOf("</mark>", pos);
+    let effectiveOpen = -1;
+    if (nextOpen !== -1) effectiveOpen = nextOpen;
+    if (nextOpenSelf !== -1 && (effectiveOpen === -1 || nextOpenSelf < effectiveOpen)) {
+      effectiveOpen = nextOpenSelf;
+    }
+    if (nextClose === -1) break;
+    if (effectiveOpen !== -1 && effectiveOpen < nextClose) {
+      depth++;
+      pos = effectiveOpen + 6;
+    } else {
+      depth--;
+      if (depth === 0) return nextClose;
+      pos = nextClose + 7;
+    }
+  }
+  return -1;
+}
+function parseRubyTags(content, _parentAnnotationId) {
   const rubies = [];
+  const rubyRegex = /<ruby\s+[^>]*>([\s\S]*?)<\/ruby>/g;
   let match;
-  RUBY_REGEX.lastIndex = 0;
-  while ((match = RUBY_REGEX.exec(content)) !== null) {
-    const rubyAttrs = match[1];
-    const rubyContent = match[2];
+  while ((match = rubyRegex.exec(content)) !== null) {
+    const rubyContent = match[1];
     const rtMatch = rubyContent.match(/<rt[^>]*data-annotation-id="[^"]*"[^>]*>([\s\S]*?)<\/rt>/);
     const rtText = rtMatch ? rtMatch[1] : "";
     const spanMatch = rubyContent.match(/<span[^>]*data-annotation-id="[^"]*"[^>]*>([\s\S]*?)<\/span>/);
@@ -141,34 +200,51 @@ function parseRubyTags(content, parentAnnotationId) {
   }
   return rubies;
 }
-function stripTags(html) {
-  return html.replace(/<[^>]+>/g, "");
-}
-function stripAnnotationTags(content) {
-  let result = content.replace(
-    /<ruby\s+[^>]*><span\s+[^>]*>([\s\S]*?)<\/span><rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
-    "$1"
-  );
-  result = result.replace(/<mark\s+[^>]*>([\s\S]*?)<\/mark>/g, "$1");
-  return result;
-}
 function parseAnnotations(content) {
-  const annotations = [];
-  let match;
-  MARK_REGEX.lastIndex = 0;
-  while ((match = MARK_REGEX.exec(content)) !== null) {
-    const attrs = match[1];
-    const innerContent = match[2];
-    const fullMatch = match[0];
-    const startIndex = match.index;
+  const segments = [];
+  const openRegex = /<mark\s+([^>]*)>/g;
+  let openMatch;
+  while ((openMatch = openRegex.exec(content)) !== null) {
+    const attrs = openMatch[1];
     const id = getAttr(attrs, "data-annotation-id");
     if (!id) continue;
-    const style = getAttr(attrs, "style") || "";
+    const openTagStart = openMatch.index;
+    const openTagEnd = openTagStart + openMatch[0].length;
+    const closeTagStart = findMatchingCloseMark(content, openTagEnd);
+    if (closeTagStart === -1) continue;
+    const innerContent = content.substring(openTagEnd, closeTagStart);
+    segments.push({
+      id,
+      attrs,
+      content: innerContent,
+      startIndex: openTagStart,
+      endIndex: closeTagStart + 7
+      // "</mark>" 的长度
+    });
+  }
+  const groupMap = /* @__PURE__ */ new Map();
+  for (const seg of segments) {
+    let group = groupMap.get(seg.id);
+    if (!group) {
+      group = [];
+      groupMap.set(seg.id, group);
+    }
+    group.push(seg);
+  }
+  const annotations = [];
+  for (const [id, group] of groupMap) {
+    const first = group[0];
+    const style = getAttr(first.attrs, "style") || "";
     const color = extractColorFromStyle(style);
-    const note = decodeAttr(getAttr(attrs, "data-annotation-note") || "");
-    const createdAt = getAttr(attrs, "data-annotation-created") || (/* @__PURE__ */ new Date()).toISOString();
-    const text = stripTags(innerContent);
-    const rubyTexts = parseRubyTags(innerContent, id);
+    const note = decodeAttr(getAttr(first.attrs, "data-annotation-note") || "");
+    const createdAt = getAttr(first.attrs, "data-annotation-created") || (/* @__PURE__ */ new Date()).toISOString();
+    const text = group.map((seg) => stripTags(seg.content)).join("");
+    const rubyTexts = parseRubyTags(first.content, id);
+    const positions = group.map((seg) => ({
+      start: seg.startIndex,
+      end: seg.endIndex
+    }));
+    const isFullText = group.length > 1;
     annotations.push({
       id,
       color,
@@ -176,10 +252,8 @@ function parseAnnotations(content) {
       text,
       rubyTexts,
       createdAt,
-      position: {
-        start: startIndex,
-        end: startIndex + fullMatch.length
-      }
+      positions,
+      isFullText
     });
   }
   return annotations;
@@ -382,6 +456,46 @@ function extractSelectionContext(selection) {
   return { text, contextBefore, contextAfter };
 }
 
+// src/utils/overlapUtils.ts
+function computeSegments(intervals) {
+  if (intervals.length === 0) return [];
+  const points = /* @__PURE__ */ new Set();
+  for (const iv of intervals) {
+    points.add(iv.start);
+    points.add(iv.end);
+  }
+  const sorted = Array.from(points).sort((a, b) => a - b);
+  const segments = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const segStart = sorted[i];
+    const segEnd = sorted[i + 1];
+    const coveringIds = intervals.filter((iv) => iv.start <= segStart && iv.end >= segEnd).map((iv) => iv.id);
+    if (coveringIds.length > 0) {
+      segments.push({ ids: coveringIds, start: segStart, end: segEnd });
+    }
+  }
+  return segments;
+}
+function buildSegmentHtml(segments, plainText, annotations) {
+  var _a;
+  const parts = [];
+  for (const seg of segments) {
+    const text = plainText.substring(seg.start, seg.end);
+    const sortedIds = [...seg.ids].sort();
+    let wrapped = text;
+    for (let i = sortedIds.length - 1; i >= 0; i--) {
+      const id = sortedIds[i];
+      const ann = annotations.get(id);
+      const bg = (_a = ann == null ? void 0 : ann.color) != null ? _a : "rgba(255, 212, 59, 0.45)";
+      const noteAttr = (ann == null ? void 0 : ann.note) ? ` data-annotation-note="${ann.note}"` : "";
+      const createdAttr = (ann == null ? void 0 : ann.created) ? ` data-annotation-created="${ann.created}"` : "";
+      wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${noteAttr}${createdAttr}>${wrapped}</mark>`;
+    }
+    parts.push(wrapped);
+  }
+  return parts.join("");
+}
+
 // src/annotationFile/annotationSerializer.ts
 function buildRubyTag(annotationId, text, ruby) {
   return `<ruby data-annotation-id="${annotationId}"><span data-annotation-id="${annotationId}">${text}</span><rt data-annotation-id="${annotationId}">${ruby}</rt></ruby>`;
@@ -434,13 +548,85 @@ function insertAnnotation(content, annotation) {
     end = start + annotation.text.length;
   }
   const sourceSlice = content.substring(start, end);
-  const tag = sourceSlice === annotation.text ? buildMarkTag(id, sourceSlice, annotation.color, annotation.note, annotation.rubyTexts) : buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
+  const hasOverlap = /<mark[\s>]|<\/mark>/.test(sourceSlice);
+  if (!hasOverlap) {
+    const tag = sourceSlice === annotation.text ? buildMarkTag(id, sourceSlice, annotation.color, annotation.note, annotation.rubyTexts) : buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
+    return {
+      content: content.substring(0, start) + tag + content.substring(end),
+      id
+    };
+  }
+  return rebuildOverlapRegion(content, start, end, id, annotation);
+}
+function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
+  const existingAnnotations = parseAnnotations(content);
+  const involvedAnnotations = existingAnnotations.filter(
+    (a) => a.positions.some((p) => p.start < newEnd && p.end > newStart)
+  );
+  const allStarts = [newStart, ...involvedAnnotations.flatMap((a) => a.positions.map((p) => p.start))];
+  const allEnds = [newEnd, ...involvedAnnotations.flatMap((a) => a.positions.map((p) => p.end))];
+  const affectedStart = Math.min(...allStarts);
+  const affectedEnd = Math.max(...allEnds);
+  const affectedRegion = content.substring(affectedStart, affectedEnd);
+  const plainRegion = stripAnnotationTags(affectedRegion);
+  const allInvolved = [
+    ...involvedAnnotations.map((a) => ({
+      id: a.id,
+      text: a.text,
+      color: a.color,
+      note: a.note,
+      created: a.createdAt
+    })),
+    {
+      id: newId,
+      text: annotation.text,
+      color: annotation.color,
+      note: annotation.note,
+      created: (/* @__PURE__ */ new Date()).toISOString()
+    }
+  ];
+  const intervals = [];
+  for (const ann of allInvolved) {
+    const idx = plainRegion.indexOf(ann.text);
+    if (idx >= 0) {
+      intervals.push({
+        id: ann.id,
+        start: idx,
+        end: idx + ann.text.length,
+        color: COLOR_MAP[ann.color].bg,
+        note: ann.note ? encodeAttr(ann.note) : void 0,
+        created: ann.created
+      });
+    }
+  }
+  const segments = computeSegments(intervals);
+  const annotationMap = /* @__PURE__ */ new Map();
+  for (const iv of intervals) {
+    annotationMap.set(iv.id, iv);
+  }
+  const rebuiltRegion = buildSegmentHtml(segments, plainRegion, annotationMap);
   return {
-    content: content.substring(0, start) + tag + content.substring(end),
-    id
+    content: content.substring(0, affectedStart) + rebuiltRegion + content.substring(affectedEnd),
+    id: newId
   };
 }
 function removeAnnotationTag(content, annotationId) {
+  const allAnnotations = parseAnnotations(content);
+  const targetAnnotation = allAnnotations.find((a) => a.id === annotationId);
+  if (!targetAnnotation) {
+    return content;
+  }
+  const hasOverlap = allAnnotations.some(
+    (a) => a.id !== annotationId && a.positions.some(
+      (ap) => targetAnnotation.positions.some((tp) => ap.start < tp.end && tp.start < ap.end)
+    )
+  );
+  if (!hasOverlap) {
+    return simpleRemoveAnnotationTag(content, annotationId);
+  }
+  return rebuildAfterRemoval(content, annotationId, targetAnnotation, allAnnotations);
+}
+function simpleRemoveAnnotationTag(content, annotationId) {
   const rubyRegex = new RegExp(
     `<ruby\\s+[^>]*data-annotation-id="${annotationId}"[^>]*><span\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<\\/span><rt\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>[\\s\\S]*?<\\/rt><\\/ruby>`,
     "g"
@@ -452,6 +638,54 @@ function removeAnnotationTag(content, annotationId) {
   );
   result = result.replace(markRegex, "$1");
   return result;
+}
+function rebuildAfterRemoval(content, annotationId, targetAnnotation, allAnnotations) {
+  const allStarts = targetAnnotation.positions.map((p) => p.start);
+  const allEnds = targetAnnotation.positions.map((p) => p.end);
+  for (const ann of allAnnotations) {
+    if (ann.id === annotationId) continue;
+    for (const ap of ann.positions) {
+      for (const tp of targetAnnotation.positions) {
+        if (ap.start < tp.end && tp.start < ap.end) {
+          allStarts.push(ap.start);
+          allEnds.push(ap.end);
+        }
+      }
+    }
+  }
+  const affectedStart = Math.min(...allStarts);
+  const affectedEnd = Math.max(...allEnds);
+  const affectedRegion = content.substring(affectedStart, affectedEnd);
+  const plainRegion = stripAnnotationTags(affectedRegion);
+  const remainingAnnotations = allAnnotations.filter(
+    (a) => a.id !== annotationId && a.positions.some(
+      (ap) => allStarts.some((s) => ap.end > s) && allEnds.some((e) => ap.start < e)
+    )
+  );
+  if (remainingAnnotations.length === 0) {
+    return content.substring(0, affectedStart) + plainRegion + content.substring(affectedEnd);
+  }
+  const intervals = [];
+  for (const ann of remainingAnnotations) {
+    const idx = plainRegion.indexOf(ann.text);
+    if (idx >= 0) {
+      intervals.push({
+        id: ann.id,
+        start: idx,
+        end: idx + ann.text.length,
+        color: COLOR_MAP[ann.color].bg,
+        note: ann.note ? encodeAttr(ann.note) : void 0,
+        created: ann.createdAt
+      });
+    }
+  }
+  const segments = computeSegments(intervals);
+  const annotationMap = /* @__PURE__ */ new Map();
+  for (const iv of intervals) {
+    annotationMap.set(iv.id, iv);
+  }
+  const rebuiltRegion = buildSegmentHtml(segments, plainRegion, annotationMap);
+  return content.substring(0, affectedStart) + rebuiltRegion + content.substring(affectedEnd);
 }
 function updateAnnotationTag(content, annotationId, updates) {
   const regex = new RegExp(
@@ -495,6 +729,31 @@ function updateAnnotationTag(content, annotationId, updates) {
     }
     return `${prefix}${newAttrs}${open}${innerContent}${close}`;
   });
+}
+function insertFullTextAnnotation(content, annotation) {
+  var _a, _b;
+  const id = generateId();
+  const map = buildCleanedMap(content);
+  const occurrences = [];
+  let searchFrom = 0;
+  while (true) {
+    const idx = map.cleaned.indexOf(annotation.text, searchFrom);
+    if (idx < 0) break;
+    occurrences.push(idx);
+    searchFrom = idx + 1;
+  }
+  if (occurrences.length === 0) return { content, id, count: 0 };
+  let newContent = content;
+  for (let i = occurrences.length - 1; i >= 0; i--) {
+    const cleanStart = occurrences[i];
+    const cleanEnd = cleanStart + annotation.text.length;
+    const srcStart = (_a = map.cleanedToSource[cleanStart]) != null ? _a : 0;
+    const srcEnd = ((_b = map.cleanedToSource[cleanEnd - 1]) != null ? _b : srcStart) + 1;
+    const sourceSlice = newContent.substring(srcStart, srcEnd);
+    const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
+    newContent = newContent.substring(0, srcStart) + tag + newContent.substring(srcEnd);
+  }
+  return { content: newContent, id, count: occurrences.length };
 }
 
 // src/annotationFile/AnnotationFileManager.ts
@@ -632,6 +891,16 @@ var AnnotationFileManager = class {
     const result = parseAnnotations(newContent).find((a) => a.id === id);
     return result;
   }
+  // 添加全文标注（所有匹配位置共享同一 ID）
+  async addFullTextAnnotation(notePath, annotation) {
+    var _a;
+    const content = await this.readAnnotationFile(notePath);
+    const result = insertFullTextAnnotation(content, annotation);
+    if (result.count === 0) return null;
+    await this.writeAnnotationFile(notePath, result.content);
+    const annotations = parseAnnotations(result.content);
+    return (_a = annotations.find((a) => a.id === result.id)) != null ? _a : null;
+  }
   // 删除标注
   async removeAnnotation(notePath, annotationId) {
     const content = await this.readAnnotationFile(notePath);
@@ -759,6 +1028,19 @@ var SelectionMenu = class {
         return;
       }
       await this.createAnnotation(note);
+    });
+    const fullTextBtn = actionRow.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-btn-small",
+      text: "\u5168\u6587\u6807\u6CE8"
+    });
+    fullTextBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const note = this.noteInput.value.trim();
+      if (note.length > 400) {
+        new import_obsidian2.Notice("\u6279\u6CE8\u5185\u5BB9\u4E0D\u80FD\u8D85\u8FC7400\u5B57");
+        return;
+      }
+      await this.createAnnotation(note, true);
     });
     document.body.appendChild(this.menuEl);
     requestAnimationFrame(() => {
@@ -924,22 +1206,32 @@ var SelectionMenu = class {
       new import_obsidian2.Notice("\u8BF7\u8F93\u5165\u6CE8\u97F3\u5185\u5BB9");
     }
   }
-  async createAnnotation(note) {
+  async createAnnotation(note, isFullText = false) {
     var _a;
     if (!this.currentNotePath) return;
     try {
-      const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : void 0;
-      const result = await this.fileManager.addAnnotation(this.currentNotePath, {
-        text: this.selectedText,
-        color: this.selectedColor,
-        note: note || void 0,
-        rubyTexts,
-        contextBefore: this.contextBefore,
-        contextAfter: this.contextAfter,
-        startLine: this.startLine,
-        endLine: this.endLine,
-        occurrence: this.occurrence
-      });
+      const rubyTexts = !isFullText && this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : void 0;
+      let result;
+      if (isFullText) {
+        result = await this.fileManager.addFullTextAnnotation(this.currentNotePath, {
+          text: this.selectedText,
+          color: this.selectedColor,
+          note: note || void 0,
+          isFullText: true
+        });
+      } else {
+        result = await this.fileManager.addAnnotation(this.currentNotePath, {
+          text: this.selectedText,
+          color: this.selectedColor,
+          note: note || void 0,
+          rubyTexts,
+          contextBefore: this.contextBefore,
+          contextAfter: this.contextAfter,
+          startLine: this.startLine,
+          endLine: this.endLine,
+          occurrence: this.occurrence
+        });
+      }
       if (result) {
         (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
         this.hide();
@@ -947,7 +1239,11 @@ var SelectionMenu = class {
           await new Promise((resolve) => setTimeout(resolve, 100));
           this.onAddCallback();
         }
-        new import_obsidian2.Notice(note || rubyTexts ? "\u6807\u6CE8\u548C\u6279\u6CE8\u5DF2\u6DFB\u52A0" : "\u6807\u6CE8\u5DF2\u6DFB\u52A0");
+        if (isFullText) {
+          new import_obsidian2.Notice(`\u5168\u6587\u6807\u6CE8\u5DF2\u6DFB\u52A0\uFF08\u5171 ${result.positions.length} \u5904\uFF09`);
+        } else {
+          new import_obsidian2.Notice(note || rubyTexts ? "\u6807\u6CE8\u548C\u6279\u6CE8\u5DF2\u6DFB\u52A0" : "\u6807\u6CE8\u5DF2\u6DFB\u52A0");
+        }
       } else {
         new import_obsidian2.Notice("\u672A\u80FD\u5728\u6587\u4EF6\u4E2D\u627E\u5230\u9009\u4E2D\u7684\u6587\u5B57");
       }
@@ -1191,6 +1487,10 @@ var AnnotationMenu = class {
     const textPreview = this.menuEl.createDiv({ cls: "annotation-menu-text" });
     const previewText = annotation.text.length > 80 ? annotation.text.substring(0, 80) + "..." : annotation.text;
     textPreview.createEl("span", { text: `"${previewText}"` });
+    if (annotation.isFullText && annotation.positions.length > 1) {
+      const fullTextHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
+      fullTextHint.createEl("span", { text: `\u5168\u6587\u6807\u6CE8\uFF08\u5171 ${annotation.positions.length} \u5904\uFF09` });
+    }
     if (annotation.note) {
       const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note" });
       noteSection.createEl("label", { text: "\u6279\u6CE8\u5185\u5BB9" });
@@ -1240,6 +1540,8 @@ var AnnotationMenu = class {
     });
     deleteBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
+      const msg = annotation.isFullText && annotation.positions.length > 1 ? `\u786E\u5B9A\u5220\u9664\u5168\u90E8 ${annotation.positions.length} \u5904\u6807\u6CE8\uFF1F` : "\u786E\u5B9A\u5220\u9664\u6B64\u6807\u6CE8\uFF1F";
+      if (!confirm(msg)) return;
       await this.fileManager.removeAnnotation(notePath, annotation.id);
       this.hide();
       onUpdate();
@@ -1398,10 +1700,10 @@ var AnnotationListPanel = class {
     const sorted = [...annotations];
     switch (this.sortOption) {
       case "position-asc":
-        sorted.sort((a, b) => a.position.start - b.position.start);
+        sorted.sort((a, b) => a.positions[0].start - b.positions[0].start);
         break;
       case "position-desc":
-        sorted.sort((a, b) => b.position.start - a.position.start);
+        sorted.sort((a, b) => b.positions[0].start - a.positions[0].start);
         break;
       case "time-asc":
         sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -1413,6 +1715,10 @@ var AnnotationListPanel = class {
     for (const annotation of sorted) {
       const item = content.createDiv({ cls: "annotation-list-item" });
       item.createSpan({ cls: `annotation-list-dot color-${annotation.color}` });
+      if (annotation.isFullText && annotation.positions.length > 1) {
+        const badge = item.createSpan({ cls: "annotation-list-badge" });
+        badge.textContent = `\u5168\u6587(${annotation.positions.length})`;
+      }
       const textPreview = item.createDiv({ cls: "annotation-list-text" });
       const previewText = annotation.text.length > 60 ? annotation.text.substring(0, 60) + "..." : annotation.text;
       textPreview.textContent = previewText;
@@ -1477,7 +1783,7 @@ var AnnotationListPanel = class {
     var _a;
     this.hidePanel();
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath);
-    const lineIndex = content.substring(0, annotation.position.start).split("\n").length - 1;
+    const lineIndex = content.substring(0, annotation.positions[0].start).split("\n").length - 1;
     const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (view == null ? void 0 : view.previewMode) {
       const renderer = view.previewMode.renderer;
@@ -1752,18 +2058,23 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
       const target = e.target;
       if (target.closest(".annotation-card-menu")) return;
       setTimeout(() => {
+        var _a;
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed) return;
         const context = extractSelectionContext(selection);
         if (!context || !context.text) return;
         const range = selection.getRangeAt(0);
-        const node = range.startContainer;
-        const el = node instanceof HTMLElement ? node : node.parentElement;
-        const lineInfo = el ? this.findSectionLineInfo(el) : void 0;
-        const sectionEl = lineInfo == null ? void 0 : lineInfo.sectionEl;
-        const offset = sectionEl ? calculateOffsetInBlock(range, sectionEl) : 0;
-        const sectionText = (sectionEl == null ? void 0 : sectionEl.textContent) || "";
-        const occurrence = countOccurrenceIndex(sectionText, context.text, offset);
+        const startEl = range.startContainer instanceof HTMLElement ? range.startContainer : range.startContainer.parentElement;
+        const endEl = range.endContainer instanceof HTMLElement ? range.endContainer : range.endContainer.parentElement;
+        const startLineInfo = startEl ? this.findSectionLineInfo(startEl) : void 0;
+        const endLineInfo = endEl ? this.findSectionLineInfo(endEl) : void 0;
+        const lineStart = startLineInfo == null ? void 0 : startLineInfo.lineStart;
+        const lineEnd = (_a = endLineInfo == null ? void 0 : endLineInfo.lineEnd) != null ? _a : startLineInfo == null ? void 0 : startLineInfo.lineEnd;
+        const isCrossSection = (startLineInfo == null ? void 0 : startLineInfo.sectionEl) !== (endLineInfo == null ? void 0 : endLineInfo.sectionEl);
+        const sectionEl = startLineInfo == null ? void 0 : startLineInfo.sectionEl;
+        const offset = sectionEl && !isCrossSection ? calculateOffsetInBlock(range, sectionEl) : 0;
+        const sectionText = !isCrossSection ? (sectionEl == null ? void 0 : sectionEl.textContent) || "" : "";
+        const occurrence = !isCrossSection ? countOccurrenceIndex(sectionText, context.text, offset) : void 0;
         this.annotationMenu.hide();
         this.selectionMenu.show({
           x: e.clientX,
@@ -1772,34 +2083,54 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
           contextBefore: context.contextBefore,
           contextAfter: context.contextAfter,
           notePath,
-          startLine: lineInfo == null ? void 0 : lineInfo.lineStart,
-          endLine: lineInfo == null ? void 0 : lineInfo.lineEnd,
+          startLine: lineStart,
+          endLine: lineEnd,
           occurrence,
           onAdd: () => this.refreshAnnotationView(notePath)
         });
       }, 10);
     });
     this.registerDomEvent(document, "click", (e) => {
+      var _a, _b, _c;
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
       const target = e.target;
       const markEl = target.closest("mark[data-annotation-id]");
       if (!markEl) return;
-      const annotationId = markEl.getAttribute("data-annotation-id");
-      if (!annotationId) return;
       e.preventDefault();
       e.stopPropagation();
+      const annotationIds = [];
+      let currentEl = markEl;
+      while (currentEl) {
+        const id = (_a = currentEl.getAttribute) == null ? void 0 : _a.call(currentEl, "data-annotation-id");
+        if (id && !annotationIds.includes(id)) {
+          annotationIds.push(id);
+        }
+        currentEl = (_c = (_b = currentEl.parentElement) == null ? void 0 : _b.closest("mark[data-annotation-id]")) != null ? _c : null;
+      }
       this.fileManager.getAnnotations(notePath).then((annotations) => {
-        const annotation = annotations.find((a) => a.id === annotationId);
-        if (!annotation) return;
         this.selectionMenu.hide();
-        this.annotationMenu.show({
-          x: e.clientX,
-          y: e.clientY,
-          annotation,
-          notePath,
-          onUpdate: () => this.refreshAnnotationView(notePath)
-        });
+        if (annotationIds.length === 1) {
+          const annotation = annotations.find((a) => a.id === annotationIds[0]);
+          if (!annotation) return;
+          this.annotationMenu.show({
+            x: e.clientX,
+            y: e.clientY,
+            annotation,
+            notePath,
+            onUpdate: () => this.refreshAnnotationView(notePath)
+          });
+        } else {
+          const annotation = annotations.find((a) => a.id === annotationIds[0]);
+          if (!annotation) return;
+          this.annotationMenu.show({
+            x: e.clientX,
+            y: e.clientY,
+            annotation,
+            notePath,
+            onUpdate: () => this.refreshAnnotationView(notePath)
+          });
+        }
       });
     });
   }

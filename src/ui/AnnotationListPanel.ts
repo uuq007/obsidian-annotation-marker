@@ -130,10 +130,10 @@ export class AnnotationListPanel {
     const sorted = [...annotations];
     switch (this.sortOption) {
       case "position-asc":
-        sorted.sort((a, b) => a.position.start - b.position.start);
+        sorted.sort((a, b) => a.positions[0]!.start - b.positions[0]!.start);
         break;
       case "position-desc":
-        sorted.sort((a, b) => b.position.start - a.position.start);
+        sorted.sort((a, b) => b.positions[0]!.start - a.positions[0]!.start);
         break;
       case "time-asc":
         sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -147,6 +147,12 @@ export class AnnotationListPanel {
       const item = content.createDiv({ cls: "annotation-list-item" });
 
       item.createSpan({ cls: `annotation-list-dot color-${annotation.color}` });
+
+      // 全文标注标记
+      if (annotation.isFullText && annotation.positions.length > 1) {
+        const badge = item.createSpan({ cls: "annotation-list-badge" });
+        badge.textContent = `全文(${annotation.positions.length})`;
+      }
 
       const textPreview = item.createDiv({ cls: "annotation-list-text" });
       const previewText = annotation.text.length > 60
@@ -229,7 +235,7 @@ export class AnnotationListPanel {
 
     // 计算行号
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath!);
-    const lineIndex = content.substring(0, annotation.position.start).split("\n").length - 1;
+    const lineIndex = content.substring(0, annotation.positions[0]!.start).split("\n").length - 1;
 
     // applyScroll 滚动到目标行
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);

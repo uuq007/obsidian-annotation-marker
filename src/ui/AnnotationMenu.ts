@@ -40,6 +40,12 @@ export class AnnotationMenu {
       : annotation.text;
     textPreview.createEl("span", { text: `"${previewText}"` });
 
+    // 全文标注提示
+    if (annotation.isFullText && annotation.positions.length > 1) {
+      const fullTextHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
+      fullTextHint.createEl("span", { text: `全文标注（共 ${annotation.positions.length} 处）` });
+    }
+
     // 批注内容
     if (annotation.note) {
       const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note" });
@@ -98,6 +104,10 @@ export class AnnotationMenu {
     });
     deleteBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
+      const msg = annotation.isFullText && annotation.positions.length > 1
+        ? `确定删除全部 ${annotation.positions.length} 处标注？`
+        : "确定删除此标注？";
+      if (!confirm(msg)) return;
       await this.fileManager.removeAnnotation(notePath, annotation.id);
       this.hide();
       onUpdate();

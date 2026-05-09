@@ -14,10 +14,10 @@ export interface ParsedAnnotation {
   text: string;
   rubyTexts: AnnotationRuby[];
   createdAt: string;
-  position: {
-    start: number;
-    end: number;
-  };
+  // 多位置支持（全文标注/重叠标注会产生同一 ID 的多个 <mark> 标签）
+  positions: Array<{ start: number; end: number }>;
+  // 全文标注标记
+  isFullText?: boolean;
 }
 
 // 创建新标注时的参数
@@ -39,6 +39,8 @@ export interface NewAnnotation {
   contextAfter?: string;
   // 选中文本在 section 内是第几次出现（0-indexed，用于同段落重复文本定位）
   occurrence?: number;
+  // 全文标注模式
+  isFullText?: boolean;
 }
 
 // 更新标注时的参数

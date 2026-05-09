@@ -153,6 +153,20 @@ export class SelectionMenu {
       await this.createAnnotation(note);
     });
 
+    const fullTextBtn = actionRow.createEl("button", {
+      cls: "annotation-btn annotation-btn-secondary annotation-btn-small",
+      text: "全文标注",
+    });
+    fullTextBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const note = this.noteInput!.value.trim();
+      if (note.length > 400) {
+        new Notice("批注内容不能超过400字");
+        return;
+      }
+      await this.createAnnotation(note, true);
+    });
+
     document.body.appendChild(this.menuEl);
 
     // 定位菜单
@@ -342,25 +356,37 @@ export class SelectionMenu {
     }
   }
 
-  private async createAnnotation(note: string): Promise<void> {
+  private async createAnnotation(note: string, isFullText = false): Promise<void> {
     if (!this.currentNotePath) return;
 
     try {
-      const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0
+      // 全文标注不支持注音
+      const rubyTexts = !isFullText && this.rubyTextEnabled && this.rubyTexts.length > 0
         ? this.rubyTexts
         : undefined;
 
-      const result = await this.fileManager.addAnnotation(this.currentNotePath, {
-        text: this.selectedText,
-        color: this.selectedColor,
-        note: note || undefined,
-        rubyTexts,
-        contextBefore: this.contextBefore,
-        contextAfter: this.contextAfter,
-        startLine: this.startLine,
-        endLine: this.endLine,
-        occurrence: this.occurrence,
-      });
+      let result;
+
+      if (isFullText) {
+        result = await this.fileManager.addFullTextAnnotation(this.currentNotePath, {
+          text: this.selectedText,
+          color: this.selectedColor,
+          note: note || undefined,
+          isFullText: true,
+        });
+      } else {
+        result = await this.fileManager.addAnnotation(this.currentNotePath, {
+          text: this.selectedText,
+          color: this.selectedColor,
+          note: note || undefined,
+          rubyTexts,
+          contextBefore: this.contextBefore,
+          contextAfter: this.contextAfter,
+          startLine: this.startLine,
+          endLine: this.endLine,
+          occurrence: this.occurrence,
+        });
+      }
 
       if (result) {
         // 清除浏览器文本选区，防止 mouseup handler 再次弹出菜单
@@ -370,7 +396,11 @@ export class SelectionMenu {
           await new Promise(resolve => setTimeout(resolve, 100));
           this.onAddCallback();
         }
-        new Notice(note || rubyTexts ? "标注和批注已添加" : "标注已添加");
+        if (isFullText) {
+          new Notice(`全文标注已添加（共 ${result.positions.length} 处）`);
+        } else {
+          new Notice(note || rubyTexts ? "标注和批注已添加" : "标注已添加");
+        }
       } else {
         new Notice("未能在文件中找到选中的文字");
       }

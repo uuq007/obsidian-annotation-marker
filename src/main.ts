@@ -304,19 +304,31 @@ export default class AnnotationPlugin extends Plugin {
         const context = extractSelectionContext(selection);
         if (!context || !context.text) return;
 
-        // 从选区元素查找行号信息
+        // 从选区起点和终点分别查找 section 行号信息
         const range = selection.getRangeAt(0);
-        const node = range.startContainer;
-        const el = node instanceof HTMLElement ? node : node.parentElement;
-        const lineInfo = el ? this.findSectionLineInfo(el) : undefined;
+        const startEl = range.startContainer instanceof HTMLElement
+          ? range.startContainer : range.startContainer.parentElement;
+        const endEl = range.endContainer instanceof HTMLElement
+          ? range.endContainer : range.endContainer.parentElement;
+        const startLineInfo = startEl ? this.findSectionLineInfo(startEl) : undefined;
+        const endLineInfo = endEl ? this.findSectionLineInfo(endEl) : undefined;
 
-        // 计算选中文本在 section 内是第几次出现
-        const sectionEl = lineInfo?.sectionEl;
-        const offset = sectionEl
+        // 合并行号范围（支持跨 section 选区）
+        const lineStart = startLineInfo?.lineStart;
+        const lineEnd = endLineInfo?.lineEnd ?? startLineInfo?.lineEnd;
+
+        // 判断是否跨 section 选区
+        const isCrossSection = startLineInfo?.sectionEl !== endLineInfo?.sectionEl;
+
+        // 计算选中文本在 section 内是第几次出现（跨 section 时不计算，用全文搜索）
+        const sectionEl = startLineInfo?.sectionEl;
+        const offset = sectionEl && !isCrossSection
           ? calculateOffsetInBlock(range, sectionEl)
           : 0;
-        const sectionText = sectionEl?.textContent || "";
-        const occurrence = countOccurrenceIndex(sectionText, context.text, offset);
+        const sectionText = !isCrossSection ? (sectionEl?.textContent || "") : "";
+        const occurrence = !isCrossSection
+          ? countOccurrenceIndex(sectionText, context.text, offset)
+          : undefined;
 
         this.annotationMenu.hide();
 
@@ -327,8 +339,8 @@ export default class AnnotationPlugin extends Plugin {
           contextBefore: context.contextBefore,
           contextAfter: context.contextAfter,
           notePath,
-          startLine: lineInfo?.lineStart,
-          endLine: lineInfo?.lineEnd,
+          startLine: lineStart,
+          endLine: lineEnd,
           occurrence,
           onAdd: () => this.refreshAnnotationView(notePath),
         });
@@ -345,26 +357,48 @@ export default class AnnotationPlugin extends Plugin {
       const markEl = target.closest("mark[data-annotation-id]") as HTMLElement;
       if (!markEl) return;
 
-      const annotationId = markEl.getAttribute("data-annotation-id");
-      if (!annotationId) return;
-
       e.preventDefault();
       e.stopPropagation();
 
-      // 从标注文件中解析该标注的数据
-      this.fileManager.getAnnotations(notePath).then((annotations) => {
-        const annotation = annotations.find((a) => a.id === annotationId);
-        if (!annotation) return;
+      // 收集被点击位置的所有嵌套标注 ID（从内到外）
+      const annotationIds: string[] = [];
+      let currentEl: HTMLElement | null = markEl;
+      while (currentEl) {
+        const id = currentEl.getAttribute?.("data-annotation-id");
+        if (id && !annotationIds.includes(id)) {
+          annotationIds.push(id);
+        }
+        // 向上查找父级 mark 标签
+        currentEl = currentEl.parentElement?.closest("mark[data-annotation-id]") as HTMLElement ?? null;
+      }
 
+      // 从标注文件中解析标注数据
+      this.fileManager.getAnnotations(notePath).then((annotations) => {
         this.selectionMenu.hide();
 
-        this.annotationMenu.show({
-          x: e.clientX,
-          y: e.clientY,
-          annotation,
-          notePath,
-          onUpdate: () => this.refreshAnnotationView(notePath),
-        });
+        if (annotationIds.length === 1) {
+          // 单个标注：直接显示详情
+          const annotation = annotations.find((a) => a.id === annotationIds[0]);
+          if (!annotation) return;
+          this.annotationMenu.show({
+            x: e.clientX,
+            y: e.clientY,
+            annotation,
+            notePath,
+            onUpdate: () => this.refreshAnnotationView(notePath),
+          });
+        } else {
+          // 多个嵌套标注：显示最内层的标注（用户最可能想操作的）
+          const annotation = annotations.find((a) => a.id === annotationIds[0]);
+          if (!annotation) return;
+          this.annotationMenu.show({
+            x: e.clientX,
+            y: e.clientY,
+            annotation,
+            notePath,
+            onUpdate: () => this.refreshAnnotationView(notePath),
+          });
+        }
       });
     });
   }

@@ -2,7 +2,7 @@ import { App, TFile, normalizePath } from "obsidian";
 import type { NewAnnotation, ParsedAnnotation, AnnotationUpdates } from "../types";
 import { notePathToAnnotationPath } from "../utils/helpers";
 import { parseAnnotations, stripAnnotationTags } from "./annotationParser";
-import { insertAnnotation, removeAnnotationTag, updateAnnotationTag } from "./annotationSerializer";
+import { insertAnnotation, insertFullTextAnnotation, removeAnnotationTag, updateAnnotationTag } from "./annotationSerializer";
 
 export class AnnotationFileManager {
   private app: App;
@@ -181,6 +181,17 @@ export class AnnotationFileManager {
 
     const result = parseAnnotations(newContent).find((a) => a.id === id);
     return result!;
+  }
+
+  // 添加全文标注（所有匹配位置共享同一 ID）
+  async addFullTextAnnotation(notePath: string, annotation: NewAnnotation): Promise<ParsedAnnotation | null> {
+    const content = await this.readAnnotationFile(notePath);
+    const result = insertFullTextAnnotation(content, annotation);
+    if (result.count === 0) return null;
+    await this.writeAnnotationFile(notePath, result.content);
+
+    const annotations = parseAnnotations(result.content);
+    return annotations.find(a => a.id === result.id) ?? null;
   }
 
   // 删除标注

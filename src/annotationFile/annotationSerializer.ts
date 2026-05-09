@@ -1,6 +1,7 @@
 import type { AnnotationColor, AnnotationRuby, NewAnnotation } from "../types";
 import { COLOR_MAP } from "../constants";
 import { generateId, encodeAttr } from "../utils/helpers";
+import { findTextInSource } from "../utils/contentMapper";
 
 // 构建 <ruby> 标签
 function buildRubyTag(annotationId: string, text: string, ruby: string): string {
@@ -44,29 +45,54 @@ export function buildMarkTag(
   return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}">${annotatedText}</mark>`;
 }
 
-// 在标注文件内容的指定位置插入新标注
+// 在标注文件内容中插入新标注
+// 优先使用精确位置，否则通过文本搜索定位
 export function insertAnnotation(content: string, annotation: NewAnnotation): { content: string; id: string } {
   const id = generateId();
+
+  let start = -1;
+
+  // 优先使用精确位置
+  if (annotation.position) {
+    start = annotation.position.start;
+  } else {
+    // 通过文本搜索定位
+    const found = findTextInSource(content, annotation.text, annotation.contextBefore, annotation.contextAfter);
+    if (found) {
+      start = found.start;
+    }
+  }
+
+  if (start < 0) {
+    // 未找到位置，返回原内容
+    return { content, id };
+  }
+
   const tag = buildMarkTag(id, annotation.text, annotation.color, annotation.note, annotation.rubyTexts);
 
-  const before = content.substring(0, annotation.position.start);
-  const after = content.substring(annotation.position.end);
-
   return {
-    content: before + tag + after,
+    content: content.substring(0, start) + tag + content.substring(start + annotation.text.length),
     id,
   };
 }
 
-// 从标注文件内容中删除指定标注（移除 <mark> 标签，保留文字内容）
+// 从标注文件内容中删除指定标注（移除 <mark> 和关联的 <ruby> 标签，保留文字内容）
 export function removeAnnotationTag(content: string, annotationId: string): string {
-  // 匹配指定 ID 的 <mark> 标签
-  const regex = new RegExp(
+  // 先移除该标注关联的 <ruby> 标签（保留 <span> 中的文字）
+  const rubyRegex = new RegExp(
+    `<ruby\\s+[^>]*data-annotation-id="${annotationId}"[^>]*><span\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<\\/span><rt\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>[\\s\\S]*?<\\/rt><\\/ruby>`,
+    "g"
+  );
+  let result = content.replace(rubyRegex, "$1");
+
+  // 再移除 <mark> 标签（保留内部文字）
+  const markRegex = new RegExp(
     `<mark\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<\\/mark>`,
     "g"
   );
+  result = result.replace(markRegex, "$1");
 
-  return content.replace(regex, "$1");
+  return result;
 }
 
 // 更新指定标注的属性（颜色、批注）

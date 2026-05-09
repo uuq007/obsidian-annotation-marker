@@ -885,14 +885,15 @@
 
 /* ========== 标注视图样式 ========== */
 
-.annotation-highlight {
+/* 标注视图中的 <mark> 标签样式 */
+mark[data-annotation-id] {
   cursor: pointer;
   border-radius: 2px;
   padding: 0 2px;
   transition: all 0.15s ease;
 }
 
-.annotation-highlight:hover {
+mark[data-annotation-id]:hover {
   filter: brightness(0.9);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }

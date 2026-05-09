@@ -7,6 +7,10 @@ import {
 } from "obsidian";
 import { AnnotationFileManager } from "./annotationFile/AnnotationFileManager";
 import { DEFAULT_SETTINGS, type AnnotationPluginSettings } from "./types";
+import { SelectionMenu } from "./ui/SelectionMenu";
+import { AnnotationMenu } from "./ui/AnnotationMenu";
+import { AnnotationListPanel } from "./ui/AnnotationListPanel";
+import { extractSelectionContext } from "./utils/contentMapper";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -15,15 +19,25 @@ export default class AnnotationPlugin extends Plugin {
   // 原始文件路径 → 标注文件路径的映射
   activeAnnotationSessions: Map<string, string> = new Map();
 
+  // UI 组件
+  selectionMenu!: SelectionMenu;
+  annotationMenu!: AnnotationMenu;
+  annotationListPanel!: AnnotationListPanel;
+
   async onload() {
     await this.loadSettings();
 
     const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
 
+    this.selectionMenu = new SelectionMenu(this.fileManager);
+    this.annotationMenu = new AnnotationMenu(this.fileManager);
+    this.annotationListPanel = new AnnotationListPanel(this.app, this.fileManager);
+
     this.registerEvents();
     this.registerCommands();
     this.registerCacheListeners();
+    this.registerAnnotationInteraction();
 
     this.addRibbonIcon("lucide-highlighter", "标注模式", () => {
       this.toggleAnnotationView();
@@ -37,6 +51,11 @@ export default class AnnotationPlugin extends Plugin {
       this.removeMetadataCache(annotationPath);
     }
     this.activeAnnotationSessions.clear();
+
+    // 清理 UI 组件
+    this.selectionMenu.hide();
+    this.annotationMenu.hide();
+    this.annotationListPanel.hide();
   }
 
   async loadSettings() {
@@ -46,6 +65,8 @@ export default class AnnotationPlugin extends Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
+
+  // ========== 假文件管理 ==========
 
   // 构造假 TFile 并注入 vault 的 fileMap
   private createFakeTFile(path: string): TFile {
@@ -70,29 +91,27 @@ export default class AnnotationPlugin extends Plugin {
     delete (this.app.vault as any).fileMap[path];
   }
 
-  // 为标注文件注入原笔记的元数据缓存，使内部链接和大纲视图正常工作
+  // ========== 元数据缓存 ==========
+
+  // 为标注文件注入原笔记的元数据缓存
   private injectMetadataCache(annotationPath: string, originalPath: string, fakeTFile: TFile) {
     const cacheInternal = this.app.metadataCache as any;
 
-    // 从原笔记路径获取已有的 CachedMetadata，注入到标注文件路径
     const originalCache = cacheInternal.metadataCache[originalPath];
     if (originalCache) {
       cacheInternal.metadataCache[annotationPath] = originalCache;
     }
 
-    // 同时注入 fileCache 条目（hash/mtime/size）
     const originalFileCache = cacheInternal.fileCache[originalPath];
     if (originalFileCache) {
       cacheInternal.fileCache[annotationPath] = originalFileCache;
     }
 
-    // 触发 changed 事件，让大纲视图等原生插件同步
     if (originalCache) {
       this.app.metadataCache.trigger("changed", fakeTFile, "", originalCache);
     }
   }
 
-  // 清理标注文件的元数据缓存
   private removeMetadataCache(annotationPath: string) {
     const cacheInternal = this.app.metadataCache as any;
     delete cacheInternal.metadataCache[annotationPath];
@@ -128,13 +147,16 @@ export default class AnnotationPlugin extends Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
+            // 清理标注列表面板
+            this.annotationListPanel.hide();
           }
         }
       })
     );
   }
 
-  // 获取当前视图的滚动位置
+  // ========== 视图切换 ==========
+
   private getSavedScroll(leaf: any): number {
     const view = leaf?.view;
     if (view?.currentMode?.getScroll) {
@@ -144,7 +166,6 @@ export default class AnnotationPlugin extends Plugin {
     return 0;
   }
 
-  // 恢复视图的滚动位置
   private restoreScroll(leaf: any, scroll: number) {
     if (!scroll) return;
     const view = leaf?.view;
@@ -153,7 +174,6 @@ export default class AnnotationPlugin extends Plugin {
     }
   }
 
-  // 根据标注文件路径查找原始文件路径
   private getOriginalPathByAnnotationPath(annotationPath: string): string | null {
     for (const [originalPath, aPath] of this.activeAnnotationSessions) {
       if (aPath === annotationPath) return originalPath;
@@ -161,7 +181,15 @@ export default class AnnotationPlugin extends Plugin {
     return null;
   }
 
-  // 切换标注视图
+  // 获取当前标注视图对应的原始笔记路径
+  getActiveAnnotationNotePath(): string | null {
+    const leaf = this.app.workspace.activeLeaf;
+    if (!leaf) return null;
+    const currentFile = (leaf.view as any)?.file;
+    if (!currentFile) return null;
+    return this.getOriginalPathByAnnotationPath(currentFile.path);
+  }
+
   async toggleAnnotationView() {
     const leaf = this.app.workspace.activeLeaf;
     if (!leaf) return;
@@ -172,23 +200,17 @@ export default class AnnotationPlugin extends Plugin {
       return;
     }
 
-    // 检查当前是否在标注视图中
     const originalPath = this.getOriginalPathByAnnotationPath(currentFile.path);
     if (originalPath) {
-      // 当前在标注视图 → 切回原文件
       await this.closeAnnotationView(leaf, originalPath);
     } else if (currentFile.extension === "md") {
-      // 当前在普通视图 → 打开标注视图
       await this.openAnnotationView(leaf, currentFile.path);
     }
   }
 
-  // 打开标注视图
   async openAnnotationView(leaf: any, notePath: string) {
-    // 保存当前滚动位置
     const savedScroll = this.getSavedScroll(leaf);
 
-    // 确保标注文件存在
     const ok = await this.fileManager.ensureAnnotationFile(notePath);
     if (!ok) {
       new Notice("标注文件创建失败");
@@ -198,37 +220,32 @@ export default class AnnotationPlugin extends Plugin {
     const annotationPath = normalizePath(this.fileManager.getAnnotationFilePath(notePath));
     console.log("[标注] annotationPath:", annotationPath);
 
-    // 构造假 TFile 并用原生 MarkdownView 打开
     const fakeTFile = this.createFakeTFile(annotationPath);
-    console.log("[标注] fakeTFile:", fakeTFile.path, "basename:", fakeTFile.basename, "ext:", fakeTFile.extension, "deleted:", (fakeTFile as any).deleted);
 
-    // 记录会话
     this.activeAnnotationSessions.set(notePath, annotationPath);
 
     try {
-      // 注入原笔记的元数据缓存，使内部链接跳转和大纲视图正常工作
       this.injectMetadataCache(annotationPath, notePath, fakeTFile);
 
       await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
       console.log("[标注] openFile 完成, 当前 view:", (leaf.view as any)?.constructor?.name);
 
-      // 恢复滚动位置（双 rAF 等渲染完成后恢复）
       if (savedScroll) {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
         });
       }
+
+      // 显示标注列表面板
+      this.setupAnnotationListPanel(notePath);
     } catch (e) {
       console.error("[标注] openFile 失败:", e);
       new Notice("打开标注文件失败: " + e);
     }
   }
 
-  // 关闭标注视图，切回原文件
   async closeAnnotationView(leaf: any, originalPath: string) {
-    // 保存当前滚动位置
     const savedScroll = this.getSavedScroll(leaf);
-
     const annotationPath = this.activeAnnotationSessions.get(originalPath);
 
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
@@ -244,14 +261,17 @@ export default class AnnotationPlugin extends Plugin {
 
     await leaf.openFile(originalFile);
 
-    // 清理假文件和元数据缓存
     if (annotationPath) {
       this.removeFakeTFile(annotationPath);
       this.removeMetadataCache(annotationPath);
     }
     this.activeAnnotationSessions.delete(originalPath);
 
-    // 恢复滚动位置（双 rAF 等渲染完成后恢复）
+    // 清理 UI
+    this.selectionMenu.hide();
+    this.annotationMenu.hide();
+    this.annotationListPanel.hide();
+
     if (savedScroll) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
@@ -259,7 +279,107 @@ export default class AnnotationPlugin extends Plugin {
     }
   }
 
-  // 注册事件
+  // ========== 标注交互事件 ==========
+
+  // 注册标注视图中的鼠标事件（选区检测、标注点击）
+  private registerAnnotationInteraction() {
+    // 全局 mouseup 事件：检测文本选区并弹出添加菜单
+    this.registerDomEvent(document, "mouseup", (e: MouseEvent) => {
+      const notePath = this.getActiveAnnotationNotePath();
+      if (!notePath) return;
+
+      // 忽略来自标注菜单内部的 mouseup（避免点击菜单按钮时重复弹出）
+      const target = e.target as HTMLElement;
+      if (target.closest(".annotation-card-menu")) return;
+
+      // 延迟一帧确保 Selection 已更新
+      setTimeout(() => {
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed) return;
+
+        const context = extractSelectionContext(selection);
+        if (!context || !context.text) return;
+
+        this.annotationMenu.hide();
+
+        this.selectionMenu.show({
+          x: e.clientX,
+          y: e.clientY,
+          selectedText: context.text,
+          contextBefore: context.contextBefore,
+          contextAfter: context.contextAfter,
+          notePath,
+          onAdd: () => this.refreshAnnotationView(notePath),
+        });
+      }, 10);
+    });
+
+    // 全局 click 事件：检测点击已有标注并弹出详情菜单
+    this.registerDomEvent(document, "click", (e: MouseEvent) => {
+      const notePath = this.getActiveAnnotationNotePath();
+      if (!notePath) return;
+
+      const target = e.target as HTMLElement;
+      // 检查是否点击了 <mark> 标签
+      const markEl = target.closest("mark[data-annotation-id]") as HTMLElement;
+      if (!markEl) return;
+
+      const annotationId = markEl.getAttribute("data-annotation-id");
+      if (!annotationId) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      // 从标注文件中解析该标注的数据
+      this.fileManager.getAnnotations(notePath).then((annotations) => {
+        const annotation = annotations.find((a) => a.id === annotationId);
+        if (!annotation) return;
+
+        this.selectionMenu.hide();
+
+        this.annotationMenu.show({
+          x: e.clientX,
+          y: e.clientY,
+          annotation,
+          notePath,
+          onUpdate: () => this.refreshAnnotationView(notePath),
+        });
+      });
+    });
+  }
+
+  // 设置标注列表面板
+  private setupAnnotationListPanel(notePath: string) {
+    this.annotationListPanel.show({
+      notePath,
+      onUpdate: () => this.refreshAnnotationView(notePath),
+    });
+  }
+
+  // 刷新标注视图（标注增删改后调用）
+  // 通过 ReadViewRenderer.set() 直接更新渲染器文本并触发重渲染
+  private async refreshAnnotationView(notePath: string) {
+    const leaf = this.app.workspace.activeLeaf;
+    if (!leaf) return;
+
+    const view = leaf.view as MarkdownView;
+    if (!view.previewMode) return;
+
+    // 从磁盘读取最新内容（FileManager 已通过 adapter.write 写入）
+    const content = await this.fileManager.readAnnotationFile(notePath);
+
+    // 通过 ReadViewRenderer.set() 更新文本并触发重新渲染
+    const renderer = (view.previewMode as any).renderer;
+    if (renderer && typeof renderer.set === "function") {
+      renderer.set(content);
+    }
+
+    // 刷新标注列表面板
+    this.annotationListPanel.refresh();
+  }
+
+  // ========== 事件和命令 ==========
+
   registerEvents() {
     // 文件重命名时迁移标注文件
     this.registerEvent(
@@ -288,7 +408,6 @@ export default class AnnotationPlugin extends Plugin {
     );
   }
 
-  // 注册命令
   registerCommands() {
     this.addCommand({
       id: "toggle-annotation-view",

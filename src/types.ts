@@ -26,10 +26,14 @@ export interface NewAnnotation {
   color: AnnotationColor;
   note?: string;
   rubyTexts?: AnnotationRuby[];
-  position: {
+  // 精确位置（可选，优先使用）
+  position?: {
     start: number;
     end: number;
   };
+  // 上下文辅助定位（position 为空时使用）
+  contextBefore?: string;
+  contextAfter?: string;
 }
 
 // 更新标注时的参数

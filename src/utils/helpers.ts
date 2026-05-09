@@ -32,12 +32,16 @@ export function encodeAttr(str: string): string {
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/\r/g, "&#13;")
+    .replace(/\n/g, "&#10;");
 }
 
 // 对 HTML 属性值进行解码
 export function decodeAttr(str: string): string {
   return str
+    .replace(/&#10;/g, "\n")
+    .replace(/&#13;/g, "\r")
     .replace(/&gt;/g, ">")
     .replace(/&lt;/g, "<")
     .replace(/&quot;/g, '"')

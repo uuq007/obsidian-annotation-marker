@@ -27,7 +27,7 @@ export function stripTags(html: string): string {
 // 剥离注音内容：先移除 <rt> 标签及其文字，再移除其他 HTML 标签
 function stripRubyText(html: string): string {
   // 移除 <rt>...</rt>（含内容）
-  const noRt = html.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "");
+  const noRt = html.replace(/<rt[^>]*>[\s\S]*?<\/(?:rt|ruby)>/g, "");
   return stripTags(noRt);
 }
 

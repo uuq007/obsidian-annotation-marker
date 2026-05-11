@@ -120,7 +120,7 @@ function stripTags(html) {
   return html.replace(/<[^>]+>/g, "");
 }
 function stripRubyText(html) {
-  const noRt = html.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "");
+  const noRt = html.replace(/<rt[^>]*>[\s\S]*?<\/(?:rt|ruby)>/g, "");
   return stripTags(noRt);
 }
 function stripAnnotationTags(content) {
@@ -320,8 +320,8 @@ function buildCleanedMap(source) {
   const cleanedChars = [];
   const cleanedToSource = [];
   const syntaxRegex = new RegExp([
-    "<rt[^>]*>[\\s\\S]*?<\\/rt>",
-    // <rt>内容</rt> 整体去除
+    "<rt[^>]*>[\\s\\S]*?<\\/(?:rt|ruby)>",
+    // <rt>内容</rt> 或 <rt>内容</ruby> 整体去除
     "|<[^<>]+>",
     // HTML 标签去除（保留标签间文本）
     "|\\*\\*\\*([^\\*]+)\\*\\*\\*",
@@ -472,14 +472,17 @@ function extractSelectionContext(selection) {
   let selStart = -1;
   let selEnd = -1;
   let currentOffset = 0;
+  let foundFirst = false;
   while (node = walker.nextNode()) {
     if (((_a = node.parentElement) == null ? void 0 : _a.tagName) === "RT") continue;
     const len = (_c = (_b = node.textContent) == null ? void 0 : _b.length) != null ? _c : 0;
-    if (node === range.startContainer) {
-      selStart = currentOffset + range.startOffset;
-    }
-    if (node === range.endContainer) {
-      selEnd = currentOffset + range.endOffset;
+    const inRange = range.intersectsNode(node);
+    if (inRange) {
+      if (!foundFirst) {
+        foundFirst = true;
+        selStart = node === range.startContainer ? currentOffset + range.startOffset : currentOffset;
+      }
+      selEnd = node === range.endContainer ? currentOffset + range.endOffset : currentOffset + len;
     }
     cleanParts.push(node.textContent || "");
     currentOffset += len;
@@ -576,6 +579,9 @@ function buildSegmentHtml(segments, plainText, annotations) {
 }
 
 // src/annotationFile/annotationSerializer.ts
+function stripNativeRuby(text) {
+  return text.replace(/<rt[^>]*>[\s\S]*?<\/(?:rt|ruby)>/g, "").replace(/<\/?ruby[^>]*>/g, "");
+}
 function buildRubyTag(annotationId, text, ruby) {
   return `<ruby data-annotation-id="${annotationId}">${text}<rt data-annotation-id="${annotationId}">${ruby}</rt></ruby>`;
 }
@@ -628,12 +634,8 @@ function insertAnnotation(content, annotation) {
     end = start + annotation.text.length;
   }
   const sourceSlice = content.substring(start, end);
-  const hasTagsInSlice = /<[^>]+>/.test(sourceSlice);
-  const beforeStart = content.substring(0, start);
-  const openMarkCount = (beforeStart.match(/<mark[\s>]/g) || []).length;
-  const closeMarkCount = (beforeStart.match(/<\/mark>/g) || []).length;
-  const insideExistingMark = openMarkCount > closeMarkCount;
-  if (!hasTagsInSlice && !insideExistingMark) {
+  const needsRebuild = /<(?:mark|ruby|rt)\s[^>]*data-annotation-id|<\/mark>/i.test(sourceSlice);
+  if (!needsRebuild) {
     const tag = sourceSlice === annotation.text ? buildMarkTag(id, sourceSlice, annotation.color, annotation.note, annotation.rubyTexts) : buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
     return {
       content: content.substring(0, start) + tag + content.substring(end),
@@ -647,16 +649,20 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
   const involvedAnnotations = existingAnnotations.filter(
     (a) => a.positions.some((p) => p.start < newEnd && p.end > newStart)
   );
-  const allStarts = [newStart, ...involvedAnnotations.flatMap((a) => a.positions.map((p) => p.start))];
-  const allEnds = [newEnd, ...involvedAnnotations.flatMap((a) => a.positions.map((p) => p.end))];
-  const affectedStart = Math.min(...allStarts);
-  const affectedEnd = Math.max(...allEnds);
+  const probeStarts = [newStart, ...involvedAnnotations.flatMap((a) => a.positions.map((p) => p.start))];
+  const probeEnds = [newEnd, ...involvedAnnotations.flatMap((a) => a.positions.map((p) => p.end))];
+  const probeStart = Math.min(...probeStarts);
+  const probeEnd = Math.max(...probeEnds);
   const nestedAnnotations = existingAnnotations.filter(
-    (a) => !involvedAnnotations.includes(a) && a.positions.some((p) => p.start >= affectedStart && p.end <= affectedEnd)
+    (a) => !involvedAnnotations.includes(a) && a.positions.some((p) => p.start >= probeStart && p.end <= probeEnd)
   );
   const allExistingToRebuild = [...involvedAnnotations, ...nestedAnnotations];
+  const allStarts = [newStart, ...allExistingToRebuild.flatMap((a) => a.positions.map((p) => p.start))];
+  const allEnds = [newEnd, ...allExistingToRebuild.flatMap((a) => a.positions.map((p) => p.end))];
+  const affectedStart = Math.min(...allStarts);
+  const affectedEnd = Math.max(...allEnds);
   const affectedRegion = content.substring(affectedStart, affectedEnd);
-  const plainRegion = stripAnnotationTags(affectedRegion);
+  const plainRegion = stripNativeRuby(stripAnnotationTags(affectedRegion));
   const allInvolved = [
     ...allExistingToRebuild.map((a) => ({
       id: a.id,
@@ -703,20 +709,8 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
   };
 }
 function removeAnnotationTag(content, annotationId) {
-  const allAnnotations = parseAnnotations(content);
-  const targetAnnotation = allAnnotations.find((a) => a.id === annotationId);
-  if (!targetAnnotation) return content;
-  let result = content;
-  for (let i = targetAnnotation.positions.length - 1; i >= 0; i--) {
-    const tp = targetAnnotation.positions[i];
-    const overlappingAnnotations = allAnnotations.filter(
-      (a) => a.id !== annotationId && a.positions.some((ap) => ap.start < tp.end && tp.start < ap.end)
-    );
-    if (overlappingAnnotations.length > 0) {
-      result = rebuildLocalOverlap(result, tp, overlappingAnnotations);
-    }
-  }
-  result = simpleRemoveAnnotationTag(result, annotationId);
+  let result = removeRubyById(content, annotationId);
+  result = removeMarkById(result, annotationId);
   result = mergeAdjacentMarks(result);
   return result;
 }
@@ -774,67 +768,58 @@ function mergeAdjacentMarks(content) {
   }
   return parts.join("");
 }
-function simpleRemoveAnnotationTag(content, annotationId) {
+function removeRubyById(content, annotationId) {
   const rubyRegex = new RegExp(
     `<ruby\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<rt\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>[\\s\\S]*?<\\/rt><\\/ruby>`,
     "g"
   );
-  let result = content.replace(rubyRegex, "$1");
-  const markRegex = new RegExp(
-    `<mark\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<\\/mark>`,
-    "g"
-  );
-  result = result.replace(markRegex, "$1");
-  return result;
+  return content.replace(rubyRegex, "$1");
 }
-function rebuildLocalOverlap(content, targetPos, overlappingAnnotations) {
-  const allStarts = [targetPos.start];
-  const allEnds = [targetPos.end];
-  for (const ann of overlappingAnnotations) {
-    for (const ap of ann.positions) {
-      if (ap.start < targetPos.end && targetPos.start < ap.end) {
-        allStarts.push(ap.start);
-        allEnds.push(ap.end);
+function removeMarkById(content, annotationId) {
+  var _a;
+  const openRe = /<mark\s+([^>]*)>/g;
+  const closeRe = /<\/mark>/g;
+  const tags = [];
+  let m;
+  while ((m = openRe.exec(content)) !== null) {
+    const id = ((_a = m[1].match(/data-annotation-id="([^"]*)"/)) == null ? void 0 : _a[1]) || "";
+    tags.push({ index: m.index, length: m[0].length, type: "open", id });
+  }
+  while ((m = closeRe.exec(content)) !== null) {
+    tags.push({ index: m.index, length: 7, type: "close", id: "" });
+  }
+  tags.sort((a, b) => a.index - b.index);
+  const stack = [];
+  const removeSet = /* @__PURE__ */ new Set();
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    if (tag.type === "open") {
+      stack.push(i);
+    } else {
+      const openIdx = stack.pop();
+      if (openIdx !== void 0 && tags[openIdx].id === annotationId) {
+        removeSet.add(openIdx);
+        removeSet.add(i);
       }
     }
   }
-  const affectedStart = Math.min(...allStarts);
-  const affectedEnd = Math.max(...allEnds);
-  const affectedRegion = content.substring(affectedStart, affectedEnd);
-  const plainRegion = stripAnnotationTags(affectedRegion);
-  const intervals = [];
-  for (const ann of overlappingAnnotations) {
-    for (const pos of ann.positions) {
-      if (pos.start < affectedEnd && pos.end > affectedStart) {
-        const localStart = pos.start - affectedStart;
-        const localEnd = pos.end - affectedStart;
-        const plainBefore = stripAnnotationTags(affectedRegion.substring(0, localStart));
-        const plainAtPos = stripAnnotationTags(affectedRegion.substring(localStart, localEnd));
-        if (plainAtPos.length > 0) {
-          intervals.push({
-            id: ann.id,
-            start: plainBefore.length,
-            end: plainBefore.length + plainAtPos.length,
-            color: COLOR_MAP[ann.color].bg,
-            annotationColor: ann.color,
-            note: ann.note ? encodeAttr(ann.note) : void 0,
-            created: ann.createdAt,
-            rubyTexts: ann.rubyTexts
-          });
-        }
-      }
+  if (removeSet.size === 0) return content;
+  const parts = [];
+  let lastIdx = 0;
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    if (tag.index > lastIdx) {
+      parts.push(content.substring(lastIdx, tag.index));
     }
+    if (!removeSet.has(i)) {
+      parts.push(content.substring(tag.index, tag.index + tag.length));
+    }
+    lastIdx = tag.index + tag.length;
   }
-  if (intervals.length === 0) {
-    return content.substring(0, affectedStart) + plainRegion + content.substring(affectedEnd);
+  if (lastIdx < content.length) {
+    parts.push(content.substring(lastIdx));
   }
-  const segments = computeSegments(intervals);
-  const annotationMap = /* @__PURE__ */ new Map();
-  for (const iv of intervals) {
-    annotationMap.set(iv.id, iv);
-  }
-  const rebuiltRegion = buildSegmentHtml(segments, plainRegion, annotationMap);
-  return content.substring(0, affectedStart) + rebuiltRegion + content.substring(affectedEnd);
+  return parts.join("");
 }
 function updateAnnotationTag(content, annotationId, updates) {
   const regex = new RegExp(

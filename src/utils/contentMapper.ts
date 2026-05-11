@@ -126,7 +126,7 @@ export function buildCleanedMap(source: string): CleanedMap {
 
   // 按优先级排列：先匹配的特殊模式优先
   const syntaxRegex = new RegExp([
-    '<rt[^>]*>[\\s\\S]*?<\\/rt>',                         // <rt>内容</rt> 整体去除
+    '<rt[^>]*>[\\s\\S]*?<\\/(?:rt|ruby)>',                // <rt>内容</rt> 或 <rt>内容</ruby> 整体去除
     '|<[^<>]+>',                                           // HTML 标签去除（保留标签间文本）
     '|\\*\\*\\*([^\\*]+)\\*\\*\\*',                        // ***粗斜体*** → 保留内文本
     '|\\*\\*([^\\*]+)\\*\\*',                              // **粗体** → 保留内文本
@@ -278,16 +278,25 @@ export function extractSelectionContext(selection: Selection): {
   let selStart = -1;
   let selEnd = -1;
   let currentOffset = 0;
+  let foundFirst = false;
 
   while ((node = walker.nextNode())) {
     if (node.parentElement?.tagName === "RT") continue;
     const len = node.textContent?.length ?? 0;
 
-    if (node === range.startContainer) {
-      selStart = currentOffset + range.startOffset;
-    }
-    if (node === range.endContainer) {
-      selEnd = currentOffset + range.endOffset;
+    // 用 intersectsNode 判断文本节点是否在选区内（兼容 startContainer 为元素节点的情况）
+    const inRange = range.intersectsNode(node);
+
+    if (inRange) {
+      if (!foundFirst) {
+        foundFirst = true;
+        selStart = (node === range.startContainer)
+          ? currentOffset + range.startOffset
+          : currentOffset;
+      }
+      selEnd = (node === range.endContainer)
+        ? currentOffset + range.endOffset
+        : currentOffset + len;
     }
 
     cleanParts.push(node.textContent || "");

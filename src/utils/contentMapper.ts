@@ -17,7 +17,7 @@ export function buildContentMap(content: string): ContentMap {
   const strippedToSource: number[] = [];
 
   // 匹配所有标注相关标签（带 data-annotation-id 的标签及其闭合标签）
-  const tagRegex = /<(?:mark|ruby|rt|span)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt|span)>/g;
+  const tagRegex = /<(?:mark|ruby|rt)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt)>/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;

@@ -250,23 +250,27 @@ export class AnnotationListPanel {
     await new Promise(resolve => setTimeout(resolve, 300));
 
     const containerEl = view?.previewMode?.containerEl;
-    const highlightEl = containerEl?.querySelector(
+    const highlightEls = containerEl?.querySelectorAll(
       `mark[data-annotation-id="${annotation.id}"]`
-    ) as HTMLElement;
+    );
 
-    if (highlightEl) {
-      this.highlightElement(highlightEl);
+    if (highlightEls && highlightEls.length > 0) {
+      this.highlightElements(Array.from(highlightEls) as HTMLElement[]);
     } else {
       new Notice("未能定位到标注，可能文档内容已更改");
     }
   }
 
   // 给标注元素添加临时蓝色边框高亮
-  private highlightElement(el: HTMLElement): void {
-    el.style.transition = "box-shadow 0.3s ease";
-    el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+  private highlightElements(elements: HTMLElement[]): void {
+    for (const el of elements) {
+      el.style.transition = "box-shadow 0.3s ease";
+      el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+    }
     setTimeout(() => {
-      el.style.boxShadow = "";
+      for (const el of elements) {
+        el.style.boxShadow = "";
+      }
     }, 2000);
   }
 

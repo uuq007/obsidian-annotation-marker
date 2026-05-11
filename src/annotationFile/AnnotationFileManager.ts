@@ -92,7 +92,7 @@ export class AnnotationFileManager {
 
   private buildContentMap(content: string): Array<{ text: string; isTag: boolean; offset: number }> {
     const segments: Array<{ text: string; isTag: boolean; offset: number }> = [];
-    const tagRegex = /<(?:mark|ruby|rt|span)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt|span)>/g;
+    const tagRegex = /<(?:mark|ruby|rt)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt)>/g;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 

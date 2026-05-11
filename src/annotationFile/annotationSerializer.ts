@@ -8,7 +8,7 @@ import { parseAnnotations, stripAnnotationTags } from "./annotationParser";
 
 // 构建 <ruby> 标签
 function buildRubyTag(annotationId: string, text: string, ruby: string): string {
-  return `<ruby data-annotation-id="${annotationId}"><span data-annotation-id="${annotationId}">${text}</span><rt data-annotation-id="${annotationId}">${ruby}</rt></ruby>`;
+  return `<ruby data-annotation-id="${annotationId}">${text}<rt data-annotation-id="${annotationId}">${ruby}</rt></ruby>`;
 }
 
 // 构建带有注音标注的文本内容
@@ -37,15 +37,17 @@ export function buildMarkTag(
   color: AnnotationColor,
   note?: string,
   rubyTexts?: AnnotationRuby[],
-  createdAt?: string
+  createdAt?: string,
+  isFullText?: boolean
 ): string {
   const bg = COLOR_MAP[color].bg;
   const created = createdAt || new Date().toISOString();
   const noteAttr = note ? ` data-annotation-note="${encodeAttr(note)}"` : "";
+  const fullTextAttr = isFullText ? ` data-annotation-fulltext="true"` : "";
 
   const annotatedText = buildAnnotatedText(text, id, rubyTexts);
 
-  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}">${annotatedText}</mark>`;
+  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}"${fullTextAttr}>${annotatedText}</mark>`;
 }
 
 // 在标注文件内容中插入新标注
@@ -181,39 +183,126 @@ function rebuildOverlapRegion(
 }
 
 // 从标注文件内容中删除指定标注（移除 <mark> 和关联的 <ruby> 标签，保留文字内容）
-// 如果标注参与重叠，重建受影响区域
+// 对每个位置独立判断：不重叠的简单移除，重叠的局部重建
 export function removeAnnotationTag(content: string, annotationId: string): string {
-  // 1. 解析所有标注，检查被删除标注是否参与重叠
   const allAnnotations = parseAnnotations(content);
   const targetAnnotation = allAnnotations.find(a => a.id === annotationId);
 
-  if (!targetAnnotation) {
-    // 标注不存在，直接返回
-    return content;
+  if (!targetAnnotation) return content;
+
+  let result = content;
+
+  // 从后往前处理重叠位置（避免位置偏移）
+  for (let i = targetAnnotation.positions.length - 1; i >= 0; i--) {
+    const tp = targetAnnotation.positions[i]!;
+    const overlappingAnnotations = allAnnotations.filter(a =>
+      a.id !== annotationId &&
+      a.positions.some(ap => ap.start < tp.end && tp.start < ap.end)
+    );
+
+    if (overlappingAnnotations.length > 0) {
+      // 该位置有重叠 → 局部重建（只影响该位置附近）
+      result = rebuildLocalOverlap(result, tp, overlappingAnnotations);
+    }
   }
 
-  // 检查是否有重叠
-  const hasOverlap = allAnnotations.some(a =>
-    a.id !== annotationId &&
-    a.positions.some(ap =>
-      targetAnnotation.positions.some(tp => ap.start < tp.end && tp.start < ap.end)
-    )
-  );
+  // 清理所有剩余的 mark/ruby 标签（包括非重叠位置和重建后残留的）
+  result = simpleRemoveAnnotationTag(result, annotationId);
 
-  if (!hasOverlap) {
-    // 无重叠：简单移除
-    return simpleRemoveAnnotationTag(content, annotationId);
+  // 合并相邻的同 ID mark 段（重叠分割后的残留）
+  result = mergeAdjacentMarks(result);
+
+  return result;
+}
+
+// 合并相邻的同 ID <mark> 段（重叠分割后的残留）
+// 用栈匹配开闭标签，当 </mark> 紧邻同 ID 的 <mark> 时跳过边界
+function mergeAdjacentMarks(content: string): string {
+  const openRe = /<mark\s+([^>]*)>/g;
+  const closeRe = /<\/mark>/g;
+
+  interface TagInfo {
+    index: number;
+    length: number;
+    type: "open" | "close";
+    id: string;
+    isFullText: boolean;
   }
 
-  // 有重叠：重建受影响区域
-  return rebuildAfterRemoval(content, annotationId, targetAnnotation, allAnnotations);
+  const tags: TagInfo[] = [];
+  let m: RegExpExecArray | null;
+
+  while ((m = openRe.exec(content)) !== null) {
+    const attrs = m[1]!;
+    const id = attrs.match(/data-annotation-id="([^"]*)"/)?.[1] || "";
+    const isFullText = attrs.includes('data-annotation-fulltext="true"');
+    tags.push({ index: m.index, length: m[0].length, type: "open", id, isFullText });
+  }
+
+  while ((m = closeRe.exec(content)) !== null) {
+    tags.push({ index: m.index, length: 7, type: "close", id: "", isFullText: false });
+  }
+
+  tags.sort((a, b) => a.index - b.index);
+
+  // 用栈匹配并找到可合并的边界
+  const stack: number[] = [];
+  const skipSet = new Set<number>();
+
+  for (let i = 0; i < tags.length; i++) {
+    if (skipSet.has(i)) continue;
+    const tag = tags[i]!;
+    if (tag.type === "open") {
+      stack.push(i);
+    } else {
+      const openIdx = stack.pop();
+      if (openIdx === undefined) continue;
+      const openTag = tags[openIdx]!;
+
+      const nextIdx = i + 1;
+      const nextTag = tags[nextIdx];
+      if (
+        nextTag &&
+        nextTag.type === "open" &&
+        nextTag.id === openTag.id &&
+        !nextTag.isFullText &&
+        openTag.id &&
+        tag.index + tag.length === nextTag.index
+      ) {
+        skipSet.add(i);
+        skipSet.add(nextIdx);
+        stack.push(openIdx);
+      }
+    }
+  }
+
+  if (skipSet.size === 0) return content;
+
+  // 重建内容
+  const parts: string[] = [];
+  let lastIdx = 0;
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i]!;
+    if (tag.index > lastIdx) {
+      parts.push(content.substring(lastIdx, tag.index));
+    }
+    if (!skipSet.has(i)) {
+      parts.push(content.substring(tag.index, tag.index + tag.length));
+    }
+    lastIdx = tag.index + tag.length;
+  }
+  if (lastIdx < content.length) {
+    parts.push(content.substring(lastIdx));
+  }
+
+  return parts.join("");
 }
 
 // 简单移除标注标签（无重叠情况）
 function simpleRemoveAnnotationTag(content: string, annotationId: string): string {
-  // 先移除该标注关联的 <ruby> 标签（保留 <span> 中的文字）
+  // 先移除该标注关联的 <ruby> 标签（保留文字，去除 <rt> 内容）
   const rubyRegex = new RegExp(
-    `<ruby\\s+[^>]*data-annotation-id="${annotationId}"[^>]*><span\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<\\/span><rt\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>[\\s\\S]*?<\\/rt><\\/ruby>`,
+    `<ruby\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<rt\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>[\\s\\S]*?<\\/rt><\\/ruby>`,
     "g"
   );
   let result = content.replace(rubyRegex, "$1");
@@ -228,29 +317,24 @@ function simpleRemoveAnnotationTag(content: string, annotationId: string): strin
   return result;
 }
 
-// 删除参与重叠的标注后重建受影响区域
-function rebuildAfterRemoval(
+// 对单个重叠位置进行局部重建
+// 只重建该位置附近的小区域，不影响文件其他部分
+function rebuildLocalOverlap(
   content: string,
-  annotationId: string,
-  targetAnnotation: { positions: Array<{ start: number; end: number }> },
-  allAnnotations: Array<{ id: string; positions: Array<{ start: number; end: number }>; text: string; color: AnnotationColor; note: string; createdAt: string }>
+  targetPos: { start: number; end: number },
+  overlappingAnnotations: Array<{ id: string; positions: Array<{ start: number; end: number }>; text: string; color: AnnotationColor; note: string; createdAt: string }>
 ): string {
-  // 计算受影响区域
-  const allStarts = targetAnnotation.positions.map(p => p.start);
-  const allEnds = targetAnnotation.positions.map(p => p.end);
-  // 包含与被删除标注重叠的其他标注的范围
-  for (const ann of allAnnotations) {
-    if (ann.id === annotationId) continue;
+  // 受影响区域 = 目标位置 + 重叠标注在该位置附近的范围
+  const allStarts = [targetPos.start];
+  const allEnds = [targetPos.end];
+  for (const ann of overlappingAnnotations) {
     for (const ap of ann.positions) {
-      for (const tp of targetAnnotation.positions) {
-        if (ap.start < tp.end && tp.start < ap.end) {
-          allStarts.push(ap.start);
-          allEnds.push(ap.end);
-        }
+      if (ap.start < targetPos.end && targetPos.start < ap.end) {
+        allStarts.push(ap.start);
+        allEnds.push(ap.end);
       }
     }
   }
-
   const affectedStart = Math.min(...allStarts);
   const affectedEnd = Math.max(...allEnds);
 
@@ -258,36 +342,38 @@ function rebuildAfterRemoval(
   const affectedRegion = content.substring(affectedStart, affectedEnd);
   const plainRegion = stripAnnotationTags(affectedRegion);
 
-  // 收集剩余标注（排除被删除的）
-  const remainingAnnotations = allAnnotations.filter(a =>
-    a.id !== annotationId &&
-    a.positions.some(ap =>
-      allStarts.some(s => ap.end > s) && allEnds.some(e => ap.start < e)
-    )
-  );
-
-  if (remainingAnnotations.length === 0) {
-    // 没有剩余标注，直接用纯文本替换
-    return content.substring(0, affectedStart) + plainRegion + content.substring(affectedEnd);
-  }
-
-  // 在 plainRegion 中找到每个剩余标注的位置
+  // 只收集重叠标注（排除被删除的标注）
+  // 基于位置直接映射，而非 indexOf 搜索完整文本
   const intervals: Interval[] = [];
-  for (const ann of remainingAnnotations) {
-    const idx = plainRegion.indexOf(ann.text);
-    if (idx >= 0) {
-      intervals.push({
-        id: ann.id,
-        start: idx,
-        end: idx + ann.text.length,
-        color: COLOR_MAP[ann.color].bg,
-        note: ann.note ? encodeAttr(ann.note) : undefined,
-        created: ann.createdAt,
-      });
+  for (const ann of overlappingAnnotations) {
+    for (const pos of ann.positions) {
+      // 只处理在受影响区域内的位置
+      if (pos.start < affectedEnd && pos.end > affectedStart) {
+        const localStart = pos.start - affectedStart;
+        const localEnd = pos.end - affectedStart;
+        const plainBefore = stripAnnotationTags(affectedRegion.substring(0, localStart));
+        const plainAtPos = stripAnnotationTags(affectedRegion.substring(localStart, localEnd));
+
+        if (plainAtPos.length > 0) {
+          intervals.push({
+            id: ann.id,
+            start: plainBefore.length,
+            end: plainBefore.length + plainAtPos.length,
+            color: COLOR_MAP[ann.color].bg,
+            note: ann.note ? encodeAttr(ann.note) : undefined,
+            created: ann.createdAt,
+          });
+        }
+      }
     }
   }
 
-  // 计算分割段并重建
+  if (intervals.length === 0) {
+    // 无可重建的标注，直接用纯文本
+    return content.substring(0, affectedStart) + plainRegion + content.substring(affectedEnd);
+  }
+
+  // 计算分割段并重建（不含被删除的标注）
   const segments = computeSegments(intervals);
   const annotationMap = new Map<string, Interval>();
   for (const iv of intervals) {
@@ -347,11 +433,8 @@ export function updateAnnotationTag(
 
     // 如果更新了 rubyTexts，需要重新构建内部内容
     if (updates.rubyTexts !== undefined) {
-      // 先剥离已有的 <ruby> 标签
-      const plainText = innerContent.replace(/<ruby\s+[^>]*>[\s\S]*?<\/ruby>/g, (rubyMatch) => {
-        const spanMatch = rubyMatch.match(/<span\s+[^>]*>([\s\S]*?)<\/span>/);
-        return spanMatch ? spanMatch[1]! : "";
-      });
+      // 先剥离已有的 <ruby> 标签（保留文字，去除 <rt> 内容）
+      const plainText = innerContent.replace(/<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>[\s\S]*?<\/rt><\/ruby>/g, "$1");
 
       const newInnerContent = buildAnnotatedText(plainText, annotationId, updates.rubyTexts);
       return `${prefix}${newAttrs}${open}${newInnerContent}${close}`;
@@ -392,7 +475,7 @@ export function insertFullTextAnnotation(
     const sourceSlice = newContent.substring(srcStart, srcEnd);
 
     // 全文标注不支持注音（每次出现的 markdown 语法可能不同）
-    const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
+    const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, undefined, undefined, true);
     newContent = newContent.substring(0, srcStart) + tag + newContent.substring(srcEnd);
   }
 

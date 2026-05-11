@@ -63,6 +63,11 @@ export class SelectionMenu {
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
 
+    // 阻止菜单内的事件冒泡到 document，防止 Obsidian 焦点管理器抢走输入框焦点
+    this.menuEl.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.menuEl.addEventListener("mouseup", (e) => e.stopPropagation());
+    this.menuEl.addEventListener("focusin", (e) => e.stopPropagation());
+
     // 标题栏
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
     header.createEl("span", { text: "添加标注", cls: "annotation-menu-title" });
@@ -241,7 +246,8 @@ export class SelectionMenu {
     this.rubyTextPreview.setAttribute("data-selected-text", this.selectedText);
 
     // 监听预览区域的选区
-    this.rubyTextPreview.addEventListener("mouseup", () => {
+    this.rubyTextPreview.addEventListener("mouseup", (e) => {
+      e.stopPropagation();
       setTimeout(() => {
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) {

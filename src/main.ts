@@ -292,9 +292,10 @@ export default class AnnotationPlugin extends Plugin {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
 
-      // 忽略来自标注菜单内部的 mouseup（避免点击菜单按钮时重复弹出）
+      // 忽略来自标注菜单、模态框、输入框内部的 mouseup
       const target = e.target as HTMLElement;
-      if (target.closest(".annotation-card-menu")) return;
+      if (target.closest(".annotation-card-menu, .modal-container")) return;
+      if (target.closest("input, textarea")) return;
 
       // 延迟一帧确保 Selection 已更新
       setTimeout(() => {

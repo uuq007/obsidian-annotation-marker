@@ -43,6 +43,11 @@ export class EditNoteModal extends Modal {
     const { contentEl } = this;
     contentEl.addClass("annotation-note-modal");
 
+    // 阻止模态框内的事件冒泡到 document，防止 Obsidian 焦点管理器抢走输入框焦点
+    this.containerEl.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.containerEl.addEventListener("mouseup", (e) => e.stopPropagation());
+    this.containerEl.addEventListener("focusin", (e) => e.stopPropagation());
+
     contentEl.createEl("h3", { text: this.currentNote ? "编辑批注" : "添加批注" });
 
     // 标注文字预览
@@ -144,7 +149,8 @@ export class EditNoteModal extends Modal {
       text: this.annotationText,
     });
 
-    this.rubyTextPreview.addEventListener("mouseup", () => {
+    this.rubyTextPreview.addEventListener("mouseup", (e) => {
+      e.stopPropagation();
       setTimeout(() => {
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) {

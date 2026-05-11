@@ -24,12 +24,19 @@ export function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, "");
 }
 
+// 剥离注音内容：先移除 <rt> 标签及其文字，再移除其他 HTML 标签
+function stripRubyText(html: string): string {
+  // 移除 <rt>...</rt>（含内容）
+  const noRt = html.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "");
+  return stripTags(noRt);
+}
+
 // 从标注文件内容中剥离所有标注标签，只保留纯文本
 // 使用深度计数法正确处理嵌套 <mark> 和 <ruby> 标签
 export function stripAnnotationTags(content: string): string {
-  // 先处理 <ruby> 标签：只保留 <span> 中的文字
+  // 先处理 <ruby> 标签：只保留文字，去除 <rt> 内容
   let result = content.replace(
-    /<ruby\s+[^>]*><span\s+[^>]*>([\s\S]*?)<\/span><rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
+    /<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
     "$1"
   );
   // 用深度计数法处理嵌套 <mark> 标签
@@ -128,19 +135,19 @@ function parseRubyTags(content: string, _parentAnnotationId: string): Annotation
     const rtMatch = rubyContent.match(/<rt[^>]*data-annotation-id="[^"]*"[^>]*>([\s\S]*?)<\/rt>/);
     const rtText = rtMatch ? rtMatch[1]! : "";
 
-    // 从 <ruby> 中提取 <span> 标签的文本内容
-    const spanMatch = rubyContent.match(/<span[^>]*data-annotation-id="[^"]*"[^>]*>([\s\S]*?)<\/span>/);
-    const spanText = spanMatch ? spanMatch[1]! : "";
+    // 从 <ruby> 中提取 <rt> 之前的文字（即被注音的文字）
+    const baseTextMatch = rubyContent.match(/^([\s\S]*?)<rt/);
+    const baseText = baseTextMatch ? baseTextMatch[1]! : "";
 
-    if (spanText && rtText) {
-      // 计算 <span> 文本在 <mark> 内容中的 startIndex
+    if (baseText && rtText) {
+      // 计算被注音文字在 <mark> 内容中的 startIndex
       const beforeRuby = content.substring(0, match.index);
       // 剥离 beforeRuby 中的其他标签来计算纯文本偏移
       const plainBefore = stripTags(beforeRuby);
 
       rubies.push({
         startIndex: plainBefore.length,
-        length: spanText.length,
+        length: baseText.length,
         ruby: rtText,
       });
     }
@@ -202,8 +209,13 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
     const note = decodeAttr(getAttr(first.attrs, "data-annotation-note") || "");
     const createdAt = getAttr(first.attrs, "data-annotation-created") || new Date().toISOString();
 
-    // 拼接所有段的纯文本
-    const text = group.map(seg => stripTags(seg.content)).join("");
+    // 判断是否为全文标注（通过显式属性判断）
+    const isFullText = getAttr(first.attrs, "data-annotation-fulltext") === "true";
+
+    // 文本：全文标注取第一个实例，重叠分割的标注合并所有段
+    const text = isFullText
+      ? stripRubyText(first.content)
+      : group.map(seg => stripRubyText(seg.content)).join("");
 
     // 解析第一段中的 ruby 标签
     const rubyTexts = parseRubyTags(first.content, id);
@@ -213,9 +225,6 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
       start: seg.startIndex,
       end: seg.endIndex,
     }));
-
-    // 判断是否为全文标注（同一 ID 出现多次）
-    const isFullText = group.length > 1;
 
     annotations.push({
       id,

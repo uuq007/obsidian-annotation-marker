@@ -119,9 +119,13 @@ function extractColorFromStyle(style) {
 function stripTags(html) {
   return html.replace(/<[^>]+>/g, "");
 }
+function stripRubyText(html) {
+  const noRt = html.replace(/<rt[^>]*>[\s\S]*?<\/rt>/g, "");
+  return stripTags(noRt);
+}
 function stripAnnotationTags(content) {
   let result = content.replace(
-    /<ruby\s+[^>]*><span\s+[^>]*>([\s\S]*?)<\/span><rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
+    /<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
     "$1"
   );
   result = stripNestedMarks(result);
@@ -186,14 +190,14 @@ function parseRubyTags(content, _parentAnnotationId) {
     const rubyContent = match[1];
     const rtMatch = rubyContent.match(/<rt[^>]*data-annotation-id="[^"]*"[^>]*>([\s\S]*?)<\/rt>/);
     const rtText = rtMatch ? rtMatch[1] : "";
-    const spanMatch = rubyContent.match(/<span[^>]*data-annotation-id="[^"]*"[^>]*>([\s\S]*?)<\/span>/);
-    const spanText = spanMatch ? spanMatch[1] : "";
-    if (spanText && rtText) {
+    const baseTextMatch = rubyContent.match(/^([\s\S]*?)<rt/);
+    const baseText = baseTextMatch ? baseTextMatch[1] : "";
+    if (baseText && rtText) {
       const beforeRuby = content.substring(0, match.index);
       const plainBefore = stripTags(beforeRuby);
       rubies.push({
         startIndex: plainBefore.length,
-        length: spanText.length,
+        length: baseText.length,
         ruby: rtText
       });
     }
@@ -238,13 +242,13 @@ function parseAnnotations(content) {
     const color = extractColorFromStyle(style);
     const note = decodeAttr(getAttr(first.attrs, "data-annotation-note") || "");
     const createdAt = getAttr(first.attrs, "data-annotation-created") || (/* @__PURE__ */ new Date()).toISOString();
-    const text = group.map((seg) => stripTags(seg.content)).join("");
+    const isFullText = getAttr(first.attrs, "data-annotation-fulltext") === "true";
+    const text = isFullText ? stripRubyText(first.content) : group.map((seg) => stripRubyText(seg.content)).join("");
     const rubyTexts = parseRubyTags(first.content, id);
     const positions = group.map((seg) => ({
       start: seg.startIndex,
       end: seg.endIndex
     }));
-    const isFullText = group.length > 1;
     annotations.push({
       id,
       color,
@@ -479,7 +483,11 @@ function computeSegments(intervals) {
 function buildSegmentHtml(segments, plainText, annotations) {
   var _a;
   const parts = [];
+  let lastEnd = 0;
   for (const seg of segments) {
+    if (seg.start > lastEnd) {
+      parts.push(plainText.substring(lastEnd, seg.start));
+    }
     const text = plainText.substring(seg.start, seg.end);
     const sortedIds = [...seg.ids].sort();
     let wrapped = text;
@@ -492,13 +500,17 @@ function buildSegmentHtml(segments, plainText, annotations) {
       wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${noteAttr}${createdAttr}>${wrapped}</mark>`;
     }
     parts.push(wrapped);
+    lastEnd = seg.end;
+  }
+  if (lastEnd < plainText.length) {
+    parts.push(plainText.substring(lastEnd));
   }
   return parts.join("");
 }
 
 // src/annotationFile/annotationSerializer.ts
 function buildRubyTag(annotationId, text, ruby) {
-  return `<ruby data-annotation-id="${annotationId}"><span data-annotation-id="${annotationId}">${text}</span><rt data-annotation-id="${annotationId}">${ruby}</rt></ruby>`;
+  return `<ruby data-annotation-id="${annotationId}">${text}<rt data-annotation-id="${annotationId}">${ruby}</rt></ruby>`;
 }
 function buildAnnotatedText(text, annotationId, rubyTexts) {
   if (!rubyTexts || rubyTexts.length === 0) return text;
@@ -512,12 +524,13 @@ function buildAnnotatedText(text, annotationId, rubyTexts) {
   }
   return result;
 }
-function buildMarkTag(id, text, color, note, rubyTexts, createdAt) {
+function buildMarkTag(id, text, color, note, rubyTexts, createdAt, isFullText) {
   const bg = COLOR_MAP[color].bg;
   const created = createdAt || (/* @__PURE__ */ new Date()).toISOString();
   const noteAttr = note ? ` data-annotation-note="${encodeAttr(note)}"` : "";
+  const fullTextAttr = isFullText ? ` data-annotation-fulltext="true"` : "";
   const annotatedText = buildAnnotatedText(text, id, rubyTexts);
-  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}">${annotatedText}</mark>`;
+  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}"${fullTextAttr}>${annotatedText}</mark>`;
 }
 function insertAnnotation(content, annotation) {
   const id = generateId();
@@ -613,22 +626,78 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
 function removeAnnotationTag(content, annotationId) {
   const allAnnotations = parseAnnotations(content);
   const targetAnnotation = allAnnotations.find((a) => a.id === annotationId);
-  if (!targetAnnotation) {
-    return content;
+  if (!targetAnnotation) return content;
+  let result = content;
+  for (let i = targetAnnotation.positions.length - 1; i >= 0; i--) {
+    const tp = targetAnnotation.positions[i];
+    const overlappingAnnotations = allAnnotations.filter(
+      (a) => a.id !== annotationId && a.positions.some((ap) => ap.start < tp.end && tp.start < ap.end)
+    );
+    if (overlappingAnnotations.length > 0) {
+      result = rebuildLocalOverlap(result, tp, overlappingAnnotations);
+    }
   }
-  const hasOverlap = allAnnotations.some(
-    (a) => a.id !== annotationId && a.positions.some(
-      (ap) => targetAnnotation.positions.some((tp) => ap.start < tp.end && tp.start < ap.end)
-    )
-  );
-  if (!hasOverlap) {
-    return simpleRemoveAnnotationTag(content, annotationId);
+  result = simpleRemoveAnnotationTag(result, annotationId);
+  result = mergeAdjacentMarks(result);
+  return result;
+}
+function mergeAdjacentMarks(content) {
+  var _a;
+  const openRe = /<mark\s+([^>]*)>/g;
+  const closeRe = /<\/mark>/g;
+  const tags = [];
+  let m;
+  while ((m = openRe.exec(content)) !== null) {
+    const attrs = m[1];
+    const id = ((_a = attrs.match(/data-annotation-id="([^"]*)"/)) == null ? void 0 : _a[1]) || "";
+    const isFullText = attrs.includes('data-annotation-fulltext="true"');
+    tags.push({ index: m.index, length: m[0].length, type: "open", id, isFullText });
   }
-  return rebuildAfterRemoval(content, annotationId, targetAnnotation, allAnnotations);
+  while ((m = closeRe.exec(content)) !== null) {
+    tags.push({ index: m.index, length: 7, type: "close", id: "", isFullText: false });
+  }
+  tags.sort((a, b) => a.index - b.index);
+  const stack = [];
+  const skipSet = /* @__PURE__ */ new Set();
+  for (let i = 0; i < tags.length; i++) {
+    if (skipSet.has(i)) continue;
+    const tag = tags[i];
+    if (tag.type === "open") {
+      stack.push(i);
+    } else {
+      const openIdx = stack.pop();
+      if (openIdx === void 0) continue;
+      const openTag = tags[openIdx];
+      const nextIdx = i + 1;
+      const nextTag = tags[nextIdx];
+      if (nextTag && nextTag.type === "open" && nextTag.id === openTag.id && !nextTag.isFullText && openTag.id && tag.index + tag.length === nextTag.index) {
+        skipSet.add(i);
+        skipSet.add(nextIdx);
+        stack.push(openIdx);
+      }
+    }
+  }
+  if (skipSet.size === 0) return content;
+  const parts = [];
+  let lastIdx = 0;
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    if (tag.index > lastIdx) {
+      parts.push(content.substring(lastIdx, tag.index));
+    }
+    if (!skipSet.has(i)) {
+      parts.push(content.substring(tag.index, tag.index + tag.length));
+    }
+    lastIdx = tag.index + tag.length;
+  }
+  if (lastIdx < content.length) {
+    parts.push(content.substring(lastIdx));
+  }
+  return parts.join("");
 }
 function simpleRemoveAnnotationTag(content, annotationId) {
   const rubyRegex = new RegExp(
-    `<ruby\\s+[^>]*data-annotation-id="${annotationId}"[^>]*><span\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<\\/span><rt\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>[\\s\\S]*?<\\/rt><\\/ruby>`,
+    `<ruby\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>([\\s\\S]*?)<rt\\s+[^>]*data-annotation-id="${annotationId}"[^>]*>[\\s\\S]*?<\\/rt><\\/ruby>`,
     "g"
   );
   let result = content.replace(rubyRegex, "$1");
@@ -639,17 +708,14 @@ function simpleRemoveAnnotationTag(content, annotationId) {
   result = result.replace(markRegex, "$1");
   return result;
 }
-function rebuildAfterRemoval(content, annotationId, targetAnnotation, allAnnotations) {
-  const allStarts = targetAnnotation.positions.map((p) => p.start);
-  const allEnds = targetAnnotation.positions.map((p) => p.end);
-  for (const ann of allAnnotations) {
-    if (ann.id === annotationId) continue;
+function rebuildLocalOverlap(content, targetPos, overlappingAnnotations) {
+  const allStarts = [targetPos.start];
+  const allEnds = [targetPos.end];
+  for (const ann of overlappingAnnotations) {
     for (const ap of ann.positions) {
-      for (const tp of targetAnnotation.positions) {
-        if (ap.start < tp.end && tp.start < ap.end) {
-          allStarts.push(ap.start);
-          allEnds.push(ap.end);
-        }
+      if (ap.start < targetPos.end && targetPos.start < ap.end) {
+        allStarts.push(ap.start);
+        allEnds.push(ap.end);
       }
     }
   }
@@ -657,27 +723,29 @@ function rebuildAfterRemoval(content, annotationId, targetAnnotation, allAnnotat
   const affectedEnd = Math.max(...allEnds);
   const affectedRegion = content.substring(affectedStart, affectedEnd);
   const plainRegion = stripAnnotationTags(affectedRegion);
-  const remainingAnnotations = allAnnotations.filter(
-    (a) => a.id !== annotationId && a.positions.some(
-      (ap) => allStarts.some((s) => ap.end > s) && allEnds.some((e) => ap.start < e)
-    )
-  );
-  if (remainingAnnotations.length === 0) {
-    return content.substring(0, affectedStart) + plainRegion + content.substring(affectedEnd);
-  }
   const intervals = [];
-  for (const ann of remainingAnnotations) {
-    const idx = plainRegion.indexOf(ann.text);
-    if (idx >= 0) {
-      intervals.push({
-        id: ann.id,
-        start: idx,
-        end: idx + ann.text.length,
-        color: COLOR_MAP[ann.color].bg,
-        note: ann.note ? encodeAttr(ann.note) : void 0,
-        created: ann.createdAt
-      });
+  for (const ann of overlappingAnnotations) {
+    for (const pos of ann.positions) {
+      if (pos.start < affectedEnd && pos.end > affectedStart) {
+        const localStart = pos.start - affectedStart;
+        const localEnd = pos.end - affectedStart;
+        const plainBefore = stripAnnotationTags(affectedRegion.substring(0, localStart));
+        const plainAtPos = stripAnnotationTags(affectedRegion.substring(localStart, localEnd));
+        if (plainAtPos.length > 0) {
+          intervals.push({
+            id: ann.id,
+            start: plainBefore.length,
+            end: plainBefore.length + plainAtPos.length,
+            color: COLOR_MAP[ann.color].bg,
+            note: ann.note ? encodeAttr(ann.note) : void 0,
+            created: ann.createdAt
+          });
+        }
+      }
     }
+  }
+  if (intervals.length === 0) {
+    return content.substring(0, affectedStart) + plainRegion + content.substring(affectedEnd);
   }
   const segments = computeSegments(intervals);
   const annotationMap = /* @__PURE__ */ new Map();
@@ -720,10 +788,7 @@ function updateAnnotationTag(content, annotationId, updates) {
       }
     }
     if (updates.rubyTexts !== void 0) {
-      const plainText = innerContent.replace(/<ruby\s+[^>]*>[\s\S]*?<\/ruby>/g, (rubyMatch) => {
-        const spanMatch = rubyMatch.match(/<span\s+[^>]*>([\s\S]*?)<\/span>/);
-        return spanMatch ? spanMatch[1] : "";
-      });
+      const plainText = innerContent.replace(/<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>[\s\S]*?<\/rt><\/ruby>/g, "$1");
       const newInnerContent = buildAnnotatedText(plainText, annotationId, updates.rubyTexts);
       return `${prefix}${newAttrs}${open}${newInnerContent}${close}`;
     }
@@ -750,7 +815,7 @@ function insertFullTextAnnotation(content, annotation) {
     const srcStart = (_a = map.cleanedToSource[cleanStart]) != null ? _a : 0;
     const srcEnd = ((_b = map.cleanedToSource[cleanEnd - 1]) != null ? _b : srcStart) + 1;
     const sourceSlice = newContent.substring(srcStart, srcEnd);
-    const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
+    const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, void 0, void 0, true);
     newContent = newContent.substring(0, srcStart) + tag + newContent.substring(srcEnd);
   }
   return { content: newContent, id, count: occurrences.length };
@@ -818,7 +883,7 @@ var AnnotationFileManager = class {
   }
   buildContentMap(content) {
     const segments = [];
-    const tagRegex = /<(?:mark|ruby|rt|span)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt|span)>/g;
+    const tagRegex = /<(?:mark|ruby|rt)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt)>/g;
     let lastIndex = 0;
     let match;
     while ((match = tagRegex.exec(content)) !== null) {
@@ -961,6 +1026,9 @@ var SelectionMenu = class {
     this.selectedRubyRange = null;
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
+    this.menuEl.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.menuEl.addEventListener("mouseup", (e) => e.stopPropagation());
+    this.menuEl.addEventListener("focusin", (e) => e.stopPropagation());
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
     header.createEl("span", { text: "\u6DFB\u52A0\u6807\u6CE8", cls: "annotation-menu-title" });
     const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: "\xD7" });
@@ -1103,7 +1171,8 @@ var SelectionMenu = class {
       text: this.selectedText
     });
     this.rubyTextPreview.setAttribute("data-selected-text", this.selectedText);
-    this.rubyTextPreview.addEventListener("mouseup", () => {
+    this.rubyTextPreview.addEventListener("mouseup", (e) => {
+      e.stopPropagation();
       setTimeout(() => {
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) {
@@ -1295,6 +1364,9 @@ var EditNoteModal = class extends import_obsidian3.Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.addClass("annotation-note-modal");
+    this.containerEl.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.containerEl.addEventListener("mouseup", (e) => e.stopPropagation());
+    this.containerEl.addEventListener("focusin", (e) => e.stopPropagation());
     contentEl.createEl("h3", { text: this.currentNote ? "\u7F16\u8F91\u6279\u6CE8" : "\u6DFB\u52A0\u6279\u6CE8" });
     const previewEl = contentEl.createDiv({ cls: "annotation-modal-preview" });
     previewEl.createEl("strong", { text: "\u6807\u6CE8\u6587\u5B57\uFF1A" });
@@ -1376,7 +1448,8 @@ var EditNoteModal = class extends import_obsidian3.Modal {
       cls: "annotation-ruby-text-preview",
       text: this.annotationText
     });
-    this.rubyTextPreview.addEventListener("mouseup", () => {
+    this.rubyTextPreview.addEventListener("mouseup", (e) => {
+      e.stopPropagation();
       setTimeout(() => {
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) {
@@ -1793,21 +1866,25 @@ var AnnotationListPanel = class {
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
     const containerEl = (_a = view == null ? void 0 : view.previewMode) == null ? void 0 : _a.containerEl;
-    const highlightEl = containerEl == null ? void 0 : containerEl.querySelector(
+    const highlightEls = containerEl == null ? void 0 : containerEl.querySelectorAll(
       `mark[data-annotation-id="${annotation.id}"]`
     );
-    if (highlightEl) {
-      this.highlightElement(highlightEl);
+    if (highlightEls && highlightEls.length > 0) {
+      this.highlightElements(Array.from(highlightEls));
     } else {
       new import_obsidian5.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8\uFF0C\u53EF\u80FD\u6587\u6863\u5185\u5BB9\u5DF2\u66F4\u6539");
     }
   }
   // 给标注元素添加临时蓝色边框高亮
-  highlightElement(el) {
-    el.style.transition = "box-shadow 0.3s ease";
-    el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+  highlightElements(elements) {
+    for (const el of elements) {
+      el.style.transition = "box-shadow 0.3s ease";
+      el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+    }
     setTimeout(() => {
-      el.style.boxShadow = "";
+      for (const el of elements) {
+        el.style.boxShadow = "";
+      }
     }, 2e3);
   }
   hidePanel() {
@@ -2056,7 +2133,8 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
       const target = e.target;
-      if (target.closest(".annotation-card-menu")) return;
+      if (target.closest(".annotation-card-menu, .modal-container")) return;
+      if (target.closest("input, textarea")) return;
       setTimeout(() => {
         var _a;
         const selection = window.getSelection();

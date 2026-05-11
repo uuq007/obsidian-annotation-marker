@@ -49,14 +49,21 @@ export function computeSegments(intervals: Interval[]): Segment[] {
 }
 
 // 从段重建 HTML：对每段文本，从内到外嵌套 <mark> 标签
+// 同时补充段与段之间、以及首尾的纯文本（未被任何标注覆盖的区域）
 export function buildSegmentHtml(
   segments: Segment[],
   plainText: string,
   annotations: Map<string, Interval>
 ): string {
   const parts: string[] = [];
+  let lastEnd = 0;
 
   for (const seg of segments) {
+    // 补充当前段之前的纯文本
+    if (seg.start > lastEnd) {
+      parts.push(plainText.substring(lastEnd, seg.start));
+    }
+
     const text = plainText.substring(seg.start, seg.end);
     // 按 ID 排序确保一致的嵌套顺序
     const sortedIds = [...seg.ids].sort();
@@ -74,6 +81,12 @@ export function buildSegmentHtml(
     }
 
     parts.push(wrapped);
+    lastEnd = seg.end;
+  }
+
+  // 补充末尾的纯文本
+  if (lastEnd < plainText.length) {
+    parts.push(plainText.substring(lastEnd));
   }
 
   return parts.join("");

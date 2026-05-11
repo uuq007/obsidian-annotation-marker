@@ -122,10 +122,12 @@ function findMatchingCloseMark(content: string, openTagEnd: number): number {
   return -1;
 }
 
-// 从 <mark> 标签内容中解析 <ruby> 子标签
-function parseRubyTags(content: string, _parentAnnotationId: string): AnnotationRuby[] {
+// 从 <mark> 标签内容中解析属于指定标注的 <ruby> 子标签
+function parseRubyTags(content: string, parentAnnotationId: string): AnnotationRuby[] {
   const rubies: AnnotationRuby[] = [];
-  const rubyRegex = /<ruby\s+[^>]*>([\s\S]*?)<\/ruby>/g;
+  const rubyRegex = new RegExp(
+    `<ruby\\s+[^>]*data-annotation-id="${parentAnnotationId}"[^>]*>([\\s\\S]*?)<\\/ruby>`, "g"
+  );
   let match: RegExpExecArray | null;
 
   while ((match = rubyRegex.exec(content)) !== null) {
@@ -143,7 +145,7 @@ function parseRubyTags(content: string, _parentAnnotationId: string): Annotation
       // 计算被注音文字在 <mark> 内容中的 startIndex
       const beforeRuby = content.substring(0, match.index);
       // 剥离 beforeRuby 中的其他标签来计算纯文本偏移
-      const plainBefore = stripTags(beforeRuby);
+      const plainBefore = stripRubyText(beforeRuby);
 
       rubies.push({
         startIndex: plainBefore.length,
@@ -217,8 +219,24 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
       ? stripRubyText(first.content)
       : group.map(seg => stripRubyText(seg.content)).join("");
 
-    // 解析第一段中的 ruby 标签
-    const rubyTexts = parseRubyTags(first.content, id);
+    // 解析所有段中属于此标注的 ruby 标签
+    const rubyTexts: AnnotationRuby[] = [];
+    if (isFullText) {
+      rubyTexts.push(...parseRubyTags(first.content, id));
+    } else {
+      let offset = 0;
+      for (const seg of group) {
+        const segRubies = parseRubyTags(seg.content, id);
+        for (const r of segRubies) {
+          rubyTexts.push({
+            startIndex: offset + r.startIndex,
+            length: r.length,
+            ruby: r.ruby,
+          });
+        }
+        offset += stripRubyText(seg.content).length;
+      }
+    }
 
     // 收集所有位置
     const positions = group.map(seg => ({

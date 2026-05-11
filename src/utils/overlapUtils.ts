@@ -6,8 +6,10 @@ export interface Interval {
   start: number;
   end: number;
   color: string;
+  annotationColor?: string;
   note?: string;
   created?: string;
+  rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>;
 }
 
 export interface Segment {
@@ -48,7 +50,7 @@ export function computeSegments(intervals: Interval[]): Segment[] {
   return segments;
 }
 
-// 从段重建 HTML：对每段文本，从内到外嵌套 <mark> 标签
+// 从段重建 HTML：对每段文本，先插入 <ruby> 标签，再从内到外嵌套 <mark> 标签
 // 同时补充段与段之间、以及首尾的纯文本（未被任何标注覆盖的区域）
 export function buildSegmentHtml(
   segments: Segment[],
@@ -64,20 +66,52 @@ export function buildSegmentHtml(
       parts.push(plainText.substring(lastEnd, seg.start));
     }
 
-    const text = plainText.substring(seg.start, seg.end);
+    let enrichedText = plainText.substring(seg.start, seg.end);
+
+    // 收集此段内需要添加 ruby 的注音信息（绝对位置 → 段内相对位置）
+    const segmentRubies: Array<{ localStart: number; localEnd: number; ruby: string; annId: string }> = [];
+    for (const id of seg.ids) {
+      const ann = annotations.get(id);
+      if (ann?.rubyTexts) {
+        for (const ruby of ann.rubyTexts) {
+          const absStart = ann.start + ruby.startIndex;
+          const absEnd = absStart + ruby.length;
+          // ruby 必须完全落在此段内
+          if (absStart >= seg.start && absEnd <= seg.end) {
+            segmentRubies.push({
+              localStart: absStart - seg.start,
+              localEnd: absEnd - seg.start,
+              ruby: ruby.ruby,
+              annId: id,
+            });
+          }
+        }
+      }
+    }
+
+    // 按相对位置倒序排列，从后往前插入 <ruby> 标签（避免位置偏移）
+    segmentRubies.sort((a, b) => b.localStart - a.localStart);
+    for (const sr of segmentRubies) {
+      const before = enrichedText.substring(0, sr.localStart);
+      const target = enrichedText.substring(sr.localStart, sr.localEnd);
+      const after = enrichedText.substring(sr.localEnd);
+      enrichedText = `${before}<ruby data-annotation-id="${sr.annId}">${target}<rt data-annotation-id="${sr.annId}">${sr.ruby}</rt></ruby>${after}`;
+    }
+
     // 按 ID 排序确保一致的嵌套顺序
     const sortedIds = [...seg.ids].sort();
 
     // 从内到外包裹 <mark> 标签
-    let wrapped = text;
+    let wrapped = enrichedText;
     for (let i = sortedIds.length - 1; i >= 0; i--) {
       const id = sortedIds[i]!;
       const ann = annotations.get(id);
       const bg = ann?.color ?? "rgba(255, 212, 59, 0.45)";
+      const colorAttr = ann?.annotationColor ? ` data-annotation-color="${ann.annotationColor}"` : "";
       const noteAttr = ann?.note ? ` data-annotation-note="${ann.note}"` : "";
       const createdAttr = ann?.created ? ` data-annotation-created="${ann.created}"` : "";
 
-      wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${noteAttr}${createdAttr}>${wrapped}</mark>`;
+      wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${colorAttr}${noteAttr}${createdAttr}>${wrapped}</mark>`;
     }
 
     parts.push(wrapped);

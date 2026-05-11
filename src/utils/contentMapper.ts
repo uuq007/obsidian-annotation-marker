@@ -256,6 +256,7 @@ export function calculateOffsetInBlock(range: Range, block: HTMLElement): number
 }
 
 // 从 DOM 选区中提取选中文本和上下文
+// 用 TreeWalker 遍历文本节点并跳过 <rt> 节点，确保提取的文本不含注音内容
 export function extractSelectionContext(selection: Selection): {
   text: string;
   contextBefore: string;
@@ -265,26 +266,51 @@ export function extractSelectionContext(selection: Selection): {
   const range = selection.getRangeAt(0);
   if (range.collapsed) return null;
 
-  const text = selection.toString().trim();
-  if (!text) return null;
-
   // 找到最近的块级容器
   const container = range.commonAncestorContainer;
   const block = (container instanceof HTMLElement ? container : container.parentElement);
   if (!block) return null;
 
-  // 获取块的完整文本内容
-  const blockText = block.textContent || "";
+  // 用 TreeWalker 收集块内非 <rt> 文本节点，同时记录选区起止位置
+  const cleanParts: string[] = [];
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+  let node: Node | null;
+  let selStart = -1;
+  let selEnd = -1;
+  let currentOffset = 0;
 
-  // 用 TreeWalker 精确计算选区在块内的偏移（避免 indexOf 始终匹配首个重复文本）
-  const selIndex = calculateOffsetInBlock(range, block);
-  if (selIndex < 0) return { text, contextBefore: "", contextAfter: "" };
+  while ((node = walker.nextNode())) {
+    if (node.parentElement?.tagName === "RT") continue;
+    const len = node.textContent?.length ?? 0;
+
+    if (node === range.startContainer) {
+      selStart = currentOffset + range.startOffset;
+    }
+    if (node === range.endContainer) {
+      selEnd = currentOffset + range.endOffset;
+    }
+
+    cleanParts.push(node.textContent || "");
+    currentOffset += len;
+  }
+
+  const cleanBlockText = cleanParts.join("");
+
+  if (selStart < 0 || selEnd < 0) {
+    // 无法精确定位选区，回退
+    const text = selection.toString().trim();
+    if (!text) return null;
+    return { text, contextBefore: "", contextAfter: "" };
+  }
+
+  const text = cleanBlockText.substring(selStart, selEnd).trim();
+  if (!text) return null;
 
   const CONTEXT_LEN = 50;
-  const contextBefore = blockText.substring(Math.max(0, selIndex - CONTEXT_LEN), selIndex);
-  const contextAfter = blockText.substring(
-    selIndex + text.length,
-    selIndex + text.length + CONTEXT_LEN
+  const contextBefore = cleanBlockText.substring(Math.max(0, selStart - CONTEXT_LEN), selStart);
+  const contextAfter = cleanBlockText.substring(
+    selEnd,
+    selEnd + CONTEXT_LEN
   );
 
   return { text, contextBefore, contextAfter };

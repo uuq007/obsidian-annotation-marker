@@ -90,10 +90,16 @@ export function insertAnnotation(content: string, annotation: NewAnnotation): { 
   // 获取源码切片
   const sourceSlice = content.substring(start, end);
 
-  // 检查是否跨越了已有 <mark> 标签边界（即存在重叠）
-  const hasOverlap = /<mark[\s>]|<\/mark>/.test(sourceSlice);
+  // 检查源码切片是否包含任何 HTML 标签（<ruby>、<rt>、<mark> 等）
+  const hasTagsInSlice = /<[^>]+>/.test(sourceSlice);
 
-  if (!hasOverlap) {
+  // 检查插入位置是否在已有 <mark> 标签内部（切片可能无标签但位于嵌套中）
+  const beforeStart = content.substring(0, start);
+  const openMarkCount = (beforeStart.match(/<mark[\s>]/g) || []).length;
+  const closeMarkCount = (beforeStart.match(/<\/mark>/g) || []).length;
+  const insideExistingMark = openMarkCount > closeMarkCount;
+
+  if (!hasTagsInSlice && !insideExistingMark) {
     // 无重叠：正常插入
     const tag = (sourceSlice === annotation.text)
       ? buildMarkTag(id, sourceSlice, annotation.color, annotation.note, annotation.rubyTexts)
@@ -129,18 +135,26 @@ function rebuildOverlapRegion(
   const affectedStart = Math.min(...allStarts);
   const affectedEnd = Math.max(...allEnds);
 
+  // 2.5 查找受影响区域内但不直接与插入范围重叠的嵌套标注
+  const nestedAnnotations = existingAnnotations.filter(a =>
+    !involvedAnnotations.includes(a) &&
+    a.positions.some(p => p.start >= affectedStart && p.end <= affectedEnd)
+  );
+  const allExistingToRebuild = [...involvedAnnotations, ...nestedAnnotations];
+
   // 3. 提取受影响区域并剥离所有标注标签
   const affectedRegion = content.substring(affectedStart, affectedEnd);
   const plainRegion = stripAnnotationTags(affectedRegion);
 
   // 4. 收集所有参与标注（已有 + 新增）
   const allInvolved = [
-    ...involvedAnnotations.map(a => ({
+    ...allExistingToRebuild.map(a => ({
       id: a.id,
       text: a.text,
       color: a.color,
       note: a.note,
       created: a.createdAt,
+      rubyTexts: a.rubyTexts,
     })),
     {
       id: newId,
@@ -148,6 +162,7 @@ function rebuildOverlapRegion(
       color: annotation.color,
       note: annotation.note,
       created: new Date().toISOString(),
+      rubyTexts: annotation.rubyTexts,
     },
   ];
 
@@ -161,8 +176,10 @@ function rebuildOverlapRegion(
         start: idx,
         end: idx + ann.text.length,
         color: COLOR_MAP[ann.color].bg,
+        annotationColor: ann.color,
         note: ann.note ? encodeAttr(ann.note) : undefined,
         created: ann.created,
+        rubyTexts: ann.rubyTexts,
       });
     }
   }
@@ -322,7 +339,7 @@ function simpleRemoveAnnotationTag(content: string, annotationId: string): strin
 function rebuildLocalOverlap(
   content: string,
   targetPos: { start: number; end: number },
-  overlappingAnnotations: Array<{ id: string; positions: Array<{ start: number; end: number }>; text: string; color: AnnotationColor; note: string; createdAt: string }>
+  overlappingAnnotations: Array<{ id: string; positions: Array<{ start: number; end: number }>; text: string; color: AnnotationColor; note: string; createdAt: string; rubyTexts: AnnotationRuby[] }>
 ): string {
   // 受影响区域 = 目标位置 + 重叠标注在该位置附近的范围
   const allStarts = [targetPos.start];
@@ -360,8 +377,10 @@ function rebuildLocalOverlap(
             start: plainBefore.length,
             end: plainBefore.length + plainAtPos.length,
             color: COLOR_MAP[ann.color].bg,
+            annotationColor: ann.color,
             note: ann.note ? encodeAttr(ann.note) : undefined,
             created: ann.createdAt,
+            rubyTexts: ann.rubyTexts,
           });
         }
       }

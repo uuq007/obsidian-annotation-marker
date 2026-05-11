@@ -182,9 +182,12 @@ function findMatchingCloseMark(content, openTagEnd) {
   }
   return -1;
 }
-function parseRubyTags(content, _parentAnnotationId) {
+function parseRubyTags(content, parentAnnotationId) {
   const rubies = [];
-  const rubyRegex = /<ruby\s+[^>]*>([\s\S]*?)<\/ruby>/g;
+  const rubyRegex = new RegExp(
+    `<ruby\\s+[^>]*data-annotation-id="${parentAnnotationId}"[^>]*>([\\s\\S]*?)<\\/ruby>`,
+    "g"
+  );
   let match;
   while ((match = rubyRegex.exec(content)) !== null) {
     const rubyContent = match[1];
@@ -194,7 +197,7 @@ function parseRubyTags(content, _parentAnnotationId) {
     const baseText = baseTextMatch ? baseTextMatch[1] : "";
     if (baseText && rtText) {
       const beforeRuby = content.substring(0, match.index);
-      const plainBefore = stripTags(beforeRuby);
+      const plainBefore = stripRubyText(beforeRuby);
       rubies.push({
         startIndex: plainBefore.length,
         length: baseText.length,
@@ -244,7 +247,23 @@ function parseAnnotations(content) {
     const createdAt = getAttr(first.attrs, "data-annotation-created") || (/* @__PURE__ */ new Date()).toISOString();
     const isFullText = getAttr(first.attrs, "data-annotation-fulltext") === "true";
     const text = isFullText ? stripRubyText(first.content) : group.map((seg) => stripRubyText(seg.content)).join("");
-    const rubyTexts = parseRubyTags(first.content, id);
+    const rubyTexts = [];
+    if (isFullText) {
+      rubyTexts.push(...parseRubyTags(first.content, id));
+    } else {
+      let offset = 0;
+      for (const seg of group) {
+        const segRubies = parseRubyTags(seg.content, id);
+        for (const r of segRubies) {
+          rubyTexts.push({
+            startIndex: offset + r.startIndex,
+            length: r.length,
+            ruby: r.ruby
+          });
+        }
+        offset += stripRubyText(seg.content).length;
+      }
+    }
     const positions = group.map((seg) => ({
       start: seg.startIndex,
       end: seg.endIndex
@@ -440,22 +459,44 @@ function calculateOffsetInBlock(range, block) {
   return offset;
 }
 function extractSelectionContext(selection) {
+  var _a, _b, _c;
   if (!selection.rangeCount) return null;
   const range = selection.getRangeAt(0);
   if (range.collapsed) return null;
-  const text = selection.toString().trim();
-  if (!text) return null;
   const container = range.commonAncestorContainer;
   const block = container instanceof HTMLElement ? container : container.parentElement;
   if (!block) return null;
-  const blockText = block.textContent || "";
-  const selIndex = calculateOffsetInBlock(range, block);
-  if (selIndex < 0) return { text, contextBefore: "", contextAfter: "" };
+  const cleanParts = [];
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+  let node;
+  let selStart = -1;
+  let selEnd = -1;
+  let currentOffset = 0;
+  while (node = walker.nextNode()) {
+    if (((_a = node.parentElement) == null ? void 0 : _a.tagName) === "RT") continue;
+    const len = (_c = (_b = node.textContent) == null ? void 0 : _b.length) != null ? _c : 0;
+    if (node === range.startContainer) {
+      selStart = currentOffset + range.startOffset;
+    }
+    if (node === range.endContainer) {
+      selEnd = currentOffset + range.endOffset;
+    }
+    cleanParts.push(node.textContent || "");
+    currentOffset += len;
+  }
+  const cleanBlockText = cleanParts.join("");
+  if (selStart < 0 || selEnd < 0) {
+    const text2 = selection.toString().trim();
+    if (!text2) return null;
+    return { text: text2, contextBefore: "", contextAfter: "" };
+  }
+  const text = cleanBlockText.substring(selStart, selEnd).trim();
+  if (!text) return null;
   const CONTEXT_LEN = 50;
-  const contextBefore = blockText.substring(Math.max(0, selIndex - CONTEXT_LEN), selIndex);
-  const contextAfter = blockText.substring(
-    selIndex + text.length,
-    selIndex + text.length + CONTEXT_LEN
+  const contextBefore = cleanBlockText.substring(Math.max(0, selStart - CONTEXT_LEN), selStart);
+  const contextAfter = cleanBlockText.substring(
+    selEnd,
+    selEnd + CONTEXT_LEN
   );
   return { text, contextBefore, contextAfter };
 }
@@ -488,16 +529,42 @@ function buildSegmentHtml(segments, plainText, annotations) {
     if (seg.start > lastEnd) {
       parts.push(plainText.substring(lastEnd, seg.start));
     }
-    const text = plainText.substring(seg.start, seg.end);
+    let enrichedText = plainText.substring(seg.start, seg.end);
+    const segmentRubies = [];
+    for (const id of seg.ids) {
+      const ann = annotations.get(id);
+      if (ann == null ? void 0 : ann.rubyTexts) {
+        for (const ruby of ann.rubyTexts) {
+          const absStart = ann.start + ruby.startIndex;
+          const absEnd = absStart + ruby.length;
+          if (absStart >= seg.start && absEnd <= seg.end) {
+            segmentRubies.push({
+              localStart: absStart - seg.start,
+              localEnd: absEnd - seg.start,
+              ruby: ruby.ruby,
+              annId: id
+            });
+          }
+        }
+      }
+    }
+    segmentRubies.sort((a, b) => b.localStart - a.localStart);
+    for (const sr of segmentRubies) {
+      const before = enrichedText.substring(0, sr.localStart);
+      const target = enrichedText.substring(sr.localStart, sr.localEnd);
+      const after = enrichedText.substring(sr.localEnd);
+      enrichedText = `${before}<ruby data-annotation-id="${sr.annId}">${target}<rt data-annotation-id="${sr.annId}">${sr.ruby}</rt></ruby>${after}`;
+    }
     const sortedIds = [...seg.ids].sort();
-    let wrapped = text;
+    let wrapped = enrichedText;
     for (let i = sortedIds.length - 1; i >= 0; i--) {
       const id = sortedIds[i];
       const ann = annotations.get(id);
       const bg = (_a = ann == null ? void 0 : ann.color) != null ? _a : "rgba(255, 212, 59, 0.45)";
+      const colorAttr = (ann == null ? void 0 : ann.annotationColor) ? ` data-annotation-color="${ann.annotationColor}"` : "";
       const noteAttr = (ann == null ? void 0 : ann.note) ? ` data-annotation-note="${ann.note}"` : "";
       const createdAttr = (ann == null ? void 0 : ann.created) ? ` data-annotation-created="${ann.created}"` : "";
-      wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${noteAttr}${createdAttr}>${wrapped}</mark>`;
+      wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${colorAttr}${noteAttr}${createdAttr}>${wrapped}</mark>`;
     }
     parts.push(wrapped);
     lastEnd = seg.end;
@@ -561,8 +628,12 @@ function insertAnnotation(content, annotation) {
     end = start + annotation.text.length;
   }
   const sourceSlice = content.substring(start, end);
-  const hasOverlap = /<mark[\s>]|<\/mark>/.test(sourceSlice);
-  if (!hasOverlap) {
+  const hasTagsInSlice = /<[^>]+>/.test(sourceSlice);
+  const beforeStart = content.substring(0, start);
+  const openMarkCount = (beforeStart.match(/<mark[\s>]/g) || []).length;
+  const closeMarkCount = (beforeStart.match(/<\/mark>/g) || []).length;
+  const insideExistingMark = openMarkCount > closeMarkCount;
+  if (!hasTagsInSlice && !insideExistingMark) {
     const tag = sourceSlice === annotation.text ? buildMarkTag(id, sourceSlice, annotation.color, annotation.note, annotation.rubyTexts) : buildMarkTag(id, sourceSlice, annotation.color, annotation.note);
     return {
       content: content.substring(0, start) + tag + content.substring(end),
@@ -580,22 +651,28 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
   const allEnds = [newEnd, ...involvedAnnotations.flatMap((a) => a.positions.map((p) => p.end))];
   const affectedStart = Math.min(...allStarts);
   const affectedEnd = Math.max(...allEnds);
+  const nestedAnnotations = existingAnnotations.filter(
+    (a) => !involvedAnnotations.includes(a) && a.positions.some((p) => p.start >= affectedStart && p.end <= affectedEnd)
+  );
+  const allExistingToRebuild = [...involvedAnnotations, ...nestedAnnotations];
   const affectedRegion = content.substring(affectedStart, affectedEnd);
   const plainRegion = stripAnnotationTags(affectedRegion);
   const allInvolved = [
-    ...involvedAnnotations.map((a) => ({
+    ...allExistingToRebuild.map((a) => ({
       id: a.id,
       text: a.text,
       color: a.color,
       note: a.note,
-      created: a.createdAt
+      created: a.createdAt,
+      rubyTexts: a.rubyTexts
     })),
     {
       id: newId,
       text: annotation.text,
       color: annotation.color,
       note: annotation.note,
-      created: (/* @__PURE__ */ new Date()).toISOString()
+      created: (/* @__PURE__ */ new Date()).toISOString(),
+      rubyTexts: annotation.rubyTexts
     }
   ];
   const intervals = [];
@@ -607,8 +684,10 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
         start: idx,
         end: idx + ann.text.length,
         color: COLOR_MAP[ann.color].bg,
+        annotationColor: ann.color,
         note: ann.note ? encodeAttr(ann.note) : void 0,
-        created: ann.created
+        created: ann.created,
+        rubyTexts: ann.rubyTexts
       });
     }
   }
@@ -737,8 +816,10 @@ function rebuildLocalOverlap(content, targetPos, overlappingAnnotations) {
             start: plainBefore.length,
             end: plainBefore.length + plainAtPos.length,
             color: COLOR_MAP[ann.color].bg,
+            annotationColor: ann.color,
             note: ann.note ? encodeAttr(ann.note) : void 0,
-            created: ann.createdAt
+            created: ann.createdAt,
+            rubyTexts: ann.rubyTexts
           });
         }
       }

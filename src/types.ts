@@ -6,6 +6,15 @@ export interface AnnotationRuby {
   ruby: string;
 }
 
+// 跨段标注中每个文本块的信息
+export interface BlockSegment {
+  text: string;           // 该块中被选中的文本
+  lineStart: number;      // 该块在源文件中的起始行
+  lineEnd: number;        // 该块在源文件中的结束行
+  fullTextOffset: number; // 该块文本在完整选中文本中的起始字符偏移
+  occurrence?: number;    // 该文本在块行号范围内是第几次出现（0-indexed，用于重复文本定位）
+}
+
 // 标注文件中解析出的标注数据
 export interface ParsedAnnotation {
   id: string;
@@ -18,6 +27,8 @@ export interface ParsedAnnotation {
   positions: Array<{ start: number; end: number }>;
   // 全文标注标记
   isFullText?: boolean;
+  // 跨段标注标记
+  isCrossBlock?: boolean;
 }
 
 // 创建新标注时的参数
@@ -41,6 +52,8 @@ export interface NewAnnotation {
   occurrence?: number;
   // 全文标注模式
   isFullText?: boolean;
+  // 跨段标注的每块信息（设置后替代 text + startLine/endLine/occurrence 定位方式）
+  blockSegments?: BlockSegment[];
 }
 
 // 更新标注时的参数

@@ -2,7 +2,7 @@ import { App, TFile, normalizePath } from "obsidian";
 import type { NewAnnotation, ParsedAnnotation, AnnotationUpdates } from "../types";
 import { notePathToAnnotationPath } from "../utils/helpers";
 import { parseAnnotations, stripAnnotationTags } from "./annotationParser";
-import { insertAnnotation, insertFullTextAnnotation, removeAnnotationTag, updateAnnotationTag } from "./annotationSerializer";
+import { insertAnnotation, insertFullTextAnnotation, insertCrossBlockAnnotation, removeAnnotationTag, updateAnnotationTag } from "./annotationSerializer";
 
 export class AnnotationFileManager {
   private app: App;
@@ -188,6 +188,17 @@ export class AnnotationFileManager {
     const content = await this.readAnnotationFile(notePath);
     const result = insertFullTextAnnotation(content, annotation);
     if (result.count === 0) return null;
+    await this.writeAnnotationFile(notePath, result.content);
+
+    const annotations = parseAnnotations(result.content);
+    return annotations.find(a => a.id === result.id) ?? null;
+  }
+
+  // 添加跨段标注（多个文本块分别插入同 ID 的 <mark> 标签）
+  async addCrossBlockAnnotation(notePath: string, annotation: NewAnnotation): Promise<ParsedAnnotation | null> {
+    const content = await this.readAnnotationFile(notePath);
+    const result = insertCrossBlockAnnotation(content, annotation);
+    if (result.blockCount === 0) return null;
     await this.writeAnnotationFile(notePath, result.content);
 
     const annotations = parseAnnotations(result.content);

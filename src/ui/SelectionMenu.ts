@@ -1,5 +1,5 @@
 import { Notice } from "obsidian";
-import type { AnnotationColor, AnnotationRuby } from "../types";
+import type { AnnotationColor, AnnotationRuby, BlockSegment } from "../types";
 import { COLOR_LABELS } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement } from "../utils/helpers";
@@ -27,6 +27,7 @@ export class SelectionMenu {
   private rubyTextPreview: HTMLElement | null = null;
   private selectedRubyRange: { start: number; end: number } | null = null;
   private updateRubyList: (() => void) | null = null;
+  private blockSegments: BlockSegment[] | null = null;
 
   constructor(fileManager: AnnotationFileManager) {
     this.fileManager = fileManager;
@@ -42,6 +43,7 @@ export class SelectionMenu {
     startLine?: number;
     endLine?: number;
     occurrence?: number;
+    blockSegments?: BlockSegment[];
     onAdd: () => void;
   }): void {
     this.hide();
@@ -59,6 +61,7 @@ export class SelectionMenu {
     this.rubyTexts = [];
     this.rubyTextEnabled = false;
     this.selectedRubyRange = null;
+    this.blockSegments = params.blockSegments ?? null;
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
@@ -379,6 +382,15 @@ export class SelectionMenu {
           color: this.selectedColor,
           note: note || undefined,
           isFullText: true,
+        });
+      } else if (this.blockSegments && this.blockSegments.length > 0) {
+        // 跨段标注
+        result = await this.fileManager.addCrossBlockAnnotation(this.currentNotePath, {
+          text: this.selectedText,
+          color: this.selectedColor,
+          note: note || undefined,
+          rubyTexts,
+          blockSegments: this.blockSegments,
         });
       } else {
         result = await this.fileManager.addAnnotation(this.currentNotePath, {

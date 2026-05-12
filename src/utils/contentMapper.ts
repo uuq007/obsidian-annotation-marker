@@ -324,3 +324,177 @@ export function extractSelectionContext(selection: Selection): {
 
   return { text, contextBefore, contextAfter };
 }
+
+// 从跨 section 的 DOM 选区中逐 section 提取被选中的文本和行号
+// 同时计算每块文本在完整选中文本中的字符偏移（用于注音偏移映射）
+// 以及每块文本在 section 内的出现序号（用于重复文本定位）
+export function extractCrossBlockSegments(
+  range: Range,
+  findSectionLineInfo: (el: HTMLElement) => {
+    lineStart: number; lineEnd: number; sectionEl: HTMLElement;
+  } | null
+): import("../types").BlockSegment[] {
+  const blocks: import("../types").BlockSegment[] = [];
+
+  const ancestor = range.commonAncestorContainer;
+  const container = ancestor instanceof HTMLElement ? ancestor : ancestor.parentElement;
+  if (!container) return blocks;
+
+  interface BlockDraft {
+    text: string;
+    lineStart: number;
+    lineEnd: number;
+    fullTextOffset: number;
+    sectionEl: HTMLElement;
+    offsetInSection: number;
+  }
+  const drafts: BlockDraft[] = [];
+
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let inRange = false;
+
+  // 当前 block 构建状态
+  let blockSectionEl: HTMLElement | null = null;
+  let blockText = "";
+  let blockLineStart = 0;
+  let blockLineEnd = 0;
+  let blockOffsetInSection = 0;
+  let emittedChars = 0;
+
+  // section 内所有非 RT 字符的累计数（含选区外的，用于计算 offsetInSection）
+  let sectionCharOffset = 0;
+  let lastSectionEl: HTMLElement | null = null;
+
+  // 辅助：将当前 block 刷入 drafts
+  function flushBlock() {
+    if (blockSectionEl && blockText) {
+      drafts.push({
+        text: blockText,
+        lineStart: blockLineStart,
+        lineEnd: blockLineEnd,
+        fullTextOffset: emittedChars,
+        sectionEl: blockSectionEl,
+        offsetInSection: blockOffsetInSection,
+      });
+      emittedChars += blockText.length;
+    }
+    blockText = "";
+    blockSectionEl = null;
+  }
+
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const parent = node.parentElement;
+
+    // 跳过注音 <rt> 内容
+    if (parent?.tagName === "RT") {
+      if (node === range.endContainer) { flushBlock(); break; }
+      continue;
+    }
+
+    const sectionInfo = parent ? findSectionLineInfo(parent) : null;
+    if (!sectionInfo) {
+      if (node === range.endContainer) { flushBlock(); break; }
+      continue;
+    }
+
+    // section 切换：重置字符计数
+    if (sectionInfo.sectionEl !== lastSectionEl) {
+      sectionCharOffset = 0;
+      lastSectionEl = sectionInfo.sectionEl;
+    }
+
+    const nodeText = node.textContent || "";
+
+    // 进入选区
+    if (node === range.startContainer) {
+      inRange = true;
+      blockSectionEl = sectionInfo.sectionEl;
+      blockLineStart = sectionInfo.lineStart;
+      blockLineEnd = sectionInfo.lineEnd;
+      blockOffsetInSection = sectionCharOffset + range.startOffset;
+    }
+
+    // 在选区内：收集文本
+    if (inRange) {
+      const startOff = (node === range.startContainer) ? range.startOffset : 0;
+      const endOff = (node === range.endContainer) ? range.endOffset : nodeText.length;
+      const segment = nodeText.substring(startOff, endOff);
+
+      // section 切换（blockSectionEl 与当前 section 不同）→ 刷出旧 block，开新 block
+      if (sectionInfo.sectionEl !== blockSectionEl) {
+        flushBlock();
+        blockSectionEl = sectionInfo.sectionEl;
+        blockLineStart = sectionInfo.lineStart;
+        blockLineEnd = sectionInfo.lineEnd;
+        // section 刚切换，sectionCharOffset 已重置，首个节点在选区内从 offset 0 开始
+        blockOffsetInSection = 0;
+      }
+
+      if (segment) blockText += segment;
+    }
+
+    // 始终累加（含选区外的节点），用于后续节点的 offsetInSection 计算
+    sectionCharOffset += nodeText.length;
+
+    // 离开选区
+    if (node === range.endContainer) {
+      flushBlock();
+      break;
+    }
+  }
+
+  // 为每个 block 计算 occurrence
+  const sectionTextCache = new Map<HTMLElement, string>();
+  for (const draft of drafts) {
+    let sectionText = sectionTextCache.get(draft.sectionEl);
+    if (sectionText === undefined) {
+      sectionText = getSectionCleanText(draft.sectionEl);
+      sectionTextCache.set(draft.sectionEl, sectionText);
+    }
+    blocks.push({
+      text: draft.text,
+      lineStart: draft.lineStart,
+      lineEnd: draft.lineEnd,
+      fullTextOffset: draft.fullTextOffset,
+      occurrence: countOccurrenceIndexLocal(sectionText, draft.text, draft.offsetInSection),
+    });
+  }
+
+  return blocks;
+}
+
+// 获取 section 元素的干净文本（遍历所有文本节点，跳过 RT）
+function getSectionCleanText(sectionEl: HTMLElement): string {
+  const parts: string[] = [];
+  const walker = document.createTreeWalker(sectionEl, NodeFilter.SHOW_TEXT);
+  let n: Node | null;
+  while ((n = walker.nextNode())) {
+    if ((n as Text).parentElement?.tagName === "RT") continue;
+    parts.push(n.textContent || "");
+  }
+  return parts.join("");
+}
+
+// 计算 searchText 在 text 中离 offset 最近的出现序号（0-indexed）
+function countOccurrenceIndexLocal(text: string, searchText: string, offset: number): number {
+  const positions: number[] = [];
+  let pos = 0;
+  while (true) {
+    const idx = text.indexOf(searchText, pos);
+    if (idx < 0) break;
+    positions.push(idx);
+    pos = idx + 1;
+  }
+  if (positions.length === 0) return 0;
+  let bestIdx = 0;
+  let bestDist = Math.abs(positions[0]! - offset);
+  for (let i = 1; i < positions.length; i++) {
+    const dist = Math.abs(positions[i]! - offset);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}

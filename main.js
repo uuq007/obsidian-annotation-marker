@@ -101,6 +101,27 @@ function calculateRangeOffsetInElement(range, element) {
   }
   return null;
 }
+function countOccurrenceIndex(text, searchText, offset) {
+  const positions = [];
+  let pos = 0;
+  while (true) {
+    const idx = text.indexOf(searchText, pos);
+    if (idx < 0) break;
+    positions.push(idx);
+    pos = idx + 1;
+  }
+  if (positions.length === 0) return 0;
+  let bestIdx = 0;
+  let bestDist = Math.abs(positions[0] - offset);
+  for (let i = 1; i < positions.length; i++) {
+    const dist = Math.abs(positions[i] - offset);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
 
 // src/annotationFile/annotationParser.ts
 function getAttr(attrs, name) {
@@ -246,6 +267,7 @@ function parseAnnotations(content) {
     const note = decodeAttr(getAttr(first.attrs, "data-annotation-note") || "");
     const createdAt = getAttr(first.attrs, "data-annotation-created") || (/* @__PURE__ */ new Date()).toISOString();
     const isFullText = getAttr(first.attrs, "data-annotation-fulltext") === "true";
+    const isCrossBlock = getAttr(first.attrs, "data-annotation-crossblock") === "true";
     const text = isFullText ? stripRubyText(first.content) : group.map((seg) => stripRubyText(seg.content)).join("");
     const rubyTexts = [];
     if (isFullText) {
@@ -276,7 +298,8 @@ function parseAnnotations(content) {
       rubyTexts,
       createdAt,
       positions,
-      isFullText
+      isFullText,
+      isCrossBlock
     });
   }
   return annotations;
@@ -503,6 +526,135 @@ function extractSelectionContext(selection) {
   );
   return { text, contextBefore, contextAfter };
 }
+function extractCrossBlockSegments(range, findSectionLineInfo) {
+  const blocks = [];
+  const ancestor = range.commonAncestorContainer;
+  const container = ancestor instanceof HTMLElement ? ancestor : ancestor.parentElement;
+  if (!container) return blocks;
+  const drafts = [];
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let inRange = false;
+  let blockSectionEl = null;
+  let blockText = "";
+  let blockLineStart = 0;
+  let blockLineEnd = 0;
+  let blockOffsetInSection = 0;
+  let emittedChars = 0;
+  let sectionCharOffset = 0;
+  let lastSectionEl = null;
+  function flushBlock() {
+    if (blockSectionEl && blockText) {
+      drafts.push({
+        text: blockText,
+        lineStart: blockLineStart,
+        lineEnd: blockLineEnd,
+        fullTextOffset: emittedChars,
+        sectionEl: blockSectionEl,
+        offsetInSection: blockOffsetInSection
+      });
+      emittedChars += blockText.length;
+    }
+    blockText = "";
+    blockSectionEl = null;
+  }
+  let node;
+  while (node = walker.nextNode()) {
+    const parent = node.parentElement;
+    if ((parent == null ? void 0 : parent.tagName) === "RT") {
+      if (node === range.endContainer) {
+        flushBlock();
+        break;
+      }
+      continue;
+    }
+    const sectionInfo = parent ? findSectionLineInfo(parent) : null;
+    if (!sectionInfo) {
+      if (node === range.endContainer) {
+        flushBlock();
+        break;
+      }
+      continue;
+    }
+    if (sectionInfo.sectionEl !== lastSectionEl) {
+      sectionCharOffset = 0;
+      lastSectionEl = sectionInfo.sectionEl;
+    }
+    const nodeText = node.textContent || "";
+    if (node === range.startContainer) {
+      inRange = true;
+      blockSectionEl = sectionInfo.sectionEl;
+      blockLineStart = sectionInfo.lineStart;
+      blockLineEnd = sectionInfo.lineEnd;
+      blockOffsetInSection = sectionCharOffset + range.startOffset;
+    }
+    if (inRange) {
+      const startOff = node === range.startContainer ? range.startOffset : 0;
+      const endOff = node === range.endContainer ? range.endOffset : nodeText.length;
+      const segment = nodeText.substring(startOff, endOff);
+      if (sectionInfo.sectionEl !== blockSectionEl) {
+        flushBlock();
+        blockSectionEl = sectionInfo.sectionEl;
+        blockLineStart = sectionInfo.lineStart;
+        blockLineEnd = sectionInfo.lineEnd;
+        blockOffsetInSection = 0;
+      }
+      if (segment) blockText += segment;
+    }
+    sectionCharOffset += nodeText.length;
+    if (node === range.endContainer) {
+      flushBlock();
+      break;
+    }
+  }
+  const sectionTextCache = /* @__PURE__ */ new Map();
+  for (const draft of drafts) {
+    let sectionText = sectionTextCache.get(draft.sectionEl);
+    if (sectionText === void 0) {
+      sectionText = getSectionCleanText(draft.sectionEl);
+      sectionTextCache.set(draft.sectionEl, sectionText);
+    }
+    blocks.push({
+      text: draft.text,
+      lineStart: draft.lineStart,
+      lineEnd: draft.lineEnd,
+      fullTextOffset: draft.fullTextOffset,
+      occurrence: countOccurrenceIndexLocal(sectionText, draft.text, draft.offsetInSection)
+    });
+  }
+  return blocks;
+}
+function getSectionCleanText(sectionEl) {
+  var _a;
+  const parts = [];
+  const walker = document.createTreeWalker(sectionEl, NodeFilter.SHOW_TEXT);
+  let n;
+  while (n = walker.nextNode()) {
+    if (((_a = n.parentElement) == null ? void 0 : _a.tagName) === "RT") continue;
+    parts.push(n.textContent || "");
+  }
+  return parts.join("");
+}
+function countOccurrenceIndexLocal(text, searchText, offset) {
+  const positions = [];
+  let pos = 0;
+  while (true) {
+    const idx = text.indexOf(searchText, pos);
+    if (idx < 0) break;
+    positions.push(idx);
+    pos = idx + 1;
+  }
+  if (positions.length === 0) return 0;
+  let bestIdx = 0;
+  let bestDist = Math.abs(positions[0] - offset);
+  for (let i = 1; i < positions.length; i++) {
+    const dist = Math.abs(positions[i] - offset);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
 
 // src/utils/overlapUtils.ts
 function computeSegments(intervals) {
@@ -597,13 +749,14 @@ function buildAnnotatedText(text, annotationId, rubyTexts) {
   }
   return result;
 }
-function buildMarkTag(id, text, color, note, rubyTexts, createdAt, isFullText) {
+function buildMarkTag(id, text, color, note, rubyTexts, createdAt, isFullText, isCrossBlock) {
   const bg = COLOR_MAP[color].bg;
   const created = createdAt || (/* @__PURE__ */ new Date()).toISOString();
   const noteAttr = note ? ` data-annotation-note="${encodeAttr(note)}"` : "";
   const fullTextAttr = isFullText ? ` data-annotation-fulltext="true"` : "";
+  const crossBlockAttr = isCrossBlock ? ` data-annotation-crossblock="true"` : "";
   const annotatedText = buildAnnotatedText(text, id, rubyTexts);
-  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}"${fullTextAttr}>${annotatedText}</mark>`;
+  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}"${fullTextAttr}${crossBlockAttr}>${annotatedText}</mark>`;
 }
 function insertAnnotation(content, annotation) {
   const id = generateId();
@@ -886,6 +1039,74 @@ function insertFullTextAnnotation(content, annotation) {
   }
   return { content: newContent, id, count: occurrences.length };
 }
+function insertCrossBlockAnnotation(content, annotation) {
+  const segments = annotation.blockSegments;
+  if (!segments || segments.length === 0) {
+    return { content, id: generateId(), blockCount: 0 };
+  }
+  const id = generateId();
+  const created = (/* @__PURE__ */ new Date()).toISOString();
+  const blockRubyMap = distributeRubyTexts(segments, annotation.rubyTexts);
+  const sorted = [...segments].map((seg, idx) => ({ ...seg, originalIdx: idx })).sort((a, b) => b.lineStart - a.lineStart);
+  let newContent = content;
+  let successCount = 0;
+  for (const block of sorted) {
+    const found = findTextInSource(
+      newContent,
+      block.text,
+      void 0,
+      void 0,
+      block.lineStart,
+      block.lineEnd,
+      block.occurrence
+    );
+    if (!found) continue;
+    const sourceSlice = newContent.substring(found.start, found.end);
+    const needsRebuild = /<(?:mark|ruby|rt)\s[^>]*data-annotation-id|<\/mark>/i.test(sourceSlice);
+    if (!needsRebuild) {
+      const localRuby = blockRubyMap.get(block.originalIdx);
+      const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, localRuby, created, void 0, true);
+      newContent = newContent.substring(0, found.start) + tag + newContent.substring(found.end);
+      successCount++;
+    } else {
+      const localRuby = blockRubyMap.get(block.originalIdx);
+      const result = rebuildOverlapRegion(newContent, found.start, found.end, id, {
+        text: block.text,
+        color: annotation.color,
+        note: annotation.note,
+        rubyTexts: localRuby
+      });
+      newContent = result.content;
+      successCount++;
+    }
+  }
+  return { content: newContent, id, blockCount: successCount };
+}
+function distributeRubyTexts(blocks, rubyTexts) {
+  const result = /* @__PURE__ */ new Map();
+  if (!rubyTexts || rubyTexts.length === 0) return result;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const blockStart = block.fullTextOffset;
+    const blockEnd = blockStart + block.text.length;
+    const localRubies = [];
+    for (const ruby of rubyTexts) {
+      const rubyStart = ruby.startIndex;
+      const rubyEnd = rubyStart + ruby.length;
+      if (rubyStart >= blockStart && rubyEnd <= blockEnd) {
+        localRubies.push({
+          startIndex: rubyStart - blockStart,
+          length: ruby.length,
+          ruby: ruby.ruby
+        });
+      }
+    }
+    if (localRubies.length > 0) {
+      result.set(i, localRubies);
+    }
+  }
+  return result;
+}
 
 // src/annotationFile/AnnotationFileManager.ts
 var AnnotationFileManager = class {
@@ -1032,6 +1253,16 @@ var AnnotationFileManager = class {
     const annotations = parseAnnotations(result.content);
     return (_a = annotations.find((a) => a.id === result.id)) != null ? _a : null;
   }
+  // 添加跨段标注（多个文本块分别插入同 ID 的 <mark> 标签）
+  async addCrossBlockAnnotation(notePath, annotation) {
+    var _a;
+    const content = await this.readAnnotationFile(notePath);
+    const result = insertCrossBlockAnnotation(content, annotation);
+    if (result.blockCount === 0) return null;
+    await this.writeAnnotationFile(notePath, result.content);
+    const annotations = parseAnnotations(result.content);
+    return (_a = annotations.find((a) => a.id === result.id)) != null ? _a : null;
+  }
   // 删除标注
   async removeAnnotation(notePath, annotationId) {
     const content = await this.readAnnotationFile(notePath);
@@ -1073,9 +1304,11 @@ var SelectionMenu = class {
     this.rubyTextPreview = null;
     this.selectedRubyRange = null;
     this.updateRubyList = null;
+    this.blockSegments = null;
     this.fileManager = fileManager;
   }
   show(params) {
+    var _a;
     this.hide();
     this.currentNotePath = params.notePath;
     this.selectedText = params.selectedText;
@@ -1090,6 +1323,7 @@ var SelectionMenu = class {
     this.rubyTexts = [];
     this.rubyTextEnabled = false;
     this.selectedRubyRange = null;
+    this.blockSegments = (_a = params.blockSegments) != null ? _a : null;
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
     this.menuEl.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -1353,6 +1587,14 @@ var SelectionMenu = class {
           color: this.selectedColor,
           note: note || void 0,
           isFullText: true
+        });
+      } else if (this.blockSegments && this.blockSegments.length > 0) {
+        result = await this.fileManager.addCrossBlockAnnotation(this.currentNotePath, {
+          text: this.selectedText,
+          color: this.selectedColor,
+          note: note || void 0,
+          rubyTexts,
+          blockSegments: this.blockSegments
         });
       } else {
         result = await this.fileManager.addAnnotation(this.currentNotePath, {
@@ -1629,6 +1871,9 @@ var AnnotationMenu = class {
     if (annotation.isFullText && annotation.positions.length > 1) {
       const fullTextHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
       fullTextHint.createEl("span", { text: `\u5168\u6587\u6807\u6CE8\uFF08\u5171 ${annotation.positions.length} \u5904\uFF09` });
+    } else if (annotation.isCrossBlock) {
+      const crossBlockHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
+      crossBlockHint.createEl("span", { text: `\u8DE8\u6BB5\u6807\u6CE8\uFF08\u5171 ${annotation.positions.length} \u5904\uFF09` });
     }
     if (annotation.note) {
       const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note" });
@@ -1679,7 +1924,7 @@ var AnnotationMenu = class {
     });
     deleteBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const msg = annotation.isFullText && annotation.positions.length > 1 ? `\u786E\u5B9A\u5220\u9664\u5168\u90E8 ${annotation.positions.length} \u5904\u6807\u6CE8\uFF1F` : "\u786E\u5B9A\u5220\u9664\u6B64\u6807\u6CE8\uFF1F";
+      const msg = (annotation.isFullText || annotation.positions.length > 1) && annotation.positions.length > 1 ? `\u786E\u5B9A\u5220\u9664\u5168\u90E8 ${annotation.positions.length} \u5904\u6807\u6CE8\uFF1F` : "\u786E\u5B9A\u5220\u9664\u6B64\u6807\u6CE8\uFF1F";
       if (!confirm(msg)) return;
       await this.fileManager.removeAnnotation(notePath, annotation.id);
       this.hide();
@@ -1857,6 +2102,9 @@ var AnnotationListPanel = class {
       if (annotation.isFullText && annotation.positions.length > 1) {
         const badge = item.createSpan({ cls: "annotation-list-badge" });
         badge.textContent = `\u5168\u6587(${annotation.positions.length})`;
+      } else if (annotation.isCrossBlock) {
+        const badge = item.createSpan({ cls: "annotation-list-badge" });
+        badge.textContent = `\u8DE8\u6BB5(${annotation.positions.length})`;
       }
       const textPreview = item.createDiv({ cls: "annotation-list-text" });
       const previewText = annotation.text.length > 60 ? annotation.text.substring(0, 60) + "..." : annotation.text;
@@ -2219,6 +2467,13 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
         const offset = sectionEl && !isCrossSection ? calculateOffsetInBlock(range, sectionEl) : 0;
         const sectionText = !isCrossSection ? (sectionEl == null ? void 0 : sectionEl.textContent) || "" : "";
         const occurrence = !isCrossSection ? countOccurrenceIndex(sectionText, context.text, offset) : void 0;
+        let blockSegments;
+        if (isCrossSection) {
+          blockSegments = extractCrossBlockSegments(
+            range,
+            (el) => this.findSectionLineInfo(el)
+          );
+        }
         this.annotationMenu.hide();
         this.selectionMenu.show({
           x: e.clientX,
@@ -2230,6 +2485,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
           startLine: lineStart,
           endLine: lineEnd,
           occurrence,
+          blockSegments,
           onAdd: () => this.refreshAnnotationView(notePath)
         });
       }, 10);
@@ -2365,24 +2621,3 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     });
   }
 };
-function countOccurrenceIndex(text, searchText, offset) {
-  const positions = [];
-  let pos = 0;
-  while (true) {
-    const idx = text.indexOf(searchText, pos);
-    if (idx < 0) break;
-    positions.push(idx);
-    pos = idx + 1;
-  }
-  if (positions.length === 0) return 0;
-  let bestIdx = 0;
-  let bestDist = Math.abs(positions[0] - offset);
-  for (let i = 1; i < positions.length; i++) {
-    const dist = Math.abs(positions[i] - offset);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}

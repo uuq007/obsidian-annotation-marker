@@ -214,6 +214,9 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
     // 判断是否为全文标注（通过显式属性判断）
     const isFullText = getAttr(first.attrs, "data-annotation-fulltext") === "true";
 
+    // 判断是否为跨段标注
+    const isCrossBlock = getAttr(first.attrs, "data-annotation-crossblock") === "true";
+
     // 文本：全文标注取第一个实例，重叠分割的标注合并所有段
     const text = isFullText
       ? stripRubyText(first.content)
@@ -253,6 +256,7 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
       createdAt,
       positions,
       isFullText,
+      isCrossBlock,
     });
   }
 

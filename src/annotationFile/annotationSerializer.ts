@@ -45,16 +45,18 @@ export function buildMarkTag(
   note?: string,
   rubyTexts?: AnnotationRuby[],
   createdAt?: string,
-  isFullText?: boolean
+  isFullText?: boolean,
+  isCrossBlock?: boolean
 ): string {
   const bg = COLOR_MAP[color].bg;
   const created = createdAt || new Date().toISOString();
   const noteAttr = note ? ` data-annotation-note="${encodeAttr(note)}"` : "";
   const fullTextAttr = isFullText ? ` data-annotation-fulltext="true"` : "";
+  const crossBlockAttr = isCrossBlock ? ` data-annotation-crossblock="true"` : "";
 
   const annotatedText = buildAnnotatedText(text, id, rubyTexts);
 
-  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}"${fullTextAttr}>${annotatedText}</mark>`;
+  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}"${fullTextAttr}${crossBlockAttr}>${annotatedText}</mark>`;
 }
 
 // 在标注文件内容中插入新标注
@@ -469,4 +471,98 @@ export function insertFullTextAnnotation(
   }
 
   return { content: newContent, id, count: occurrences.length };
+}
+
+// 跨段标注插入：在不同文本块中分别插入相同 ID 的 <mark> 标签
+// 每个块可以有独立的注音（通过 fullTextOffset 将全局 ruby 偏移映射到块内偏移）
+export function insertCrossBlockAnnotation(
+  content: string,
+  annotation: NewAnnotation
+): { content: string; id: string; blockCount: number } {
+  const segments = annotation.blockSegments;
+  if (!segments || segments.length === 0) {
+    return { content, id: generateId(), blockCount: 0 };
+  }
+
+  const id = generateId();
+  const created = new Date().toISOString();
+
+  // 为每个 block 分配全局注音中属于它的部分
+  const blockRubyMap = distributeRubyTexts(segments, annotation.rubyTexts);
+
+  // 按 lineStart 降序排列，从文件末尾往前处理（避免位置偏移）
+  const sorted = [...segments]
+    .map((seg, idx) => ({ ...seg, originalIdx: idx }))
+    .sort((a, b) => b.lineStart - a.lineStart);
+
+  let newContent = content;
+  let successCount = 0;
+
+  for (const block of sorted) {
+    // 每次用最新内容搜索，保证位置映射正确
+    const found = findTextInSource(
+      newContent, block.text,
+      undefined, undefined,
+      block.lineStart, block.lineEnd,
+      block.occurrence
+    );
+    if (!found) continue;
+
+    const sourceSlice = newContent.substring(found.start, found.end);
+    const needsRebuild = /<(?:mark|ruby|rt)\s[^>]*data-annotation-id|<\/mark>/i.test(sourceSlice);
+
+    if (!needsRebuild) {
+      const localRuby = blockRubyMap.get(block.originalIdx);
+      const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, localRuby, created, undefined, true);
+      newContent = newContent.substring(0, found.start) + tag + newContent.substring(found.end);
+      successCount++;
+    } else {
+      const localRuby = blockRubyMap.get(block.originalIdx);
+      const result = rebuildOverlapRegion(newContent, found.start, found.end, id, {
+        text: block.text,
+        color: annotation.color,
+        note: annotation.note,
+        rubyTexts: localRuby,
+      });
+      newContent = result.content;
+      successCount++;
+    }
+  }
+
+  return { content: newContent, id, blockCount: successCount };
+}
+
+// 将全局 ruby 偏移量按 fullTextOffset 分配到各块
+function distributeRubyTexts(
+  blocks: Array<{ fullTextOffset: number; text: string }>,
+  rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>
+): Map<number, Array<{ startIndex: number; length: number; ruby: string }>> {
+  const result = new Map<number, Array<{ startIndex: number; length: number; ruby: string }>>();
+  if (!rubyTexts || rubyTexts.length === 0) return result;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
+    const blockStart = block.fullTextOffset;
+    const blockEnd = blockStart + block.text.length;
+    const localRubies: Array<{ startIndex: number; length: number; ruby: string }> = [];
+
+    for (const ruby of rubyTexts) {
+      const rubyStart = ruby.startIndex;
+      const rubyEnd = rubyStart + ruby.length;
+      // ruby 完全落在此块内
+      if (rubyStart >= blockStart && rubyEnd <= blockEnd) {
+        localRubies.push({
+          startIndex: rubyStart - blockStart,
+          length: ruby.length,
+          ruby: ruby.ruby,
+        });
+      }
+    }
+
+    if (localRubies.length > 0) {
+      result.set(i, localRubies);
+    }
+  }
+
+  return result;
 }

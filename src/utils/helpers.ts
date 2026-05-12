@@ -93,3 +93,28 @@ export function calculateRangeOffsetInElement(
 
   return null;
 }
+
+// 计算选中文本在 section 文本中是第几次出现（0-indexed）
+// 找到所有出现位置，返回离 offset 最近的那个的索引
+export function countOccurrenceIndex(text: string, searchText: string, offset: number): number {
+  const positions: number[] = [];
+  let pos = 0;
+  while (true) {
+    const idx = text.indexOf(searchText, pos);
+    if (idx < 0) break;
+    positions.push(idx);
+    pos = idx + 1;
+  }
+  if (positions.length === 0) return 0;
+
+  let bestIdx = 0;
+  let bestDist = Math.abs(positions[0]! - offset);
+  for (let i = 1; i < positions.length; i++) {
+    const dist = Math.abs(positions[i]! - offset);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}

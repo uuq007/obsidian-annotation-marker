@@ -152,6 +152,10 @@ export class AnnotationListPanel {
       if (annotation.isFullText && annotation.positions.length > 1) {
         const badge = item.createSpan({ cls: "annotation-list-badge" });
         badge.textContent = `全文(${annotation.positions.length})`;
+      } else if (annotation.isCrossBlock) {
+        // 跨段标注标记
+        const badge = item.createSpan({ cls: "annotation-list-badge" });
+        badge.textContent = `跨段(${annotation.positions.length})`;
       }
 
       const textPreview = item.createDiv({ cls: "annotation-list-text" });

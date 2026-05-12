@@ -2610,6 +2610,19 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
             });
           }
         }
+        const tables = Array.from(el.querySelectorAll("table"));
+        for (const table of tables) {
+          const allRows = table.querySelectorAll("tr");
+          for (let i = 0; i < allRows.length; i++) {
+            const trLine = sectionInfo.lineStart + (i === 0 ? i : i + 1);
+            for (const cell of Array.from(allRows[i].querySelectorAll("td, th"))) {
+              this.sectionLineMap.set(cell, {
+                lineStart: trLine,
+                lineEnd: trLine
+              });
+            }
+          }
+        }
       }
     });
   }

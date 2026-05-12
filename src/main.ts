@@ -495,6 +495,24 @@ export default class AnnotationPlugin extends Plugin {
             });
           }
         }
+
+        // 表格元素：为每个 <td>/<th> 注册行号映射
+        // 表格的每一行 <tr> 对应源码中的一行（表头行 + 分隔行 + 数据行）
+        const tables = Array.from(el.querySelectorAll("table"));
+        for (const table of tables) {
+          const allRows = table.querySelectorAll("tr");
+          for (let i = 0; i < allRows.length; i++) {
+            // 第一行（表头）对应 lineStart，分隔行（不在HTML中）占 lineStart+1
+            // 数据行从 lineStart+2 开始
+            const trLine = sectionInfo.lineStart + (i === 0 ? i : i + 1);
+            for (const cell of Array.from(allRows[i]!.querySelectorAll("td, th"))) {
+              this.sectionLineMap.set(cell as HTMLElement, {
+                lineStart: trLine,
+                lineEnd: trLine,
+              });
+            }
+          }
+        }
       }
     });
   }

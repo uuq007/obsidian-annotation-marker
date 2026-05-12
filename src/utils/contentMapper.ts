@@ -423,15 +423,21 @@ export function extractCrossBlockSegments(
 
       // section 切换（blockSectionEl 与当前 section 不同）→ 刷出旧 block，开新 block
       if (sectionInfo.sectionEl !== blockSectionEl) {
-        flushBlock();
-        blockSectionEl = sectionInfo.sectionEl;
-        blockLineStart = sectionInfo.lineStart;
-        blockLineEnd = sectionInfo.lineEnd;
-        // section 刚切换，sectionCharOffset 已重置，首个节点在选区内从 offset 0 开始
-        blockOffsetInSection = 0;
+        // 跳过 section 间的空白文本节点（如列表项之间的换行符）
+        if (segment.trim() === '') {
+          // 不创建新 block，保留 blockSectionEl 不变
+          // 下一个非空白节点会再次触发 section 切换
+        } else {
+          flushBlock();
+          blockSectionEl = sectionInfo.sectionEl;
+          blockLineStart = sectionInfo.lineStart;
+          blockLineEnd = sectionInfo.lineEnd;
+          blockOffsetInSection = 0;
+          blockText += segment;
+        }
+      } else if (segment) {
+        blockText += segment;
       }
-
-      if (segment) blockText += segment;
     }
 
     // 始终累加（含选区外的节点），用于后续节点的 offsetInSection 计算

@@ -457,6 +457,35 @@ export default class AnnotationPlugin extends Plugin {
           lineStart: sectionInfo.lineStart,
           lineEnd: sectionInfo.lineEnd,
         });
+
+        // 列表元素：为每个 <li data-line> 注册独立行号映射
+        // 这样 findSectionLineInfo 会优先返回 <li>（比 <ul> 更靠近文本节点）
+        const lists = Array.from(el.querySelectorAll("ul, ol"));
+        for (const list of lists) {
+          const items = list.querySelectorAll(":scope > li");
+          for (let i = 0; i < items.length; i++) {
+            const li = items[i] as HTMLElement;
+            const dataLine = li.getAttribute("data-line");
+            if (dataLine === null) continue;
+
+            const lineOffset = parseInt(dataLine, 10);
+            const liLineStart = sectionInfo.lineStart + lineOffset;
+
+            // lineEnd：下一个 <li> 的 data-line - 1，或 section 的 lineEnd
+            let liLineEnd = sectionInfo.lineEnd;
+            if (i + 1 < items.length) {
+              const nextDataLine = (items[i + 1] as HTMLElement).getAttribute("data-line");
+              if (nextDataLine !== null) {
+                liLineEnd = sectionInfo.lineStart + parseInt(nextDataLine, 10) - 1;
+              }
+            }
+
+            this.sectionLineMap.set(li, {
+              lineStart: liLineStart,
+              lineEnd: liLineEnd,
+            });
+          }
+        }
       }
     });
   }

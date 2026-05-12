@@ -592,13 +592,18 @@ function extractCrossBlockSegments(range, findSectionLineInfo) {
       const endOff = node === range.endContainer ? range.endOffset : nodeText.length;
       const segment = nodeText.substring(startOff, endOff);
       if (sectionInfo.sectionEl !== blockSectionEl) {
-        flushBlock();
-        blockSectionEl = sectionInfo.sectionEl;
-        blockLineStart = sectionInfo.lineStart;
-        blockLineEnd = sectionInfo.lineEnd;
-        blockOffsetInSection = 0;
+        if (segment.trim() === "") {
+        } else {
+          flushBlock();
+          blockSectionEl = sectionInfo.sectionEl;
+          blockLineStart = sectionInfo.lineStart;
+          blockLineEnd = sectionInfo.lineEnd;
+          blockOffsetInSection = 0;
+          blockText += segment;
+        }
+      } else if (segment) {
+        blockText += segment;
       }
-      if (segment) blockText += segment;
     }
     sectionCharOffset += nodeText.length;
     if (node === range.endContainer) {
@@ -2565,6 +2570,28 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
           lineStart: sectionInfo.lineStart,
           lineEnd: sectionInfo.lineEnd
         });
+        const lists = Array.from(el.querySelectorAll("ul, ol"));
+        for (const list of lists) {
+          const items = list.querySelectorAll(":scope > li");
+          for (let i = 0; i < items.length; i++) {
+            const li = items[i];
+            const dataLine = li.getAttribute("data-line");
+            if (dataLine === null) continue;
+            const lineOffset = parseInt(dataLine, 10);
+            const liLineStart = sectionInfo.lineStart + lineOffset;
+            let liLineEnd = sectionInfo.lineEnd;
+            if (i + 1 < items.length) {
+              const nextDataLine = items[i + 1].getAttribute("data-line");
+              if (nextDataLine !== null) {
+                liLineEnd = sectionInfo.lineStart + parseInt(nextDataLine, 10) - 1;
+              }
+            }
+            this.sectionLineMap.set(li, {
+              lineStart: liLineStart,
+              lineEnd: liLineEnd
+            });
+          }
+        }
       }
     });
   }

@@ -144,6 +144,7 @@ export function buildCleanedMap(source: string): CleanedMap {
     '|^\\>\\s?',                                           // 引用标记去除
     '|^[-*+]\\s(?:\\[[ x]\\]\\s)?',                        // 列表标记去除
     '|^\\d+\\.\\s',                                        // 有序列表标记去除
+    '|^[\\t ]+',                                           // 行首缩进去除（列表延续行等）
     '|^-{3,}$',                                            // --- 水平线整体去除
     '|^\\*{3,}$',                                          // *** 水平线整体去除
   ].join(''), 'gm');
@@ -368,15 +369,19 @@ export function extractCrossBlockSegments(
   // 辅助：将当前 block 刷入 drafts
   function flushBlock() {
     if (blockSectionEl && blockText) {
-      drafts.push({
-        text: blockText,
-        lineStart: blockLineStart,
-        lineEnd: blockLineEnd,
-        fullTextOffset: emittedChars,
-        sectionEl: blockSectionEl,
-        offsetInSection: blockOffsetInSection,
-      });
-      emittedChars += blockText.length;
+      // 去除块文本末尾的空白（跨行空白是 DOM 文本节点产物，非可见内容）
+      blockText = blockText.trimEnd();
+      if (blockText) {
+        drafts.push({
+          text: blockText,
+          lineStart: blockLineStart,
+          lineEnd: blockLineEnd,
+          fullTextOffset: emittedChars,
+          sectionEl: blockSectionEl,
+          offsetInSection: blockOffsetInSection,
+        });
+        emittedChars += blockText.length;
+      }
     }
     blockText = "";
     blockSectionEl = null;
@@ -436,7 +441,13 @@ export function extractCrossBlockSegments(
           blockText += segment;
         }
       } else if (segment) {
-        blockText += segment;
+        // 跳过 block 元素间的空白文本节点（如 <li> 内子元素间的换行）
+        const parentTag = parent?.tagName;
+        if (segment.trim() === '' && parentTag && /^(LI|UL|OL|DIV)$/.test(parentTag)) {
+          // 不添加到 blockText
+        } else {
+          blockText += segment;
+        }
       }
     }
 

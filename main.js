@@ -379,6 +379,8 @@ function buildCleanedMap(source) {
     // 列表标记去除
     "|^\\d+\\.\\s",
     // 有序列表标记去除
+    "|^[\\t ]+",
+    // 行首缩进去除（列表延续行等）
     "|^-{3,}$",
     // --- 水平线整体去除
     "|^\\*{3,}$"
@@ -544,15 +546,18 @@ function extractCrossBlockSegments(range, findSectionLineInfo) {
   let lastSectionEl = null;
   function flushBlock() {
     if (blockSectionEl && blockText) {
-      drafts.push({
-        text: blockText,
-        lineStart: blockLineStart,
-        lineEnd: blockLineEnd,
-        fullTextOffset: emittedChars,
-        sectionEl: blockSectionEl,
-        offsetInSection: blockOffsetInSection
-      });
-      emittedChars += blockText.length;
+      blockText = blockText.trimEnd();
+      if (blockText) {
+        drafts.push({
+          text: blockText,
+          lineStart: blockLineStart,
+          lineEnd: blockLineEnd,
+          fullTextOffset: emittedChars,
+          sectionEl: blockSectionEl,
+          offsetInSection: blockOffsetInSection
+        });
+        emittedChars += blockText.length;
+      }
     }
     blockText = "";
     blockSectionEl = null;
@@ -602,7 +607,11 @@ function extractCrossBlockSegments(range, findSectionLineInfo) {
           blockText += segment;
         }
       } else if (segment) {
-        blockText += segment;
+        const parentTag = parent == null ? void 0 : parent.tagName;
+        if (segment.trim() === "" && parentTag && /^(LI|UL|OL|DIV)$/.test(parentTag)) {
+        } else {
+          blockText += segment;
+        }
       }
     }
     sectionCharOffset += nodeText.length;
@@ -2564,6 +2573,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
   // 注册 MarkdownPostProcessor，捕获每个 section 的行号信息
   registerSectionLineCapture() {
     this.registerMarkdownPostProcessor((el, ctx) => {
+      var _a;
       const sectionInfo = ctx.getSectionInfo(el);
       if (sectionInfo) {
         this.sectionLineMap.set(el, {
@@ -2584,6 +2594,14 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
               const nextDataLine = items[i + 1].getAttribute("data-line");
               if (nextDataLine !== null) {
                 liLineEnd = sectionInfo.lineStart + parseInt(nextDataLine, 10) - 1;
+              }
+            } else {
+              const parentLi = (_a = list.parentElement) == null ? void 0 : _a.closest("li");
+              if (parentLi) {
+                const parentInfo = this.sectionLineMap.get(parentLi);
+                if (parentInfo) {
+                  liLineEnd = parentInfo.lineEnd;
+                }
               }
             }
             this.sectionLineMap.set(li, {

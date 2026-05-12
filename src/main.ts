@@ -471,12 +471,21 @@ export default class AnnotationPlugin extends Plugin {
             const lineOffset = parseInt(dataLine, 10);
             const liLineStart = sectionInfo.lineStart + lineOffset;
 
-            // lineEnd：下一个 <li> 的 data-line - 1，或 section 的 lineEnd
+            // lineEnd：下一个 <li> 的 data-line - 1，或取父级 <li> 的 lineEnd
             let liLineEnd = sectionInfo.lineEnd;
             if (i + 1 < items.length) {
               const nextDataLine = (items[i + 1] as HTMLElement).getAttribute("data-line");
               if (nextDataLine !== null) {
                 liLineEnd = sectionInfo.lineStart + parseInt(nextDataLine, 10) - 1;
+              }
+            } else {
+              // 嵌套列表：最后一个 <li> 的 lineEnd 取父级 <li> 的 lineEnd
+              const parentLi = list.parentElement?.closest("li");
+              if (parentLi) {
+                const parentInfo = this.sectionLineMap.get(parentLi);
+                if (parentInfo) {
+                  liLineEnd = parentInfo.lineEnd;
+                }
               }
             }
 

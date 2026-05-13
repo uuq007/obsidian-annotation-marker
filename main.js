@@ -2477,6 +2477,14 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
         const lineStart = startLineInfo == null ? void 0 : startLineInfo.lineStart;
         const lineEnd = (_a = endLineInfo == null ? void 0 : endLineInfo.lineEnd) != null ? _a : startLineInfo == null ? void 0 : startLineInfo.lineEnd;
         const isCrossSection = (startLineInfo == null ? void 0 : startLineInfo.sectionEl) !== (endLineInfo == null ? void 0 : endLineInfo.sectionEl);
+        if (isCrossSection) {
+          const startCallout = startEl == null ? void 0 : startEl.closest(".callout");
+          const endCallout = endEl == null ? void 0 : endEl.closest(".callout");
+          if (startCallout !== endCallout) {
+            new import_obsidian6.Notice("\u4E0D\u80FD\u8DE8 Callout \u8FB9\u754C\u6DFB\u52A0\u6807\u6CE8");
+            return;
+          }
+        }
         const sectionEl = startLineInfo == null ? void 0 : startLineInfo.sectionEl;
         const offset = sectionEl && !isCrossSection ? calculateOffsetInBlock(range, sectionEl) : 0;
         const sectionText = !isCrossSection ? (sectionEl == null ? void 0 : sectionEl.textContent) || "" : "";

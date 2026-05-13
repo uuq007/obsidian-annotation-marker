@@ -323,6 +323,16 @@ export default class AnnotationPlugin extends Plugin {
         // 判断是否跨 section 选区
         const isCrossSection = startLineInfo?.sectionEl !== endLineInfo?.sectionEl;
 
+        // 禁止跨 Callout 边界标注
+        if (isCrossSection) {
+          const startCallout = startEl?.closest('.callout');
+          const endCallout = endEl?.closest('.callout');
+          if (startCallout !== endCallout) {
+            new Notice("不能跨 Callout 边界添加标注");
+            return;
+          }
+        }
+
         // 计算选中文本在 section 内是第几次出现（跨 section 时不计算，用全文搜索）
         const sectionEl = startLineInfo?.sectionEl;
         const offset = sectionEl && !isCrossSection

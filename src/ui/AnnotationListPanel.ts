@@ -241,12 +241,29 @@ export class AnnotationListPanel {
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath!);
     const lineIndex = content.substring(0, annotation.positions[0]!.start).split("\n").length - 1;
 
-    // applyScroll 滚动到目标行
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (view?.previewMode) {
       const renderer = (view.previewMode as any).renderer;
       if (renderer && typeof renderer.applyScroll === "function") {
-        renderer.applyScroll(lineIndex, { center: true });
+        // 判断是否为脚注区域的标注
+        const currentFile = (view as any)?.file;
+        const cache = this.app.metadataCache.getFileCache(currentFile);
+        const isFootnote = cache?.footnotes?.some(
+          fn => lineIndex >= fn.position.start.line && lineIndex <= fn.position.end.line
+        );
+
+        if (isFootnote) {
+          // 脚注标注：用 applyScroll 滚到最后一个有效 section
+          const sections = cache?.sections;
+          if (sections && sections.length > 0) {
+            const lastSection = sections[sections.length - 1]!;
+            const lastLine = lastSection.position.end.line;
+            renderer.applyScroll(lastLine, { center: true });
+          }
+        } else {
+          // 普通标注：滚到标注所在行
+          renderer.applyScroll(lineIndex, { center: true });
+        }
       }
     }
 

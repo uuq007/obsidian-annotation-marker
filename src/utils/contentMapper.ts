@@ -137,6 +137,8 @@ export function buildCleanedMap(source: string): CleanedMap {
     '|==([^=]+)==',                                        // ==高亮== → 保留内文本
     '|~~([^~]+)~~',                                        // ~~删除线~~ → 保留内文本
     '|!\\[\\[[^\\[\\]]+\\]\\]',                            // ![[图片]] 整体去除
+    '|^\\[\\^[^\\]]+\\]:\\s+',                             // [^1]: 脚注定义前缀整体去除
+    '|\\[\\^[^\\]]+\\]',                                   // [^脚注] 整体去除
     '|\\[\\[(?:[^\\[\\]\\|]*\\|)?([^\\[\\]]+)\\]\\]',     // [[链接]] 或 [[目标|显示]] → 保留显示文本
     '|!\\[[^\\[\\]\\(\\)]*\\]\\([^)]+\\)',                 // ![图片](url) 整体去除
     '|\\[([^\\[\\]\\(\\)]+)\\]\\([^)]+\\)',                // [链接](url) → 保留链接文本
@@ -283,6 +285,8 @@ export function extractSelectionContext(selection: Selection): {
 
   while ((node = walker.nextNode())) {
     if (node.parentElement?.tagName === "RT") continue;
+    if (node.parentElement?.closest('sup.footnote-ref')) continue;
+    if (node.parentElement?.closest('a.footnote-backref')) continue;
     const len = node.textContent?.length ?? 0;
 
     // 用 intersectsNode 判断文本节点是否在选区内（兼容 startContainer 为元素节点的情况）
@@ -393,6 +397,18 @@ export function extractCrossBlockSegments(
 
     // 跳过注音 <rt> 内容
     if (parent?.tagName === "RT") {
+      if (node === range.endContainer) { flushBlock(); break; }
+      continue;
+    }
+
+    // 跳过脚注引用 <sup class="footnote-ref"> 内容
+    if (parent?.closest('sup.footnote-ref')) {
+      if (node === range.endContainer) { flushBlock(); break; }
+      continue;
+    }
+
+    // 跳过脚注回链 <a class="footnote-backref"> 内容
+    if (parent?.closest('a.footnote-backref')) {
       if (node === range.endContainer) { flushBlock(); break; }
       continue;
     }

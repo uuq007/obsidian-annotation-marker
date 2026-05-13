@@ -365,6 +365,10 @@ function buildCleanedMap(source) {
     // ~~删除线~~ → 保留内文本
     "|!\\[\\[[^\\[\\]]+\\]\\]",
     // ![[图片]] 整体去除
+    "|^\\[\\^[^\\]]+\\]:\\s+",
+    // [^1]: 脚注定义前缀整体去除
+    "|\\[\\^[^\\]]+\\]",
+    // [^脚注] 整体去除
     "|\\[\\[(?:[^\\[\\]\\|]*\\|)?([^\\[\\]]+)\\]\\]",
     // [[链接]] 或 [[目标|显示]] → 保留显示文本
     "|!\\[[^\\[\\]\\(\\)]*\\]\\([^)]+\\)",
@@ -484,7 +488,7 @@ function calculateOffsetInBlock(range, block) {
   return offset;
 }
 function extractSelectionContext(selection) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e;
   if (!selection.rangeCount) return null;
   const range = selection.getRangeAt(0);
   if (range.collapsed) return null;
@@ -500,7 +504,9 @@ function extractSelectionContext(selection) {
   let foundFirst = false;
   while (node = walker.nextNode()) {
     if (((_a = node.parentElement) == null ? void 0 : _a.tagName) === "RT") continue;
-    const len = (_c = (_b = node.textContent) == null ? void 0 : _b.length) != null ? _c : 0;
+    if ((_b = node.parentElement) == null ? void 0 : _b.closest("sup.footnote-ref")) continue;
+    if ((_c = node.parentElement) == null ? void 0 : _c.closest("a.footnote-backref")) continue;
+    const len = (_e = (_d = node.textContent) == null ? void 0 : _d.length) != null ? _e : 0;
     const inRange = range.intersectsNode(node);
     if (inRange) {
       if (!foundFirst) {
@@ -566,6 +572,20 @@ function extractCrossBlockSegments(range, findSectionLineInfo) {
   while (node = walker.nextNode()) {
     const parent = node.parentElement;
     if ((parent == null ? void 0 : parent.tagName) === "RT") {
+      if (node === range.endContainer) {
+        flushBlock();
+        break;
+      }
+      continue;
+    }
+    if (parent == null ? void 0 : parent.closest("sup.footnote-ref")) {
+      if (node === range.endContainer) {
+        flushBlock();
+        break;
+      }
+      continue;
+    }
+    if (parent == null ? void 0 : parent.closest("a.footnote-backref")) {
       if (node === range.endContainer) {
         flushBlock();
         break;
@@ -2181,7 +2201,7 @@ var AnnotationListPanel = class {
   }
   // 滚动到指定标注位置并高亮
   async scrollToAnnotation(annotation) {
-    var _a;
+    var _a, _b;
     this.hidePanel();
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath);
     const lineIndex = content.substring(0, annotation.positions[0].start).split("\n").length - 1;
@@ -2189,11 +2209,25 @@ var AnnotationListPanel = class {
     if (view == null ? void 0 : view.previewMode) {
       const renderer = view.previewMode.renderer;
       if (renderer && typeof renderer.applyScroll === "function") {
-        renderer.applyScroll(lineIndex, { center: true });
+        const currentFile = view == null ? void 0 : view.file;
+        const cache = this.app.metadataCache.getFileCache(currentFile);
+        const isFootnote = (_a = cache == null ? void 0 : cache.footnotes) == null ? void 0 : _a.some(
+          (fn) => lineIndex >= fn.position.start.line && lineIndex <= fn.position.end.line
+        );
+        if (isFootnote) {
+          const sections = cache == null ? void 0 : cache.sections;
+          if (sections && sections.length > 0) {
+            const lastSection = sections[sections.length - 1];
+            const lastLine = lastSection.position.end.line;
+            renderer.applyScroll(lastLine, { center: true });
+          }
+        } else {
+          renderer.applyScroll(lineIndex, { center: true });
+        }
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const containerEl = (_a = view == null ? void 0 : view.previewMode) == null ? void 0 : _a.containerEl;
+    const containerEl = (_b = view == null ? void 0 : view.previewMode) == null ? void 0 : _b.containerEl;
     const highlightEls = containerEl == null ? void 0 : containerEl.querySelectorAll(
       `mark[data-annotation-id="${annotation.id}"]`
     );
@@ -2584,6 +2618,34 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
       var _a;
       const sectionInfo = ctx.getSectionInfo(el);
       if (sectionInfo) {
+        const footnotesSection = el.querySelector("section.footnotes");
+        if (footnotesSection) {
+          const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+          if (file instanceof import_obsidian6.TFile) {
+            const cache = this.app.metadataCache.getFileCache(file);
+            const footnotes = cache == null ? void 0 : cache.footnotes;
+            if (footnotes && footnotes.length > 0) {
+              const container = el.parentElement;
+              const items = footnotesSection.querySelectorAll(":scope > ol > li");
+              for (let i = 0; i < items.length; i++) {
+                const li = items[i];
+                const liId = li.id;
+                const refLink = container == null ? void 0 : container.querySelector(`a.footnote-link[href="#${liId}"]`);
+                const originalId = refLink == null ? void 0 : refLink.getAttribute("data-footref");
+                if (originalId) {
+                  const fn = footnotes.find((f) => f.id === originalId);
+                  if (fn) {
+                    this.sectionLineMap.set(li, {
+                      lineStart: fn.position.start.line,
+                      lineEnd: fn.position.end.line
+                    });
+                  }
+                }
+              }
+            }
+          }
+          return;
+        }
         this.sectionLineMap.set(el, {
           lineStart: sectionInfo.lineStart,
           lineEnd: sectionInfo.lineEnd

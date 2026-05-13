@@ -463,6 +463,39 @@ export default class AnnotationPlugin extends Plugin {
     this.registerMarkdownPostProcessor((el, ctx) => {
       const sectionInfo = ctx.getSectionInfo(el);
       if (sectionInfo) {
+        // 脚注区域：使用 metadataCache 注册每个 <li> 的精确行号
+        const footnotesSection = el.querySelector('section.footnotes');
+        if (footnotesSection) {
+          const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+          if (file instanceof TFile) {
+            const cache = this.app.metadataCache.getFileCache(file);
+            const footnotes = cache?.footnotes;
+            if (footnotes && footnotes.length > 0) {
+              const container = el.parentElement;
+              const items = footnotesSection.querySelectorAll(':scope > ol > li');
+              for (let i = 0; i < items.length; i++) {
+                const li = items[i] as HTMLElement;
+                const liId = li.id;
+
+                // 通过 href 找到正文中的引用 <a>，读取 data-footref（原始脚注 id）
+                const refLink = container?.querySelector(`a.footnote-link[href="#${liId}"]`);
+                const originalId = refLink?.getAttribute('data-footref');
+
+                if (originalId) {
+                  const fn = footnotes.find(f => f.id === originalId);
+                  if (fn) {
+                    this.sectionLineMap.set(li, {
+                      lineStart: fn.position.start.line,
+                      lineEnd: fn.position.end.line,
+                    });
+                  }
+                }
+              }
+            }
+          }
+          return;
+        }
+
         this.sectionLineMap.set(el, {
           lineStart: sectionInfo.lineStart,
           lineEnd: sectionInfo.lineEnd,

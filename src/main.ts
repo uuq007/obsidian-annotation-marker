@@ -298,6 +298,10 @@ export default class AnnotationPlugin extends Plugin {
       const target = e.target as HTMLElement;
       if (target.closest(".annotation-card-menu, .modal-container")) return;
       if (target.closest("input, textarea")) return;
+      // 忽略不可标注区域：代码块（含 Mermaid 等）、嵌入内容、Callout 标题区域
+      if (target.closest("pre, .el-pre")) return;
+      if (target.closest(".internal-embed")) return;
+      if (target.closest(".callout") && !target.closest(".callout-content")) return;
 
       // 延迟一帧确保 Selection 已更新
       setTimeout(() => {

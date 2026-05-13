@@ -2497,6 +2497,9 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
       const target = e.target;
       if (target.closest(".annotation-card-menu, .modal-container")) return;
       if (target.closest("input, textarea")) return;
+      if (target.closest("pre, .el-pre")) return;
+      if (target.closest(".internal-embed")) return;
+      if (target.closest(".callout") && !target.closest(".callout-content")) return;
       setTimeout(() => {
         var _a;
         const selection = window.getSelection();

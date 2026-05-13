@@ -1,5 +1,5 @@
 import type { AnnotationColor, AnnotationRuby, ParsedAnnotation } from "../types";
-import { COLOR_MAP } from "../constants";
+import { COLOR_BG_VARS } from "../constants";
 import { decodeAttr } from "../utils/helpers";
 
 // 从属性字符串中提取指定属性值
@@ -9,14 +9,13 @@ function getAttr(attrs: string, name: string): string | null {
   return match ? match[1]! : null;
 }
 
-// 从 <mark> 标签的 style 属性中提取颜色名称
+// 从 style 属性中的 CSS 变量提取颜色序号（如 "var(--annotation-bg-color3)" → "3"）
 function extractColorFromStyle(style: string): AnnotationColor {
-  for (const [color, { bg }] of Object.entries(COLOR_MAP)) {
-    if (style.includes(bg)) {
-      return color as AnnotationColor;
-    }
-  }
-  return "yellow";
+  const match = style.match(/var\(--annotation-bg-color(\d+)\)/);
+  if (match) return match[1]! as AnnotationColor;
+  // 兼容：检查是否为 transparent（none）
+  if (style.includes("transparent")) return "none";
+  return "3";
 }
 
 // 剥离所有 HTML 标签，只保留文本
@@ -26,20 +25,16 @@ export function stripTags(html: string): string {
 
 // 剥离注音内容：先移除 <rt> 标签及其文字，再移除其他 HTML 标签
 function stripRubyText(html: string): string {
-  // 移除 <rt>...</rt>（含内容）
   const noRt = html.replace(/<rt[^>]*>[\s\S]*?<\/(?:rt|ruby)>/g, "");
   return stripTags(noRt);
 }
 
 // 从标注文件内容中剥离所有标注标签，只保留纯文本
-// 使用深度计数法正确处理嵌套 <mark> 和 <ruby> 标签
 export function stripAnnotationTags(content: string): string {
-  // 先处理 <ruby> 标签：只保留文字，去除 <rt> 内容
   let result = content.replace(
     /<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
     "$1"
   );
-  // 用深度计数法处理嵌套 <mark> 标签
   result = stripNestedMarks(result);
   return result;
 }
@@ -50,7 +45,6 @@ function stripNestedMarks(content: string): string {
   const closeRe = /<\/mark>/g;
   const segments: Array<{ text: string; isTag: boolean; index: number }> = [];
 
-  // 收集所有开标签和闭标签的位置
   const tags: Array<{ index: number; length: number; isOpen: boolean }> = [];
   let m: RegExpExecArray | null;
 
@@ -63,10 +57,8 @@ function stripNestedMarks(content: string): string {
     tags.push({ index: m.index, length: m[0].length, isOpen: false });
   }
 
-  // 按位置排序
   tags.sort((a, b) => a.index - b.index);
 
-  // 遍历内容，跳过所有 <mark> 和 </mark> 标签
   let lastIdx = 0;
   for (const tag of tags) {
     if (tag.index > lastIdx) {
@@ -100,7 +92,6 @@ function findMatchingCloseMark(content: string, openTagEnd: number): number {
     const nextOpenSelf = content.indexOf("<mark>", pos);
     const nextClose = content.indexOf("</mark>", pos);
 
-    // 考虑自闭合形式 <mark>
     let effectiveOpen = -1;
     if (nextOpen !== -1) effectiveOpen = nextOpen;
     if (nextOpenSelf !== -1 && (effectiveOpen === -1 || nextOpenSelf < effectiveOpen)) {
@@ -111,11 +102,11 @@ function findMatchingCloseMark(content: string, openTagEnd: number): number {
 
     if (effectiveOpen !== -1 && effectiveOpen < nextClose) {
       depth++;
-      pos = effectiveOpen + 6; // "<mark " 或 "<mark>" 的长度
+      pos = effectiveOpen + 6;
     } else {
       depth--;
       if (depth === 0) return nextClose;
-      pos = nextClose + 7; // "</mark>" 的长度
+      pos = nextClose + 7;
     }
   }
 
@@ -133,18 +124,14 @@ function parseRubyTags(content: string, parentAnnotationId: string): AnnotationR
   while ((match = rubyRegex.exec(content)) !== null) {
     const rubyContent = match[1]!;
 
-    // 从 <ruby> 中提取 <rt> 标签
     const rtMatch = rubyContent.match(/<rt[^>]*data-annotation-id="[^"]*"[^>]*>([\s\S]*?)<\/rt>/);
     const rtText = rtMatch ? rtMatch[1]! : "";
 
-    // 从 <ruby> 中提取 <rt> 之前的文字（即被注音的文字）
     const baseTextMatch = rubyContent.match(/^([\s\S]*?)<rt/);
     const baseText = baseTextMatch ? baseTextMatch[1]! : "";
 
     if (baseText && rtText) {
-      // 计算被注音文字在 <mark> 内容中的 startIndex
       const beforeRuby = content.substring(0, match.index);
-      // 剥离 beforeRuby 中的其他标签来计算纯文本偏移
       const plainBefore = stripRubyText(beforeRuby);
 
       rubies.push({
@@ -162,7 +149,6 @@ function parseRubyTags(content: string, parentAnnotationId: string): AnnotationR
 export function parseAnnotations(content: string): ParsedAnnotation[] {
   const segments: MarkSegment[] = [];
 
-  // 扫描所有 <mark> 开标签
   const openRegex = /<mark\s+([^>]*)>/g;
   let openMatch: RegExpExecArray | null;
 
@@ -174,7 +160,6 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
     const openTagStart = openMatch.index;
     const openTagEnd = openTagStart + openMatch[0].length;
 
-    // 用深度计数找配对的闭标签
     const closeTagStart = findMatchingCloseMark(content, openTagEnd);
     if (closeTagStart === -1) continue;
 
@@ -185,7 +170,7 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
       attrs,
       content: innerContent,
       startIndex: openTagStart,
-      endIndex: closeTagStart + 7, // "</mark>" 的长度
+      endIndex: closeTagStart + 7,
     });
   }
 
@@ -206,23 +191,18 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
   for (const [id, group] of groupMap) {
     const first = group[0]!;
 
+    // 从 style 属性提取颜色（通过 CSS 变量名）
     const style = getAttr(first.attrs, "style") || "";
     const color = extractColorFromStyle(style);
     const note = decodeAttr(getAttr(first.attrs, "data-annotation-note") || "");
-    const createdAt = getAttr(first.attrs, "data-annotation-created") || new Date().toISOString();
 
-    // 判断是否为全文标注（通过显式属性判断）
     const isFullText = getAttr(first.attrs, "data-annotation-fulltext") === "true";
-
-    // 判断是否为跨段标注
     const isCrossBlock = getAttr(first.attrs, "data-annotation-crossblock") === "true";
 
-    // 文本：全文标注取第一个实例，重叠分割的标注合并所有段
     const text = isFullText
       ? stripRubyText(first.content)
       : group.map(seg => stripRubyText(seg.content)).join("");
 
-    // 解析所有段中属于此标注的 ruby 标签
     const rubyTexts: AnnotationRuby[] = [];
     if (isFullText) {
       rubyTexts.push(...parseRubyTags(first.content, id));
@@ -241,7 +221,6 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
       }
     }
 
-    // 收集所有位置
     const positions = group.map(seg => ({
       start: seg.startIndex,
       end: seg.endIndex,
@@ -253,7 +232,6 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
       note,
       text,
       rubyTexts,
-      createdAt,
       positions,
       isFullText,
       isCrossBlock,

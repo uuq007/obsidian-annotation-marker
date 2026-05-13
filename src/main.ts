@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS, type AnnotationPluginSettings } from "./types";
 import { SelectionMenu } from "./ui/SelectionMenu";
 import { AnnotationMenu } from "./ui/AnnotationMenu";
 import { AnnotationListPanel } from "./ui/AnnotationListPanel";
+import { AnnotationSettingTab } from "./ui/AnnotationSettingTab";
 import { extractSelectionContext, calculateOffsetInBlock, extractCrossBlockSegments } from "./utils/contentMapper";
 import { countOccurrenceIndex } from "./utils/helpers";
 import type { BlockSegment } from "./types";
@@ -35,8 +36,8 @@ export default class AnnotationPlugin extends Plugin {
     const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
 
-    this.selectionMenu = new SelectionMenu(this.fileManager);
-    this.annotationMenu = new AnnotationMenu(this.fileManager);
+    this.selectionMenu = new SelectionMenu(this.fileManager, () => this.settings);
+    this.annotationMenu = new AnnotationMenu(this.fileManager, () => this.settings);
     this.annotationListPanel = new AnnotationListPanel(this.app, this.fileManager);
 
     this.registerEvents();
@@ -48,20 +49,26 @@ export default class AnnotationPlugin extends Plugin {
     this.addRibbonIcon("lucide-highlighter", "标注模式", () => {
       this.toggleAnnotationView();
     });
+
+    this.addSettingTab(new AnnotationSettingTab(this));
+
+    this.updateDynamicStyles();
   }
 
   onunload() {
-    // 清理所有假文件和元数据缓存
     for (const [, annotationPath] of this.activeAnnotationSessions) {
       this.removeFakeTFile(annotationPath);
       this.removeMetadataCache(annotationPath);
     }
     this.activeAnnotationSessions.clear();
 
-    // 清理 UI 组件
     this.selectionMenu.hide();
     this.annotationMenu.hide();
     this.annotationListPanel.hide();
+
+    // 清理动态样式
+    const styleEl = document.getElementById("annotation-dynamic-styles");
+    if (styleEl) styleEl.remove();
   }
 
   async loadSettings() {
@@ -72,9 +79,55 @@ export default class AnnotationPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  // ========== 动态 CSS ==========
+
+  // 将十六进制颜色值转为 rgba 格式
+  private hexToRgba(hex: string, alpha: number): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  // 根据设置注入/更新动态 CSS 变量
+  updateDynamicStyles() {
+    let el = document.getElementById("annotation-dynamic-styles");
+    if (!el) {
+      el = document.createElement("style");
+      el.id = "annotation-dynamic-styles";
+      document.head.appendChild(el);
+    }
+
+    const s = this.settings;
+
+    el.textContent = `
+      :root {
+        --annotation-bg-color1: ${this.hexToRgba(s.color1, 0.35)};
+        --annotation-accent-color1: ${this.hexToRgba(s.color1, 0.8)};
+        --annotation-bg-color2: ${this.hexToRgba(s.color2, 0.35)};
+        --annotation-accent-color2: ${this.hexToRgba(s.color2, 0.8)};
+        --annotation-bg-color3: ${this.hexToRgba(s.color3, 0.45)};
+        --annotation-accent-color3: ${this.hexToRgba(s.color3, 0.8)};
+        --annotation-bg-color4: ${this.hexToRgba(s.color4, 0.35)};
+        --annotation-accent-color4: ${this.hexToRgba(s.color4, 0.8)};
+        --annotation-bg-color5: ${this.hexToRgba(s.color5, 0.35)};
+        --annotation-accent-color5: ${this.hexToRgba(s.color5, 0.8)};
+        --annotation-dot-color1: ${s.color1};
+        --annotation-dot-color2: ${s.color2};
+        --annotation-dot-color3: ${s.color3};
+        --annotation-dot-color4: ${s.color4};
+        --annotation-dot-color5: ${s.color5};
+        --annotation-ruby-font-size: ${s.rubyFontSize};
+        --annotation-ruby-color: ${s.rubyColor};
+      }
+    `;
+
+    // 设置批注效果
+    document.body.dataset.noteEffect = s.noteEffect;
+  }
+
   // ========== 假文件管理 ==========
 
-  // 构造假 TFile 并注入 vault 的 fileMap
   private createFakeTFile(path: string): TFile {
     const vault = this.app.vault;
     const anyFile = vault.getFiles()[0];
@@ -83,23 +136,18 @@ export default class AnnotationPlugin extends Plugin {
     const TFileConstructor = Object.getPrototypeOf(anyFile).constructor;
     const fakeFile = new TFileConstructor(vault, path);
 
-    // 不能标记为 deleted，否则视图拒绝打开
     (fakeFile as any).deleted = false;
-
-    // 注入 vault 的文件字典，让 getAbstractFileByPath 能找到它
     (vault as any).fileMap[path] = fakeFile;
 
     return fakeFile;
   }
 
-  // 从 vault.fileMap 中移除假文件
   private removeFakeTFile(path: string) {
     delete (this.app.vault as any).fileMap[path];
   }
 
   // ========== 元数据缓存 ==========
 
-  // 为标注文件注入原笔记的元数据缓存
   private injectMetadataCache(annotationPath: string, originalPath: string, fakeTFile: TFile) {
     const cacheInternal = this.app.metadataCache as any;
 
@@ -124,9 +172,7 @@ export default class AnnotationPlugin extends Plugin {
     delete cacheInternal.fileCache[annotationPath];
   }
 
-  // 注册元数据缓存相关的全局事件监听
   private registerCacheListeners() {
-    // 编辑时重新注入缓存
     this.registerEvent(
       this.app.workspace.on("editor-change", (editor, info) => {
         const filePath = (info as any).file?.path;
@@ -138,7 +184,6 @@ export default class AnnotationPlugin extends Plugin {
       })
     );
 
-    // 标签页关闭时清理假文件和缓存
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
@@ -153,7 +198,6 @@ export default class AnnotationPlugin extends Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
-            // 清理标注列表面板
             this.annotationListPanel.hide();
           }
         }
@@ -187,7 +231,6 @@ export default class AnnotationPlugin extends Plugin {
     return null;
   }
 
-  // 获取当前标注视图对应的原始笔记路径
   getActiveAnnotationNotePath(): string | null {
     const leaf = this.app.workspace.activeLeaf;
     if (!leaf) return null;
@@ -224,7 +267,6 @@ export default class AnnotationPlugin extends Plugin {
     }
 
     const annotationPath = normalizePath(this.fileManager.getAnnotationFilePath(notePath));
-    console.log("[标注] annotationPath:", annotationPath);
 
     const fakeTFile = this.createFakeTFile(annotationPath);
 
@@ -234,7 +276,6 @@ export default class AnnotationPlugin extends Plugin {
       this.injectMetadataCache(annotationPath, notePath, fakeTFile);
 
       await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
-      console.log("[标注] openFile 完成, 当前 view:", (leaf.view as any)?.constructor?.name);
 
       if (savedScroll) {
         requestAnimationFrame(() => {
@@ -242,7 +283,6 @@ export default class AnnotationPlugin extends Plugin {
         });
       }
 
-      // 显示标注列表面板
       this.setupAnnotationListPanel(notePath);
     } catch (e) {
       console.error("[标注] openFile 失败:", e);
@@ -273,7 +313,6 @@ export default class AnnotationPlugin extends Plugin {
     }
     this.activeAnnotationSessions.delete(originalPath);
 
-    // 清理 UI
     this.selectionMenu.hide();
     this.annotationMenu.hide();
     this.annotationListPanel.hide();
@@ -287,23 +326,18 @@ export default class AnnotationPlugin extends Plugin {
 
   // ========== 标注交互事件 ==========
 
-  // 注册标注视图中的鼠标事件（选区检测、标注点击）
   private registerAnnotationInteraction() {
-    // 全局 mouseup 事件：检测文本选区并弹出添加菜单
     this.registerDomEvent(document, "mouseup", (e: MouseEvent) => {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
 
-      // 忽略来自标注菜单、模态框、输入框内部的 mouseup
       const target = e.target as HTMLElement;
       if (target.closest(".annotation-card-menu, .modal-container")) return;
       if (target.closest("input, textarea")) return;
-      // 忽略不可标注区域：代码块（含 Mermaid 等）、嵌入内容、Callout 标题区域
       if (target.closest("pre, .el-pre")) return;
       if (target.closest(".internal-embed")) return;
       if (target.closest(".callout") && !target.closest(".callout-content")) return;
 
-      // 延迟一帧确保 Selection 已更新
       setTimeout(() => {
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed) return;
@@ -311,7 +345,6 @@ export default class AnnotationPlugin extends Plugin {
         const context = extractSelectionContext(selection);
         if (!context || !context.text) return;
 
-        // 从选区起点和终点分别查找 section 行号信息
         const range = selection.getRangeAt(0);
         const startEl = range.startContainer instanceof HTMLElement
           ? range.startContainer : range.startContainer.parentElement;
@@ -320,14 +353,11 @@ export default class AnnotationPlugin extends Plugin {
         const startLineInfo = startEl ? this.findSectionLineInfo(startEl) : undefined;
         const endLineInfo = endEl ? this.findSectionLineInfo(endEl) : undefined;
 
-        // 合并行号范围（支持跨 section 选区）
         const lineStart = startLineInfo?.lineStart;
         const lineEnd = endLineInfo?.lineEnd ?? startLineInfo?.lineEnd;
 
-        // 判断是否跨 section 选区
         const isCrossSection = startLineInfo?.sectionEl !== endLineInfo?.sectionEl;
 
-        // 禁止跨 Callout 边界标注
         if (isCrossSection) {
           const startCallout = startEl?.closest('.callout');
           const endCallout = endEl?.closest('.callout');
@@ -337,7 +367,6 @@ export default class AnnotationPlugin extends Plugin {
           }
         }
 
-        // 计算选中文本在 section 内是第几次出现（跨 section 时不计算，用全文搜索）
         const sectionEl = startLineInfo?.sectionEl;
         const offset = sectionEl && !isCrossSection
           ? calculateOffsetInBlock(range, sectionEl)
@@ -347,7 +376,6 @@ export default class AnnotationPlugin extends Plugin {
           ? countOccurrenceIndex(sectionText, context.text, offset)
           : undefined;
 
-        // 跨段选区：提取每块的文本和行号
         let blockSegments: BlockSegment[] | undefined;
         if (isCrossSection) {
           blockSegments = extractCrossBlockSegments(
@@ -374,20 +402,17 @@ export default class AnnotationPlugin extends Plugin {
       }, 10);
     });
 
-    // 全局 click 事件：检测点击已有标注并弹出详情菜单
     this.registerDomEvent(document, "click", (e: MouseEvent) => {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
 
       const target = e.target as HTMLElement;
-      // 检查是否点击了 <mark> 标签
       const markEl = target.closest("mark[data-annotation-id]") as HTMLElement;
       if (!markEl) return;
 
       e.preventDefault();
       e.stopPropagation();
 
-      // 收集被点击位置的所有嵌套标注 ID（从内到外）
       const annotationIds: string[] = [];
       let currentEl: HTMLElement | null = markEl;
       while (currentEl) {
@@ -395,16 +420,13 @@ export default class AnnotationPlugin extends Plugin {
         if (id && !annotationIds.includes(id)) {
           annotationIds.push(id);
         }
-        // 向上查找父级 mark 标签
         currentEl = currentEl.parentElement?.closest("mark[data-annotation-id]") as HTMLElement ?? null;
       }
 
-      // 从标注文件中解析标注数据
       this.fileManager.getAnnotations(notePath).then((annotations) => {
         this.selectionMenu.hide();
 
         if (annotationIds.length === 1) {
-          // 单个标注：直接显示详情
           const annotation = annotations.find((a) => a.id === annotationIds[0]);
           if (!annotation) return;
           this.annotationMenu.show({
@@ -415,7 +437,6 @@ export default class AnnotationPlugin extends Plugin {
             onUpdate: () => this.refreshAnnotationView(notePath),
           });
         } else {
-          // 多个嵌套标注：显示最内层的标注（用户最可能想操作的）
           const annotation = annotations.find((a) => a.id === annotationIds[0]);
           if (!annotation) return;
           this.annotationMenu.show({
@@ -430,7 +451,6 @@ export default class AnnotationPlugin extends Plugin {
     });
   }
 
-  // 设置标注列表面板
   private setupAnnotationListPanel(notePath: string) {
     this.annotationListPanel.show({
       notePath,
@@ -438,8 +458,6 @@ export default class AnnotationPlugin extends Plugin {
     });
   }
 
-  // 刷新标注视图（标注增删改后调用）
-  // 通过 ReadViewRenderer.set() 直接更新渲染器文本并触发重渲染
   private async refreshAnnotationView(notePath: string) {
     const leaf = this.app.workspace.activeLeaf;
     if (!leaf) return;
@@ -447,27 +465,22 @@ export default class AnnotationPlugin extends Plugin {
     const view = leaf.view as MarkdownView;
     if (!view.previewMode) return;
 
-    // 从磁盘读取最新内容（FileManager 已通过 adapter.write 写入）
     const content = await this.fileManager.readAnnotationFile(notePath);
 
-    // 通过 ReadViewRenderer.set() 更新文本并触发重新渲染
     const renderer = (view.previewMode as any).renderer;
     if (renderer && typeof renderer.set === "function") {
       renderer.set(content);
     }
 
-    // 刷新标注列表面板
     this.annotationListPanel.refresh();
   }
 
   // ========== Section 行号捕获 ==========
 
-  // 注册 MarkdownPostProcessor，捕获每个 section 的行号信息
   private registerSectionLineCapture() {
     this.registerMarkdownPostProcessor((el, ctx) => {
       const sectionInfo = ctx.getSectionInfo(el);
       if (sectionInfo) {
-        // 脚注区域：使用 metadataCache 注册每个 <li> 的精确行号
         const footnotesSection = el.querySelector('section.footnotes');
         if (footnotesSection) {
           const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
@@ -481,7 +494,6 @@ export default class AnnotationPlugin extends Plugin {
                 const li = items[i] as HTMLElement;
                 const liId = li.id;
 
-                // 通过 href 找到正文中的引用 <a>，读取 data-footref（原始脚注 id）
                 const refLink = container?.querySelector(`a.footnote-link[href="#${liId}"]`);
                 const originalId = refLink?.getAttribute('data-footref');
 
@@ -505,8 +517,6 @@ export default class AnnotationPlugin extends Plugin {
           lineEnd: sectionInfo.lineEnd,
         });
 
-        // 列表元素：为每个 <li data-line> 注册独立行号映射
-        // 这样 findSectionLineInfo 会优先返回 <li>（比 <ul> 更靠近文本节点）
         const lists = Array.from(el.querySelectorAll("ul, ol"));
         for (const list of lists) {
           const items = list.querySelectorAll(":scope > li");
@@ -518,7 +528,6 @@ export default class AnnotationPlugin extends Plugin {
             const lineOffset = parseInt(dataLine, 10);
             const liLineStart = sectionInfo.lineStart + lineOffset;
 
-            // lineEnd：下一个 <li> 的 data-line - 1，或取父级 <li> 的 lineEnd
             let liLineEnd = sectionInfo.lineEnd;
             if (i + 1 < items.length) {
               const nextDataLine = (items[i + 1] as HTMLElement).getAttribute("data-line");
@@ -526,7 +535,6 @@ export default class AnnotationPlugin extends Plugin {
                 liLineEnd = sectionInfo.lineStart + parseInt(nextDataLine, 10) - 1;
               }
             } else {
-              // 嵌套列表：最后一个 <li> 的 lineEnd 取父级 <li> 的 lineEnd
               const parentLi = list.parentElement?.closest("li");
               if (parentLi) {
                 const parentInfo = this.sectionLineMap.get(parentLi);
@@ -543,14 +551,10 @@ export default class AnnotationPlugin extends Plugin {
           }
         }
 
-        // 表格元素：为每个 <td>/<th> 注册行号映射
-        // 表格的每一行 <tr> 对应源码中的一行（表头行 + 分隔行 + 数据行）
         const tables = Array.from(el.querySelectorAll("table"));
         for (const table of tables) {
           const allRows = table.querySelectorAll("tr");
           for (let i = 0; i < allRows.length; i++) {
-            // 第一行（表头）对应 lineStart，分隔行（不在HTML中）占 lineStart+1
-            // 数据行从 lineStart+2 开始
             const trLine = sectionInfo.lineStart + (i === 0 ? i : i + 1);
             for (const cell of Array.from(allRows[i]!.querySelectorAll("td, th"))) {
               this.sectionLineMap.set(cell as HTMLElement, {
@@ -564,7 +568,6 @@ export default class AnnotationPlugin extends Plugin {
     });
   }
 
-  // 从 DOM 元素向上查找最近的 sectionLineMap 条目（同时返回 section 元素）
   private findSectionLineInfo(el: HTMLElement): { lineStart: number; lineEnd: number; sectionEl: HTMLElement } | null {
     let current: HTMLElement | null = el;
     while (current) {
@@ -578,7 +581,6 @@ export default class AnnotationPlugin extends Plugin {
   // ========== 事件和命令 ==========
 
   registerEvents() {
-    // 文件重命名时迁移标注文件
     this.registerEvent(
       this.app.vault.on("rename", async (file, oldPath) => {
         if (file instanceof TFile && file.extension === "md") {
@@ -591,7 +593,6 @@ export default class AnnotationPlugin extends Plugin {
       })
     );
 
-    // 文件删除时清理标注文件
     this.registerEvent(
       this.app.vault.on("delete", async (file) => {
         if (file instanceof TFile && file.extension === "md") {
@@ -623,4 +624,3 @@ export default class AnnotationPlugin extends Plugin {
     });
   }
 }
-

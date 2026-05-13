@@ -1,16 +1,18 @@
 import { Notice } from "obsidian";
-import type { AnnotationColor, ParsedAnnotation } from "../types";
-import { COLOR_LABELS } from "../constants";
+import type { AnnotationColor, AnnotationPluginSettings, ParsedAnnotation } from "../types";
+import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { EditNoteModal } from "./EditNoteModal";
 
 // 标注详情的浮动菜单（点击已有标注时弹出）
 export class AnnotationMenu {
   private fileManager: AnnotationFileManager;
+  private getSettings: () => AnnotationPluginSettings;
   private menuEl: HTMLElement | null = null;
 
-  constructor(fileManager: AnnotationFileManager) {
+  constructor(fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
     this.fileManager = fileManager;
+    this.getSettings = getSettings;
   }
 
   show(params: {
@@ -23,34 +25,30 @@ export class AnnotationMenu {
     this.hide();
 
     const { annotation, notePath, onUpdate } = params;
+    const settings = this.getSettings();
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-view-menu";
 
-    // 标题栏
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
     header.createEl("span", { text: "标注详情", cls: "annotation-menu-title" });
     const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: "×" });
     closeBtn.addEventListener("click", () => this.hide());
 
-    // 文本预览
     const textPreview = this.menuEl.createDiv({ cls: "annotation-menu-text" });
     const previewText = annotation.text.length > 80
       ? annotation.text.substring(0, 80) + "..."
       : annotation.text;
     textPreview.createEl("span", { text: `"${previewText}"` });
 
-    // 全文标注提示
     if (annotation.isFullText && annotation.positions.length > 1) {
       const fullTextHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
       fullTextHint.createEl("span", { text: `全文标注（共 ${annotation.positions.length} 处）` });
     } else if (annotation.isCrossBlock) {
-      // 跨段标注提示
       const crossBlockHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
       crossBlockHint.createEl("span", { text: `跨段标注（共 ${annotation.positions.length} 处）` });
     }
 
-    // 批注内容
     if (annotation.note) {
       const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note" });
       noteSection.createEl("label", { text: "批注内容" });
@@ -62,13 +60,13 @@ export class AnnotationMenu {
     colorSection.createEl("label", { text: "标注颜色" });
     const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
 
-    const colors: AnnotationColor[] = ["red", "yellow", "green", "blue", "purple", "none"];
+    const colors: AnnotationColor[] = [...ALL_COLORS];
     for (const c of colors) {
       const btn = colorContainer.createEl("button", {
-        cls: `annotation-color-dot color-${c}`,
+        cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,
       });
       if (c === annotation.color) btn.addClass("active");
-      btn.title = COLOR_LABELS[c];
+      btn.title = c === "none" ? "无色" : (settings as any)[`colorLabel${c}`] ?? `颜色${c}`;
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (c !== annotation.color) {
@@ -80,7 +78,6 @@ export class AnnotationMenu {
       });
     }
 
-    // 操作按钮
     const actions = this.menuEl.createDiv({ cls: "annotation-menu-actions" });
 
     const editBtn = actions.createEl("button", {
@@ -120,7 +117,6 @@ export class AnnotationMenu {
 
     document.body.appendChild(this.menuEl);
 
-    // 定位菜单
     const menuWidth = 300;
     const menuHeight = this.menuEl.offsetHeight || 250;
     let menuX = params.x + 10;
@@ -140,7 +136,6 @@ export class AnnotationMenu {
     this.menuEl.style.left = `${Math.max(10, menuX)}px`;
     this.menuEl.style.top = `${Math.max(10, menuY)}px`;
 
-    // 点击外部关闭
     const clickHandler = (e: MouseEvent) => {
       if (this.menuEl && !this.menuEl.contains(e.target as Node)) {
         this.hide();
@@ -158,6 +153,7 @@ export class AnnotationMenu {
     this.hide();
     const modal = new EditNoteModal(
       (this.fileManager as any).app,
+      this.getSettings,
       {
         text: annotation.text,
         note: annotation.note,

@@ -27,33 +27,61 @@ __export(main_exports, {
   default: () => AnnotationPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/annotationFile/AnnotationFileManager.ts
 var import_obsidian = require("obsidian");
 
+// src/types.ts
+var DEFAULT_SETTINGS = {
+  defaultColor: "3",
+  maxNoteLength: 500,
+  color1: "#ff6b6b",
+  color2: "#54a0ff",
+  color3: "#ffd43b",
+  color4: "#26c281",
+  color5: "#9b59b6",
+  colorLabel1: "\u989C\u82721",
+  colorLabel2: "\u989C\u82722",
+  colorLabel3: "\u989C\u82723",
+  colorLabel4: "\u989C\u82724",
+  colorLabel5: "\u989C\u82725",
+  noteEffect: "none",
+  rubyFontSize: "0.7em",
+  rubyColor: "#999999"
+};
+var COLOR_NUMBERS = ["1", "2", "3", "4", "5"];
+
 // src/constants.ts
-var COLOR_MAP = {
-  red: { bg: "rgba(255, 107, 107, 0.35)", border: "#ff6b6b" },
-  blue: { bg: "rgba(84, 160, 255, 0.35)", border: "#54a0ff" },
-  yellow: { bg: "rgba(255, 212, 59, 0.45)", border: "#ffd43b" },
-  green: { bg: "rgba(38, 194, 129, 0.35)", border: "#26c281" },
-  purple: { bg: "rgba(155, 89, 182, 0.35)", border: "#9b59b6" },
-  none: { bg: "transparent", border: "#999" }
+var COLOR_BG_VARS = {
+  "1": "var(--annotation-bg-color1)",
+  "2": "var(--annotation-bg-color2)",
+  "3": "var(--annotation-bg-color3)",
+  "4": "var(--annotation-bg-color4)",
+  "5": "var(--annotation-bg-color5)",
+  none: "transparent"
 };
-var COLOR_LABELS = {
-  red: "\u7EA2\u8272",
-  blue: "\u84DD\u8272",
-  yellow: "\u9EC4\u8272",
-  green: "\u7EFF\u8272",
-  purple: "\u7D2B\u8272",
-  none: "\u65E0\u8272"
+var COLOR_ACCENT_VARS = {
+  "1": "var(--annotation-accent-color1)",
+  "2": "var(--annotation-accent-color2)",
+  "3": "var(--annotation-accent-color3)",
+  "4": "var(--annotation-accent-color4)",
+  "5": "var(--annotation-accent-color5)"
 };
+var COLOR_CLASSES = {
+  "1": "ac-1",
+  "2": "ac-2",
+  "3": "ac-3",
+  "4": "ac-4",
+  "5": "ac-5",
+  none: "ac-none"
+};
+var ALL_COLORS = [...COLOR_NUMBERS, "none"];
 var PATH_SEPARATOR = "&.";
 
 // src/utils/helpers.ts
 function generateId() {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  return Date.now().toString();
 }
 function notePathToAnnotationPath(pluginDir, notePath) {
   const normalizedPath = notePath.replace(/[/\\]/g, PATH_SEPARATOR);
@@ -130,12 +158,10 @@ function getAttr(attrs, name) {
   return match ? match[1] : null;
 }
 function extractColorFromStyle(style) {
-  for (const [color, { bg }] of Object.entries(COLOR_MAP)) {
-    if (style.includes(bg)) {
-      return color;
-    }
-  }
-  return "yellow";
+  const match = style.match(/var\(--annotation-bg-color(\d+)\)/);
+  if (match) return match[1];
+  if (style.includes("transparent")) return "none";
+  return "3";
 }
 function stripTags(html) {
   return html.replace(/<[^>]+>/g, "");
@@ -247,7 +273,6 @@ function parseAnnotations(content) {
       content: innerContent,
       startIndex: openTagStart,
       endIndex: closeTagStart + 7
-      // "</mark>" 的长度
     });
   }
   const groupMap = /* @__PURE__ */ new Map();
@@ -265,7 +290,6 @@ function parseAnnotations(content) {
     const style = getAttr(first.attrs, "style") || "";
     const color = extractColorFromStyle(style);
     const note = decodeAttr(getAttr(first.attrs, "data-annotation-note") || "");
-    const createdAt = getAttr(first.attrs, "data-annotation-created") || (/* @__PURE__ */ new Date()).toISOString();
     const isFullText = getAttr(first.attrs, "data-annotation-fulltext") === "true";
     const isCrossBlock = getAttr(first.attrs, "data-annotation-crossblock") === "true";
     const text = isFullText ? stripRubyText(first.content) : group.map((seg) => stripRubyText(seg.content)).join("");
@@ -296,7 +320,6 @@ function parseAnnotations(content) {
       note,
       text,
       rubyTexts,
-      createdAt,
       positions,
       isFullText,
       isCrossBlock
@@ -749,11 +772,11 @@ function buildSegmentHtml(segments, plainText, annotations) {
     for (let i = sortedIds.length - 1; i >= 0; i--) {
       const id = sortedIds[i];
       const ann = annotations.get(id);
-      const bg = (_a = ann == null ? void 0 : ann.color) != null ? _a : "rgba(255, 212, 59, 0.45)";
-      const colorAttr = (ann == null ? void 0 : ann.annotationColor) ? ` data-annotation-color="${ann.annotationColor}"` : "";
+      const color = (_a = ann == null ? void 0 : ann.annotationColor) != null ? _a : "3";
+      const bgVar = COLOR_BG_VARS[color];
+      const accentVar = COLOR_ACCENT_VARS[color] || "transparent";
       const noteAttr = (ann == null ? void 0 : ann.note) ? ` data-annotation-note="${ann.note}"` : "";
-      const createdAttr = (ann == null ? void 0 : ann.created) ? ` data-annotation-created="${ann.created}"` : "";
-      wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${colorAttr}${noteAttr}${createdAttr}>${wrapped}</mark>`;
+      wrapped = `<mark style="background:${bgVar};--annotation-accent:${accentVar}" data-annotation-id="${id}"${noteAttr}>${wrapped}</mark>`;
     }
     parts.push(wrapped);
     lastEnd = seg.end;
@@ -784,13 +807,13 @@ function buildAnnotatedText(text, annotationId, rubyTexts) {
   return result;
 }
 function buildMarkTag(id, text, color, note, rubyTexts, createdAt, isFullText, isCrossBlock) {
-  const bg = COLOR_MAP[color].bg;
-  const created = createdAt || (/* @__PURE__ */ new Date()).toISOString();
+  const bgVar = COLOR_BG_VARS[color];
+  const accentVar = COLOR_ACCENT_VARS[color] || "transparent";
   const noteAttr = note ? ` data-annotation-note="${encodeAttr(note)}"` : "";
   const fullTextAttr = isFullText ? ` data-annotation-fulltext="true"` : "";
   const crossBlockAttr = isCrossBlock ? ` data-annotation-crossblock="true"` : "";
   const annotatedText = buildAnnotatedText(text, id, rubyTexts);
-  return `<mark style="background:${bg}" data-annotation-id="${id}" data-annotation-color="${color}"${noteAttr} data-annotation-created="${created}"${fullTextAttr}${crossBlockAttr}>${annotatedText}</mark>`;
+  return `<mark style="background:${bgVar};--annotation-accent:${accentVar}" data-annotation-id="${id}"${noteAttr}${fullTextAttr}${crossBlockAttr}>${annotatedText}</mark>`;
 }
 function insertAnnotation(content, annotation) {
   const id = generateId();
@@ -856,7 +879,6 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
       text: a.text,
       color: a.color,
       note: a.note,
-      created: a.createdAt,
       rubyTexts: a.rubyTexts
     })),
     {
@@ -864,7 +886,6 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
       text: annotation.text,
       color: annotation.color,
       note: annotation.note,
-      created: (/* @__PURE__ */ new Date()).toISOString(),
       rubyTexts: annotation.rubyTexts
     }
   ];
@@ -876,10 +897,8 @@ function rebuildOverlapRegion(content, newStart, newEnd, newId, annotation) {
         id: ann.id,
         start: idx,
         end: idx + ann.text.length,
-        color: COLOR_MAP[ann.color].bg,
         annotationColor: ann.color,
         note: ann.note ? encodeAttr(ann.note) : void 0,
-        created: ann.created,
         rubyTexts: ann.rubyTexts
       });
     }
@@ -1016,15 +1035,16 @@ function updateAnnotationTag(content, annotationId, updates) {
   return content.replace(regex, (_match, prefix, attrs, open, innerContent, close) => {
     let newAttrs = attrs;
     if (updates.color) {
-      const bg = COLOR_MAP[updates.color].bg;
-      newAttrs = newAttrs.replace(
-        /style="background:[^"]*"/,
-        `style="background:${bg}"`
-      );
-      newAttrs = newAttrs.replace(
-        /data-annotation-color="[^"]*"/,
-        `data-annotation-color="${updates.color}"`
-      );
+      const bgVar = COLOR_BG_VARS[updates.color];
+      const accentVar = COLOR_ACCENT_VARS[updates.color] || "transparent";
+      if (newAttrs.includes("style=")) {
+        newAttrs = newAttrs.replace(
+          /style="background:[^"]*"/,
+          `style="background:${bgVar};--annotation-accent:${accentVar}"`
+        );
+      } else {
+        newAttrs += ` style="background:${bgVar};--annotation-accent:${accentVar}"`;
+      }
     }
     if (updates.note !== void 0) {
       if (updates.note) {
@@ -1079,7 +1099,6 @@ function insertCrossBlockAnnotation(content, annotation) {
     return { content, id: generateId(), blockCount: 0 };
   }
   const id = generateId();
-  const created = (/* @__PURE__ */ new Date()).toISOString();
   const blockRubyMap = distributeRubyTexts(segments, annotation.rubyTexts);
   const sorted = [...segments].map((seg, idx) => ({ ...seg, originalIdx: idx })).sort((a, b) => b.lineStart - a.lineStart);
   let newContent = content;
@@ -1099,7 +1118,7 @@ function insertCrossBlockAnnotation(content, annotation) {
     const needsRebuild = /<(?:mark|ruby|rt)\s[^>]*data-annotation-id|<\/mark>/i.test(sourceSlice);
     if (!needsRebuild) {
       const localRuby = blockRubyMap.get(block.originalIdx);
-      const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, localRuby, created, void 0, true);
+      const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, localRuby, void 0, void 0, true);
       newContent = newContent.substring(0, found.start) + tag + newContent.substring(found.end);
       successCount++;
     } else {
@@ -1311,18 +1330,12 @@ var AnnotationFileManager = class {
   }
 };
 
-// src/types.ts
-var DEFAULT_SETTINGS = {
-  defaultColor: "yellow",
-  maxNoteLength: 500
-};
-
 // src/ui/SelectionMenu.ts
 var import_obsidian2 = require("obsidian");
 var SelectionMenu = class {
-  constructor(fileManager) {
+  constructor(fileManager, getSettings) {
     this.menuEl = null;
-    this.selectedColor = "yellow";
+    this.selectedColor = DEFAULT_SETTINGS.defaultColor;
     this.currentNotePath = null;
     this.selectedText = "";
     this.contextBefore = "";
@@ -1340,9 +1353,10 @@ var SelectionMenu = class {
     this.updateRubyList = null;
     this.blockSegments = null;
     this.fileManager = fileManager;
+    this.getSettings = getSettings;
   }
   show(params) {
-    var _a;
+    var _a, _b;
     this.hide();
     this.currentNotePath = params.notePath;
     this.selectedText = params.selectedText;
@@ -1352,7 +1366,7 @@ var SelectionMenu = class {
     this.endLine = params.endLine;
     this.occurrence = params.occurrence;
     this.onAddCallback = params.onAdd;
-    this.selectedColor = "yellow";
+    this.selectedColor = this.getSettings().defaultColor;
     this.pendingNote = "";
     this.rubyTexts = [];
     this.rubyTextEnabled = false;
@@ -1374,13 +1388,14 @@ var SelectionMenu = class {
     const colorSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
     colorSection.createEl("label", { text: "\u9009\u62E9\u989C\u8272\u7ACB\u5373\u6807\u6CE8" });
     this.colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
-    const colors = ["red", "yellow", "green", "blue", "purple", "none"];
+    const colors = [...ALL_COLORS];
+    const settings = this.getSettings();
     for (const c of colors) {
       const btn = this.colorContainer.createEl("button", {
-        cls: `annotation-color-dot color-${c}`
+        cls: `annotation-color-dot ${COLOR_CLASSES[c]}`
       });
       if (c === this.selectedColor) btn.addClass("active");
-      btn.title = COLOR_LABELS[c];
+      btn.title = c === "none" ? "\u65E0\u8272" : (_b = settings[`colorLabel${c}`]) != null ? _b : `\u989C\u8272${c}`;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.selectedColor = c;
@@ -1685,7 +1700,7 @@ var import_obsidian4 = require("obsidian");
 // src/ui/EditNoteModal.ts
 var import_obsidian3 = require("obsidian");
 var EditNoteModal = class extends import_obsidian3.Modal {
-  constructor(app, params, onSave) {
+  constructor(app, getSettings, params, onSave) {
     super(app);
     this.noteInput = null;
     this.rubyTextEnabled = false;
@@ -1695,6 +1710,7 @@ var EditNoteModal = class extends import_obsidian3.Modal {
     this.rubyTextPreview = null;
     this.selectedRubyRange = null;
     this.updateRubyList = null;
+    this.getSettings = getSettings;
     this.annotationText = params.text;
     this.currentNote = params.note;
     this.currentColor = params.color;
@@ -1704,7 +1720,9 @@ var EditNoteModal = class extends import_obsidian3.Modal {
     this.onSave = onSave;
   }
   onOpen() {
+    var _a;
     const { contentEl } = this;
+    const settings = this.getSettings();
     contentEl.addClass("annotation-note-modal");
     this.containerEl.addEventListener("mousedown", (e) => e.stopPropagation());
     this.containerEl.addEventListener("mouseup", (e) => e.stopPropagation());
@@ -1716,10 +1734,10 @@ var EditNoteModal = class extends import_obsidian3.Modal {
     previewEl.createEl("span", { text: previewText });
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });
     colorContainer.createEl("label", { text: "\u6807\u6CE8\u989C\u8272\uFF1A" });
-    const colors = ["red", "yellow", "green", "blue", "purple", "none"];
+    const colors = [...ALL_COLORS];
     for (const c of colors) {
-      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot color-${c}` });
-      btn.title = COLOR_LABELS[c];
+      const btn = colorContainer.createEl("button", { cls: `annotation-color-dot ${COLOR_CLASSES[c]}` });
+      btn.title = c === "none" ? "\u65E0\u8272" : (_a = settings[`colorLabel${c}`]) != null ? _a : `\u989C\u8272${c}`;
       if (c === this.currentColor) btn.addClass("active");
       btn.addEventListener("click", () => {
         colorContainer.querySelectorAll(".annotation-color-dot").forEach((b) => b.removeClass("active"));
@@ -1739,8 +1757,8 @@ var EditNoteModal = class extends import_obsidian3.Modal {
       text: `${this.currentNote.length}/400`
     });
     this.noteInput.addEventListener("input", () => {
-      var _a, _b;
-      const len = (_b = (_a = this.noteInput) == null ? void 0 : _a.value.length) != null ? _b : 0;
+      var _a2, _b;
+      const len = (_b = (_a2 = this.noteInput) == null ? void 0 : _a2.value.length) != null ? _b : 0;
       charCount.textContent = `${len}/400`;
       charCount.toggleClass("annotation-char-count-error", len > 400);
     });
@@ -1754,8 +1772,8 @@ var EditNoteModal = class extends import_obsidian3.Modal {
       text: "\u4FDD\u5B58",
       cls: "annotation-btn annotation-btn-primary"
     }).addEventListener("click", () => {
-      var _a, _b;
-      const note = (_b = (_a = this.noteInput) == null ? void 0 : _a.value) != null ? _b : "";
+      var _a2, _b;
+      const note = (_b = (_a2 = this.noteInput) == null ? void 0 : _a2.value) != null ? _b : "";
       const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : void 0;
       this.onSave(note, this.currentColor, rubyTexts);
       this.close();
@@ -1886,13 +1904,16 @@ var EditNoteModal = class extends import_obsidian3.Modal {
 
 // src/ui/AnnotationMenu.ts
 var AnnotationMenu = class {
-  constructor(fileManager) {
+  constructor(fileManager, getSettings) {
     this.menuEl = null;
     this.fileManager = fileManager;
+    this.getSettings = getSettings;
   }
   show(params) {
+    var _a;
     this.hide();
     const { annotation, notePath, onUpdate } = params;
+    const settings = this.getSettings();
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-view-menu";
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
@@ -1917,13 +1938,13 @@ var AnnotationMenu = class {
     const colorSection = this.menuEl.createDiv({ cls: "annotation-menu-section" });
     colorSection.createEl("label", { text: "\u6807\u6CE8\u989C\u8272" });
     const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
-    const colors = ["red", "yellow", "green", "blue", "purple", "none"];
+    const colors = [...ALL_COLORS];
     for (const c of colors) {
       const btn = colorContainer.createEl("button", {
-        cls: `annotation-color-dot color-${c}`
+        cls: `annotation-color-dot ${COLOR_CLASSES[c]}`
       });
       if (c === annotation.color) btn.addClass("active");
-      btn.title = COLOR_LABELS[c];
+      btn.title = c === "none" ? "\u65E0\u8272" : (_a = settings[`colorLabel${c}`]) != null ? _a : `\u989C\u8272${c}`;
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (c !== annotation.color) {
@@ -1994,6 +2015,7 @@ var AnnotationMenu = class {
     this.hide();
     const modal = new EditNoteModal(
       this.fileManager.app,
+      this.getSettings,
       {
         text: annotation.text,
         note: annotation.note,
@@ -2124,15 +2146,15 @@ var AnnotationListPanel = class {
         sorted.sort((a, b) => b.positions[0].start - a.positions[0].start);
         break;
       case "time-asc":
-        sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        sorted.sort((a, b) => parseInt(a.id) - parseInt(b.id));
         break;
       case "time-desc":
-        sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        sorted.sort((a, b) => parseInt(b.id) - parseInt(a.id));
         break;
     }
     for (const annotation of sorted) {
       const item = content.createDiv({ cls: "annotation-list-item" });
-      item.createSpan({ cls: `annotation-list-dot color-${annotation.color}` });
+      item.createSpan({ cls: `annotation-list-dot ${COLOR_CLASSES[annotation.color]}` });
       if (annotation.isFullText && annotation.positions.length > 1) {
         const badge = item.createSpan({ cls: "annotation-list-badge" });
         badge.textContent = `\u5168\u6587(${annotation.positions.length})`;
@@ -2273,8 +2295,83 @@ var AnnotationListPanel = class {
   }
 };
 
+// src/ui/AnnotationSettingTab.ts
+var import_obsidian6 = require("obsidian");
+var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
+  constructor(plugin) {
+    super(plugin.app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    var _a;
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "\u6807\u6CE8\u63D2\u4EF6\u8BBE\u7F6E" });
+    new import_obsidian6.Setting(containerEl).setName("\u9ED8\u8BA4\u6807\u6CE8\u989C\u8272").setDesc("\u521B\u5EFA\u65B0\u6807\u6CE8\u65F6\u9ED8\u8BA4\u4F7F\u7528\u7684\u989C\u8272").addDropdown((dd) => {
+      var _a2;
+      for (const n of COLOR_NUMBERS) {
+        dd.addOption(n, (_a2 = this.plugin.settings[`colorLabel${n}`]) != null ? _a2 : `\u989C\u8272${n}`);
+      }
+      dd.addOption("none", "\u65E0\u8272");
+      dd.setValue(this.plugin.settings.defaultColor);
+      dd.onChange(async (v) => {
+        this.plugin.settings.defaultColor = v;
+        await this.plugin.saveSettings();
+      });
+    });
+    containerEl.createEl("h3", { text: "\u989C\u8272\u81EA\u5B9A\u4E49" });
+    for (const n of COLOR_NUMBERS) {
+      new import_obsidian6.Setting(containerEl).setName((_a = this.plugin.settings[`colorLabel${n}`]) != null ? _a : `\u989C\u8272${n}`).addColorPicker((cp) => {
+        cp.setValue(this.plugin.settings[`color${n}`]);
+        cp.onChange(async (v) => {
+          this.plugin.settings[`color${n}`] = v;
+          this.plugin.updateDynamicStyles();
+          await this.plugin.saveSettings();
+        });
+      }).addText((txt) => {
+        txt.setPlaceholder("\u663E\u793A\u540D").setValue(this.plugin.settings[`colorLabel${n}`]).onChange(async (v) => {
+          this.plugin.settings[`colorLabel${n}`] = v || `\u989C\u8272${n}`;
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+    }
+    containerEl.createEl("h3", { text: "\u6279\u6CE8\u6837\u5F0F" });
+    new import_obsidian6.Setting(containerEl).setName("\u6279\u6CE8\u6548\u679C").setDesc("\u6709\u6279\u6CE8\u5185\u5BB9\u7684\u6807\u6CE8\u7684\u663E\u793A\u6548\u679C").addDropdown((dd) => {
+      dd.addOption("none", "\u65E0");
+      dd.addOption("underline-thick", "\u7C97\u4E0B\u5212\u7EBF");
+      dd.addOption("underline-dashed", "\u865A\u7EBF\u4E0B\u5212\u7EBF");
+      dd.addOption("underline-wavy", "\u6CE2\u6D6A\u7EBF");
+      dd.addOption("underline-double", "\u53CC\u4E0B\u5212\u7EBF");
+      dd.setValue(this.plugin.settings.noteEffect);
+      dd.onChange(async (v) => {
+        this.plugin.settings.noteEffect = v;
+        this.plugin.updateDynamicStyles();
+        await this.plugin.saveSettings();
+      });
+    });
+    containerEl.createEl("h3", { text: "\u6CE8\u97F3\u6837\u5F0F" });
+    new import_obsidian6.Setting(containerEl).setName("\u6CE8\u97F3\u5B57\u4F53\u5927\u5C0F").setDesc("\u4F8B\u5982 0.7em\u30010.6em").addText((txt) => {
+      txt.setValue(this.plugin.settings.rubyFontSize);
+      txt.onChange(async (v) => {
+        this.plugin.settings.rubyFontSize = v || "0.7em";
+        this.plugin.updateDynamicStyles();
+        await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian6.Setting(containerEl).setName("\u6CE8\u97F3\u6587\u5B57\u989C\u8272").addColorPicker((cp) => {
+      cp.setValue(this.plugin.settings.rubyColor);
+      cp.onChange(async (v) => {
+        this.plugin.settings.rubyColor = v;
+        this.plugin.updateDynamicStyles();
+        await this.plugin.saveSettings();
+      });
+    });
+  }
+};
+
 // src/main.ts
-var AnnotationPlugin = class extends import_obsidian6.Plugin {
+var AnnotationPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     // 原始文件路径 → 标注文件路径的映射
@@ -2287,8 +2384,8 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     await this.loadSettings();
     const pluginDir = (_a = this.manifest.dir) != null ? _a : ".obsidian/plugins/obsidian-annotation-marker";
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
-    this.selectionMenu = new SelectionMenu(this.fileManager);
-    this.annotationMenu = new AnnotationMenu(this.fileManager);
+    this.selectionMenu = new SelectionMenu(this.fileManager, () => this.settings);
+    this.annotationMenu = new AnnotationMenu(this.fileManager, () => this.settings);
     this.annotationListPanel = new AnnotationListPanel(this.app, this.fileManager);
     this.registerEvents();
     this.registerCommands();
@@ -2298,6 +2395,8 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     this.addRibbonIcon("lucide-highlighter", "\u6807\u6CE8\u6A21\u5F0F", () => {
       this.toggleAnnotationView();
     });
+    this.addSettingTab(new AnnotationSettingTab(this));
+    this.updateDynamicStyles();
   }
   onunload() {
     for (const [, annotationPath] of this.activeAnnotationSessions) {
@@ -2308,6 +2407,8 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     this.selectionMenu.hide();
     this.annotationMenu.hide();
     this.annotationListPanel.hide();
+    const styleEl = document.getElementById("annotation-dynamic-styles");
+    if (styleEl) styleEl.remove();
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -2315,8 +2416,47 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
+  // ========== 动态 CSS ==========
+  // 将十六进制颜色值转为 rgba 格式
+  hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  // 根据设置注入/更新动态 CSS 变量
+  updateDynamicStyles() {
+    let el = document.getElementById("annotation-dynamic-styles");
+    if (!el) {
+      el = document.createElement("style");
+      el.id = "annotation-dynamic-styles";
+      document.head.appendChild(el);
+    }
+    const s = this.settings;
+    el.textContent = `
+      :root {
+        --annotation-bg-color1: ${this.hexToRgba(s.color1, 0.35)};
+        --annotation-accent-color1: ${this.hexToRgba(s.color1, 0.8)};
+        --annotation-bg-color2: ${this.hexToRgba(s.color2, 0.35)};
+        --annotation-accent-color2: ${this.hexToRgba(s.color2, 0.8)};
+        --annotation-bg-color3: ${this.hexToRgba(s.color3, 0.45)};
+        --annotation-accent-color3: ${this.hexToRgba(s.color3, 0.8)};
+        --annotation-bg-color4: ${this.hexToRgba(s.color4, 0.35)};
+        --annotation-accent-color4: ${this.hexToRgba(s.color4, 0.8)};
+        --annotation-bg-color5: ${this.hexToRgba(s.color5, 0.35)};
+        --annotation-accent-color5: ${this.hexToRgba(s.color5, 0.8)};
+        --annotation-dot-color1: ${s.color1};
+        --annotation-dot-color2: ${s.color2};
+        --annotation-dot-color3: ${s.color3};
+        --annotation-dot-color4: ${s.color4};
+        --annotation-dot-color5: ${s.color5};
+        --annotation-ruby-font-size: ${s.rubyFontSize};
+        --annotation-ruby-color: ${s.rubyColor};
+      }
+    `;
+    document.body.dataset.noteEffect = s.noteEffect;
+  }
   // ========== 假文件管理 ==========
-  // 构造假 TFile 并注入 vault 的 fileMap
   createFakeTFile(path) {
     const vault = this.app.vault;
     const anyFile = vault.getFiles()[0];
@@ -2327,12 +2467,10 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     vault.fileMap[path] = fakeFile;
     return fakeFile;
   }
-  // 从 vault.fileMap 中移除假文件
   removeFakeTFile(path) {
     delete this.app.vault.fileMap[path];
   }
   // ========== 元数据缓存 ==========
-  // 为标注文件注入原笔记的元数据缓存
   injectMetadataCache(annotationPath, originalPath, fakeTFile) {
     const cacheInternal = this.app.metadataCache;
     const originalCache = cacheInternal.metadataCache[originalPath];
@@ -2352,7 +2490,6 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     delete cacheInternal.metadataCache[annotationPath];
     delete cacheInternal.fileCache[annotationPath];
   }
-  // 注册元数据缓存相关的全局事件监听
   registerCacheListeners() {
     this.registerEvent(
       this.app.workspace.on("editor-change", (editor, info) => {
@@ -2408,7 +2545,6 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     }
     return null;
   }
-  // 获取当前标注视图对应的原始笔记路径
   getActiveAnnotationNotePath() {
     var _a;
     const leaf = this.app.workspace.activeLeaf;
@@ -2423,7 +2559,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     if (!leaf) return;
     const currentFile = (_a = leaf.view) == null ? void 0 : _a.file;
     if (!currentFile) {
-      new import_obsidian6.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u6587\u4EF6");
+      new import_obsidian7.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u6587\u4EF6");
       return;
     }
     const originalPath = this.getOriginalPathByAnnotationPath(currentFile.path);
@@ -2434,21 +2570,18 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     }
   }
   async openAnnotationView(leaf, notePath) {
-    var _a, _b;
     const savedScroll = this.getSavedScroll(leaf);
     const ok = await this.fileManager.ensureAnnotationFile(notePath);
     if (!ok) {
-      new import_obsidian6.Notice("\u6807\u6CE8\u6587\u4EF6\u521B\u5EFA\u5931\u8D25");
+      new import_obsidian7.Notice("\u6807\u6CE8\u6587\u4EF6\u521B\u5EFA\u5931\u8D25");
       return;
     }
-    const annotationPath = (0, import_obsidian6.normalizePath)(this.fileManager.getAnnotationFilePath(notePath));
-    console.log("[\u6807\u6CE8] annotationPath:", annotationPath);
+    const annotationPath = (0, import_obsidian7.normalizePath)(this.fileManager.getAnnotationFilePath(notePath));
     const fakeTFile = this.createFakeTFile(annotationPath);
     this.activeAnnotationSessions.set(notePath, annotationPath);
     try {
       this.injectMetadataCache(annotationPath, notePath, fakeTFile);
       await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
-      console.log("[\u6807\u6CE8] openFile \u5B8C\u6210, \u5F53\u524D view:", (_b = (_a = leaf.view) == null ? void 0 : _a.constructor) == null ? void 0 : _b.name);
       if (savedScroll) {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
@@ -2457,15 +2590,15 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
       this.setupAnnotationListPanel(notePath);
     } catch (e) {
       console.error("[\u6807\u6CE8] openFile \u5931\u8D25:", e);
-      new import_obsidian6.Notice("\u6253\u5F00\u6807\u6CE8\u6587\u4EF6\u5931\u8D25: " + e);
+      new import_obsidian7.Notice("\u6253\u5F00\u6807\u6CE8\u6587\u4EF6\u5931\u8D25: " + e);
     }
   }
   async closeAnnotationView(leaf, originalPath) {
     const savedScroll = this.getSavedScroll(leaf);
     const annotationPath = this.activeAnnotationSessions.get(originalPath);
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
-    if (!(originalFile instanceof import_obsidian6.TFile)) {
-      new import_obsidian6.Notice("\u539F\u59CB\u6587\u4EF6\u4E0D\u5B58\u5728");
+    if (!(originalFile instanceof import_obsidian7.TFile)) {
+      new import_obsidian7.Notice("\u539F\u59CB\u6587\u4EF6\u4E0D\u5B58\u5728");
       if (annotationPath) {
         this.removeFakeTFile(annotationPath);
         this.removeMetadataCache(annotationPath);
@@ -2489,7 +2622,6 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     }
   }
   // ========== 标注交互事件 ==========
-  // 注册标注视图中的鼠标事件（选区检测、标注点击）
   registerAnnotationInteraction() {
     this.registerDomEvent(document, "mouseup", (e) => {
       const notePath = this.getActiveAnnotationNotePath();
@@ -2518,7 +2650,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
           const startCallout = startEl == null ? void 0 : startEl.closest(".callout");
           const endCallout = endEl == null ? void 0 : endEl.closest(".callout");
           if (startCallout !== endCallout) {
-            new import_obsidian6.Notice("\u4E0D\u80FD\u8DE8 Callout \u8FB9\u754C\u6DFB\u52A0\u6807\u6CE8");
+            new import_obsidian7.Notice("\u4E0D\u80FD\u8DE8 Callout \u8FB9\u754C\u6DFB\u52A0\u6807\u6CE8");
             return;
           }
         }
@@ -2593,15 +2725,12 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
       });
     });
   }
-  // 设置标注列表面板
   setupAnnotationListPanel(notePath) {
     this.annotationListPanel.show({
       notePath,
       onUpdate: () => this.refreshAnnotationView(notePath)
     });
   }
-  // 刷新标注视图（标注增删改后调用）
-  // 通过 ReadViewRenderer.set() 直接更新渲染器文本并触发重渲染
   async refreshAnnotationView(notePath) {
     const leaf = this.app.workspace.activeLeaf;
     if (!leaf) return;
@@ -2615,7 +2744,6 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     this.annotationListPanel.refresh();
   }
   // ========== Section 行号捕获 ==========
-  // 注册 MarkdownPostProcessor，捕获每个 section 的行号信息
   registerSectionLineCapture() {
     this.registerMarkdownPostProcessor((el, ctx) => {
       var _a;
@@ -2624,7 +2752,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
         const footnotesSection = el.querySelector("section.footnotes");
         if (footnotesSection) {
           const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-          if (file instanceof import_obsidian6.TFile) {
+          if (file instanceof import_obsidian7.TFile) {
             const cache = this.app.metadataCache.getFileCache(file);
             const footnotes = cache == null ? void 0 : cache.footnotes;
             if (footnotes && footnotes.length > 0) {
@@ -2699,7 +2827,6 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
       }
     });
   }
-  // 从 DOM 元素向上查找最近的 sectionLineMap 条目（同时返回 section 元素）
   findSectionLineInfo(el) {
     let current = el;
     while (current) {
@@ -2713,7 +2840,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
   registerEvents() {
     this.registerEvent(
       this.app.vault.on("rename", async (file, oldPath) => {
-        if (file instanceof import_obsidian6.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian7.TFile && file.extension === "md") {
           try {
             await this.fileManager.migrateAnnotationFile(oldPath, file.path);
           } catch (e) {
@@ -2724,7 +2851,7 @@ var AnnotationPlugin = class extends import_obsidian6.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("delete", async (file) => {
-        if (file instanceof import_obsidian6.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian7.TFile && file.extension === "md") {
           try {
             await this.fileManager.deleteAnnotationFile(file.path);
           } catch (e) {

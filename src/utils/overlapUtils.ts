@@ -1,14 +1,15 @@
 // 重叠标注的区间分割工具
 // 将重叠的标注区间分割为不重叠的段，每段记录覆盖它的标注 ID 集合
 
+import type { AnnotationColor } from "../types";
+import { COLOR_BG_VARS, COLOR_ACCENT_VARS } from "../constants";
+
 export interface Interval {
   id: string;
   start: number;
   end: number;
-  color: string;
-  annotationColor?: string;
+  annotationColor?: AnnotationColor;
   note?: string;
-  created?: string;
   rubyTexts?: Array<{ startIndex: number; length: number; ruby: string }>;
 }
 
@@ -22,7 +23,6 @@ export interface Segment {
 export function computeSegments(intervals: Interval[]): Segment[] {
   if (intervals.length === 0) return [];
 
-  // 收集所有边界点
   const points = new Set<number>();
   for (const iv of intervals) {
     points.add(iv.start);
@@ -31,13 +31,11 @@ export function computeSegments(intervals: Interval[]): Segment[] {
 
   const sorted = Array.from(points).sort((a, b) => a - b);
 
-  // 相邻边界点之间形成段
   const segments: Segment[] = [];
   for (let i = 0; i < sorted.length - 1; i++) {
     const segStart = sorted[i]!;
     const segEnd = sorted[i + 1]!;
 
-    // 找出覆盖此段的所有标注
     const coveringIds = intervals
       .filter(iv => iv.start <= segStart && iv.end >= segEnd)
       .map(iv => iv.id);
@@ -50,8 +48,7 @@ export function computeSegments(intervals: Interval[]): Segment[] {
   return segments;
 }
 
-// 从段重建 HTML：对每段文本，先插入 <ruby> 标签，再从内到外嵌套 <mark> 标签
-// 同时补充段与段之间、以及首尾的纯文本（未被任何标注覆盖的区域）
+// 从段重建 HTML
 export function buildSegmentHtml(
   segments: Segment[],
   plainText: string,
@@ -61,14 +58,13 @@ export function buildSegmentHtml(
   let lastEnd = 0;
 
   for (const seg of segments) {
-    // 补充当前段之前的纯文本
     if (seg.start > lastEnd) {
       parts.push(plainText.substring(lastEnd, seg.start));
     }
 
     let enrichedText = plainText.substring(seg.start, seg.end);
 
-    // 收集此段内需要添加 ruby 的注音信息（绝对位置 → 段内相对位置）
+    // 收集此段内的注音信息
     const segmentRubies: Array<{ localStart: number; localEnd: number; ruby: string; annId: string }> = [];
     for (const id of seg.ids) {
       const ann = annotations.get(id);
@@ -76,7 +72,6 @@ export function buildSegmentHtml(
         for (const ruby of ann.rubyTexts) {
           const absStart = ann.start + ruby.startIndex;
           const absEnd = absStart + ruby.length;
-          // ruby 必须完全落在此段内
           if (absStart >= seg.start && absEnd <= seg.end) {
             segmentRubies.push({
               localStart: absStart - seg.start,
@@ -89,7 +84,7 @@ export function buildSegmentHtml(
       }
     }
 
-    // 按相对位置倒序排列，从后往前插入 <ruby> 标签（避免位置偏移）
+    // 从后往前插入 <ruby> 标签
     segmentRubies.sort((a, b) => b.localStart - a.localStart);
     for (const sr of segmentRubies) {
       const before = enrichedText.substring(0, sr.localStart);
@@ -106,19 +101,18 @@ export function buildSegmentHtml(
     for (let i = sortedIds.length - 1; i >= 0; i--) {
       const id = sortedIds[i]!;
       const ann = annotations.get(id);
-      const bg = ann?.color ?? "rgba(255, 212, 59, 0.45)";
-      const colorAttr = ann?.annotationColor ? ` data-annotation-color="${ann.annotationColor}"` : "";
+      const color = ann?.annotationColor ?? "3";
+      const bgVar = COLOR_BG_VARS[color];
+      const accentVar = COLOR_ACCENT_VARS[color] || "transparent";
       const noteAttr = ann?.note ? ` data-annotation-note="${ann.note}"` : "";
-      const createdAttr = ann?.created ? ` data-annotation-created="${ann.created}"` : "";
 
-      wrapped = `<mark style="background:${bg}" data-annotation-id="${id}"${colorAttr}${noteAttr}${createdAttr}>${wrapped}</mark>`;
+      wrapped = `<mark style="background:${bgVar};--annotation-accent:${accentVar}" data-annotation-id="${id}"${noteAttr}>${wrapped}</mark>`;
     }
 
     parts.push(wrapped);
     lastEnd = seg.end;
   }
 
-  // 补充末尾的纯文本
   if (lastEnd < plainText.length) {
     parts.push(plainText.substring(lastEnd));
   }

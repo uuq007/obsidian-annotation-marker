@@ -180,27 +180,27 @@
   box-shadow: 0 0 0 2px var(--background-primary);
 }
 
-.annotation-color-dot.color-red {
-  background: rgba(255, 107, 107, 0.5);
+.annotation-color-dot.ac-1 {
+  background: var(--annotation-dot-color1, #ff6b6b);
 }
 
-.annotation-color-dot.color-yellow {
-  background: rgba(255, 212, 59, 0.6);
+.annotation-color-dot.ac-2 {
+  background: var(--annotation-dot-color2, #54a0ff);
 }
 
-.annotation-color-dot.color-green {
-  background: rgba(38, 194, 129, 0.5);
+.annotation-color-dot.ac-3 {
+  background: var(--annotation-dot-color3, #ffd43b);
 }
 
-.annotation-color-dot.color-blue {
-  background: rgba(84, 160, 255, 0.5);
+.annotation-color-dot.ac-4 {
+  background: var(--annotation-dot-color4, #26c281);
 }
 
-.annotation-color-dot.color-purple {
-  background: rgba(155, 89, 182, 0.5);
+.annotation-color-dot.ac-5 {
+  background: var(--annotation-dot-color5, #9b59b6);
 }
 
-.annotation-color-dot.color-none {
+.annotation-color-dot.ac-none {
   background: transparent;
   border: 2px dashed var(--text-muted);
   position: relative;
@@ -614,27 +614,27 @@
   margin-top: 4px;
 }
 
-.annotation-list-dot.color-red {
-  background: #ff6b6b;
+.annotation-list-dot.ac-1 {
+  background: var(--annotation-dot-color1, #ff6b6b);
 }
 
-.annotation-list-dot.color-yellow {
-  background: #ffd43b;
+.annotation-list-dot.ac-2 {
+  background: var(--annotation-dot-color2, #54a0ff);
 }
 
-.annotation-list-dot.color-green {
-  background: #26c281;
+.annotation-list-dot.ac-3 {
+  background: var(--annotation-dot-color3, #ffd43b);
 }
 
-.annotation-list-dot.color-blue {
-  background: #54a0ff;
+.annotation-list-dot.ac-4 {
+  background: var(--annotation-dot-color4, #26c281);
 }
 
-.annotation-list-dot.color-purple {
-  background: #9b59b6;
+.annotation-list-dot.ac-5 {
+  background: var(--annotation-dot-color5, #9b59b6);
 }
 
-.annotation-list-dot.color-none {
+.annotation-list-dot.ac-none {
   background: transparent;
   border: 2px dashed var(--text-muted);
 }
@@ -885,7 +885,7 @@
 
 /* ========== 标注视图样式 ========== */
 
-/* 标注视图中的 <mark> 标签样式 */
+/* 标注视图中的 <mark> 标签基础样式 */
 mark[data-annotation-id] {
   cursor: pointer;
   border-radius: 2px;
@@ -896,6 +896,7 @@ mark[data-annotation-id] {
 mark[data-annotation-id]:hover {
   filter: brightness(0.9);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  outline: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 /* 嵌套标注的视觉反馈 */
@@ -903,9 +904,30 @@ mark[data-annotation-id] mark[data-annotation-id] {
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12);
 }
 
-/* hover 时标注外轮廓 */
-mark[data-annotation-id]:hover {
-  outline: 1px solid rgba(0, 0, 0, 0.2);
+/* 标注颜色由内联 style="background:var(--annotation-bg-colorN)" 驱动 */
+
+/* ========== 批注效果 ========== */
+/* 每个 mark 通过 style 设置了 --annotation-accent 变量，批注效果直接引用 */
+
+/* 粗下划线 */
+[data-note-effect="underline-thick"] mark[data-annotation-note]:not([data-annotation-note=""]) {
+  border-bottom: 3px solid var(--annotation-accent, transparent);
+}
+
+/* 虚线下划线 */
+[data-note-effect="underline-dashed"] mark[data-annotation-note]:not([data-annotation-note=""]) {
+  border-bottom: 2px dashed var(--annotation-accent, transparent);
+}
+
+/* 波浪线 */
+[data-note-effect="underline-wavy"] mark[data-annotation-note]:not([data-annotation-note=""]) {
+  text-decoration: underline wavy var(--annotation-accent, transparent);
+  text-underline-offset: 3px;
+}
+
+/* 双下划线 */
+[data-note-effect="underline-double"] mark[data-annotation-note]:not([data-annotation-note=""]) {
+  border-bottom: 3px double var(--annotation-accent, transparent);
 }
 
 /* 全文标注提示 */
@@ -937,7 +959,7 @@ ruby[data-annotation-id] {
 }
 
 ruby[data-annotation-id] rt[data-annotation-id] {
-  font-size: 0.7em;
-  color: var(--text-muted);
+  font-size: var(--annotation-ruby-font-size, 0.7em);
+  color: var(--annotation-ruby-color, var(--text-muted));
   font-weight: normal;
 }

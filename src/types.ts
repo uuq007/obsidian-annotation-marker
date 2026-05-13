@@ -1,4 +1,4 @@
-export type AnnotationColor = "red" | "blue" | "yellow" | "green" | "purple" | "none";
+export type AnnotationColor = "1" | "2" | "3" | "4" | "5" | "none";
 
 export interface AnnotationRuby {
   startIndex: number;
@@ -22,7 +22,6 @@ export interface ParsedAnnotation {
   note: string;
   text: string;
   rubyTexts: AnnotationRuby[];
-  createdAt: string;
   // 多位置支持（全文标注/重叠标注会产生同一 ID 的多个 <mark> 标签）
   positions: Array<{ start: number; end: number }>;
   // 全文标注标记
@@ -63,12 +62,47 @@ export interface AnnotationUpdates {
   rubyTexts?: AnnotationRuby[];
 }
 
+export type NoteEffect = "none" | "underline-thick" | "underline-dashed" | "underline-wavy" | "underline-double";
+
 export interface AnnotationPluginSettings {
   defaultColor: AnnotationColor;
   maxNoteLength: number;
+  // 颜色自定义（十六进制，通过调色盘设置）
+  color1: string;
+  color2: string;
+  color3: string;
+  color4: string;
+  color5: string;
+  // 颜色显示名
+  colorLabel1: string;
+  colorLabel2: string;
+  colorLabel3: string;
+  colorLabel4: string;
+  colorLabel5: string;
+  // 带批注标注的效果
+  noteEffect: NoteEffect;
+  // 注音样式
+  rubyFontSize: string;
+  rubyColor: string;
 }
 
 export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
-  defaultColor: "yellow",
+  defaultColor: "3",
   maxNoteLength: 500,
+  color1: "#ff6b6b",
+  color2: "#54a0ff",
+  color3: "#ffd43b",
+  color4: "#26c281",
+  color5: "#9b59b6",
+  colorLabel1: "颜色1",
+  colorLabel2: "颜色2",
+  colorLabel3: "颜色3",
+  colorLabel4: "颜色4",
+  colorLabel5: "颜色5",
+  noteEffect: "none",
+  rubyFontSize: "0.7em",
+  rubyColor: "#999999",
 };
+
+// 所有颜色序号（不含 none）
+export const COLOR_NUMBERS: string[] = ["1", "2", "3", "4", "5"];

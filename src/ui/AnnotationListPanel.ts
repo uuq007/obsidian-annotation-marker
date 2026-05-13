@@ -1,5 +1,6 @@
 import { App, MarkdownView, Notice } from "obsidian";
 import type { ParsedAnnotation } from "../types";
+import { COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 
 // 标注列表浮动面板（右侧按钮打开）
@@ -136,17 +137,17 @@ export class AnnotationListPanel {
         sorted.sort((a, b) => b.positions[0]!.start - a.positions[0]!.start);
         break;
       case "time-asc":
-        sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        sorted.sort((a, b) => parseInt(a.id) - parseInt(b.id));
         break;
       case "time-desc":
-        sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        sorted.sort((a, b) => parseInt(b.id) - parseInt(a.id));
         break;
     }
 
     for (const annotation of sorted) {
       const item = content.createDiv({ cls: "annotation-list-item" });
 
-      item.createSpan({ cls: `annotation-list-dot color-${annotation.color}` });
+      item.createSpan({ cls: `annotation-list-dot ${COLOR_CLASSES[annotation.color]}` });
 
       // 全文标注标记
       if (annotation.isFullText && annotation.positions.length > 1) {

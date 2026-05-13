@@ -1,14 +1,16 @@
 import { Notice } from "obsidian";
-import type { AnnotationColor, AnnotationRuby, BlockSegment } from "../types";
-import { COLOR_LABELS } from "../constants";
+import type { AnnotationColor, AnnotationRuby, BlockSegment, AnnotationPluginSettings } from "../types";
+import { COLOR_NUMBERS, DEFAULT_SETTINGS } from "../types";
+import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement } from "../utils/helpers";
 
 // 添加标注的浮动菜单
 export class SelectionMenu {
   private fileManager: AnnotationFileManager;
+  private getSettings: () => AnnotationPluginSettings;
   private menuEl: HTMLElement | null = null;
-  private selectedColor: AnnotationColor = "yellow";
+  private selectedColor: AnnotationColor = DEFAULT_SETTINGS.defaultColor;
   private currentNotePath: string | null = null;
   private selectedText = "";
   private contextBefore = "";
@@ -29,8 +31,9 @@ export class SelectionMenu {
   private updateRubyList: (() => void) | null = null;
   private blockSegments: BlockSegment[] | null = null;
 
-  constructor(fileManager: AnnotationFileManager) {
+  constructor(fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
     this.fileManager = fileManager;
+    this.getSettings = getSettings;
   }
 
   show(params: {
@@ -56,7 +59,7 @@ export class SelectionMenu {
     this.endLine = params.endLine;
     this.occurrence = params.occurrence;
     this.onAddCallback = params.onAdd;
-    this.selectedColor = "yellow";
+    this.selectedColor = this.getSettings().defaultColor;
     this.pendingNote = "";
     this.rubyTexts = [];
     this.rubyTextEnabled = false;
@@ -91,13 +94,14 @@ export class SelectionMenu {
     colorSection.createEl("label", { text: "选择颜色立即标注" });
     this.colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
 
-    const colors: AnnotationColor[] = ["red", "yellow", "green", "blue", "purple", "none"];
+    const colors: AnnotationColor[] = [...ALL_COLORS];
+    const settings = this.getSettings();
     for (const c of colors) {
       const btn = this.colorContainer.createEl("button", {
-        cls: `annotation-color-dot color-${c}`,
+        cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,
       });
       if (c === this.selectedColor) btn.addClass("active");
-      btn.title = COLOR_LABELS[c];
+      btn.title = c === "none" ? "无色" : (settings as any)[`colorLabel${c}`] ?? `颜色${c}`;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.selectedColor = c;

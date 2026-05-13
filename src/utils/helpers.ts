@@ -1,8 +1,8 @@
 import { PATH_SEPARATOR } from "../constants";
 
-// 生成唯一 ID
+// 生成唯一 ID（时间戳）
 export function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  return Date.now().toString();
 }
 
 // 将笔记路径转换为标注文件路径

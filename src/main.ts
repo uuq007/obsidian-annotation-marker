@@ -28,7 +28,7 @@ export default class AnnotationPlugin extends Plugin {
   // UI 组件
   selectionMenu!: SelectionMenu;
   annotationMenu!: AnnotationMenu;
-  annotationListPanel!: AnnotationListPanel;
+  annotationPanels: Map<string, AnnotationListPanel> = new Map();
 
   async onload() {
     await this.loadSettings();
@@ -38,7 +38,6 @@ export default class AnnotationPlugin extends Plugin {
 
     this.selectionMenu = new SelectionMenu(this.fileManager, () => this.settings);
     this.annotationMenu = new AnnotationMenu(this.fileManager, () => this.settings);
-    this.annotationListPanel = new AnnotationListPanel(this.app, this.fileManager);
 
     this.registerEvents();
     this.registerCommands();
@@ -62,9 +61,13 @@ export default class AnnotationPlugin extends Plugin {
     }
     this.activeAnnotationSessions.clear();
 
+    for (const [, panel] of this.annotationPanels) {
+      panel.hide();
+    }
+    this.annotationPanels.clear();
+
     this.selectionMenu.hide();
     this.annotationMenu.hide();
-    this.annotationListPanel.hide();
 
     // 清理动态样式
     const styleEl = document.getElementById("annotation-dynamic-styles");
@@ -198,7 +201,11 @@ export default class AnnotationPlugin extends Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
-            this.annotationListPanel.hide();
+            const panel = this.annotationPanels.get(originalPath);
+            if (panel) {
+              panel.hide();
+              this.annotationPanels.delete(originalPath);
+            }
           }
         }
       })
@@ -315,7 +322,11 @@ export default class AnnotationPlugin extends Plugin {
 
     this.selectionMenu.hide();
     this.annotationMenu.hide();
-    this.annotationListPanel.hide();
+    const panel = this.annotationPanels.get(originalPath);
+    if (panel) {
+      panel.hide();
+      this.annotationPanels.delete(originalPath);
+    }
 
     if (savedScroll) {
       requestAnimationFrame(() => {
@@ -452,9 +463,21 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   private setupAnnotationListPanel(notePath: string) {
-    this.annotationListPanel.show({
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) return;
+
+    // 清理旧实例
+    const oldPanel = this.annotationPanels.get(notePath);
+    if (oldPanel) {
+      oldPanel.hide();
+    }
+
+    const panel = new AnnotationListPanel(this.app, this.fileManager);
+    this.annotationPanels.set(notePath, panel);
+    panel.show({
       notePath,
       onUpdate: () => this.refreshAnnotationView(notePath),
+      containerEl: view.containerEl,
     });
   }
 
@@ -472,7 +495,7 @@ export default class AnnotationPlugin extends Plugin {
       renderer.set(content);
     }
 
-    this.annotationListPanel.refresh();
+    this.annotationPanels.get(notePath)?.refresh();
   }
 
   // ========== Section 行号捕获 ==========

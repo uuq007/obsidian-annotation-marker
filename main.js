@@ -2046,6 +2046,7 @@ var AnnotationMenu = class {
 var import_obsidian5 = require("obsidian");
 var AnnotationListPanel = class {
   constructor(app, fileManager) {
+    this.containerEl = null;
     this.panelEl = null;
     this.listBtn = null;
     this.currentNotePath = null;
@@ -2058,20 +2059,23 @@ var AnnotationListPanel = class {
   show(params) {
     this.currentNotePath = params.notePath;
     this.onUpdate = params.onUpdate;
+    this.containerEl = params.containerEl;
     this.hide();
     this.createListButton();
   }
-  // 创建固定定位的列表按钮（挂载到 body，不随内容滚动）
+  // 创建列表按钮（挂载到传入的容器元素，跟随面板定位）
   createListButton() {
+    if (!this.containerEl) return;
     this.listBtn = document.createElement("div");
     this.listBtn.className = "annotation-list-btn";
     this.listBtn.innerHTML = "<span>\u{1F4DD}</span>";
     this.listBtn.title = "\u67E5\u770B\u6807\u6CE8";
-    this.listBtn.style.position = "fixed";
+    this.listBtn.style.position = "absolute";
     this.listBtn.style.right = "20px";
     this.listBtn.style.top = "50%";
     this.listBtn.style.transform = "translateY(-50%)";
-    document.body.appendChild(this.listBtn);
+    this.listBtn.style.zIndex = "100";
+    this.containerEl.appendChild(this.listBtn);
     this.listBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (this.panelEl && this.panelEl.style.display !== "none") {
@@ -2104,11 +2108,14 @@ var AnnotationListPanel = class {
     closeBtn.addEventListener("click", () => this.hidePanel());
     const content = this.panelEl.createDiv({ cls: "annotation-list-content" });
     this.renderContent(content);
-    document.body.appendChild(this.panelEl);
-    this.panelEl.style.position = "fixed";
+    const container = this.containerEl;
+    if (!container) return;
+    container.appendChild(this.panelEl);
+    this.panelEl.style.position = "absolute";
     this.panelEl.style.right = "60px";
     this.panelEl.style.top = "50%";
     this.panelEl.style.transform = "translateY(-50%)";
+    this.panelEl.style.zIndex = "100";
     this.panelClickHandler = (e) => {
       if (this.panelEl && !this.panelEl.contains(e.target) && (!this.listBtn || !this.listBtn.contains(e.target))) {
         this.hidePanel();
@@ -2378,6 +2385,7 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     this.activeAnnotationSessions = /* @__PURE__ */ new Map();
     // DOM 元素 → 源文件行号的映射（由 MarkdownPostProcessor 填充）
     this.sectionLineMap = /* @__PURE__ */ new WeakMap();
+    this.annotationPanels = /* @__PURE__ */ new Map();
   }
   async onload() {
     var _a;
@@ -2386,7 +2394,6 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
     this.selectionMenu = new SelectionMenu(this.fileManager, () => this.settings);
     this.annotationMenu = new AnnotationMenu(this.fileManager, () => this.settings);
-    this.annotationListPanel = new AnnotationListPanel(this.app, this.fileManager);
     this.registerEvents();
     this.registerCommands();
     this.registerCacheListeners();
@@ -2404,9 +2411,12 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
       this.removeMetadataCache(annotationPath);
     }
     this.activeAnnotationSessions.clear();
+    for (const [, panel] of this.annotationPanels) {
+      panel.hide();
+    }
+    this.annotationPanels.clear();
     this.selectionMenu.hide();
     this.annotationMenu.hide();
-    this.annotationListPanel.hide();
     const styleEl = document.getElementById("annotation-dynamic-styles");
     if (styleEl) styleEl.remove();
   }
@@ -2516,7 +2526,11 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
-            this.annotationListPanel.hide();
+            const panel = this.annotationPanels.get(originalPath);
+            if (panel) {
+              panel.hide();
+              this.annotationPanels.delete(originalPath);
+            }
           }
         }
       })
@@ -2614,7 +2628,11 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     this.activeAnnotationSessions.delete(originalPath);
     this.selectionMenu.hide();
     this.annotationMenu.hide();
-    this.annotationListPanel.hide();
+    const panel = this.annotationPanels.get(originalPath);
+    if (panel) {
+      panel.hide();
+      this.annotationPanels.delete(originalPath);
+    }
     if (savedScroll) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
@@ -2726,12 +2744,22 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     });
   }
   setupAnnotationListPanel(notePath) {
-    this.annotationListPanel.show({
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    if (!view) return;
+    const oldPanel = this.annotationPanels.get(notePath);
+    if (oldPanel) {
+      oldPanel.hide();
+    }
+    const panel = new AnnotationListPanel(this.app, this.fileManager);
+    this.annotationPanels.set(notePath, panel);
+    panel.show({
       notePath,
-      onUpdate: () => this.refreshAnnotationView(notePath)
+      onUpdate: () => this.refreshAnnotationView(notePath),
+      containerEl: view.containerEl
     });
   }
   async refreshAnnotationView(notePath) {
+    var _a;
     const leaf = this.app.workspace.activeLeaf;
     if (!leaf) return;
     const view = leaf.view;
@@ -2741,7 +2769,7 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     if (renderer && typeof renderer.set === "function") {
       renderer.set(content);
     }
-    this.annotationListPanel.refresh();
+    (_a = this.annotationPanels.get(notePath)) == null ? void 0 : _a.refresh();
   }
   // ========== Section 行号捕获 ==========
   registerSectionLineCapture() {

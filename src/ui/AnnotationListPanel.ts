@@ -7,6 +7,7 @@ import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 export class AnnotationListPanel {
   private app: App;
   private fileManager: AnnotationFileManager;
+  private containerEl: HTMLElement | null = null;
   private panelEl: HTMLElement | null = null;
   private listBtn: HTMLElement | null = null;
   private currentNotePath: string | null = null;
@@ -22,27 +23,32 @@ export class AnnotationListPanel {
   show(params: {
     notePath: string;
     onUpdate: () => void;
+    containerEl: HTMLElement;
   }): void {
     this.currentNotePath = params.notePath;
     this.onUpdate = params.onUpdate;
+    this.containerEl = params.containerEl;
     this.hide();
 
     this.createListButton();
   }
 
-  // 创建固定定位的列表按钮（挂载到 body，不随内容滚动）
+  // 创建列表按钮（挂载到传入的容器元素，跟随面板定位）
   private createListButton(): void {
+    if (!this.containerEl) return;
+
     this.listBtn = document.createElement("div");
     this.listBtn.className = "annotation-list-btn";
     this.listBtn.innerHTML = "<span>📝</span>";
     this.listBtn.title = "查看标注";
 
-    this.listBtn.style.position = "fixed";
+    this.listBtn.style.position = "absolute";
     this.listBtn.style.right = "20px";
     this.listBtn.style.top = "50%";
     this.listBtn.style.transform = "translateY(-50%)";
+    this.listBtn.style.zIndex = "100";
 
-    document.body.appendChild(this.listBtn);
+    this.containerEl.appendChild(this.listBtn);
 
     this.listBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -85,13 +91,16 @@ export class AnnotationListPanel {
     const content = this.panelEl.createDiv({ cls: "annotation-list-content" });
     this.renderContent(content);
 
-    document.body.appendChild(this.panelEl);
+    const container = this.containerEl;
+    if (!container) return;
+    container.appendChild(this.panelEl);
 
-    // 固定定位，不随内容滚动
-    this.panelEl.style.position = "fixed";
+    // 绝对定位，跟随当前面板
+    this.panelEl.style.position = "absolute";
     this.panelEl.style.right = "60px";
     this.panelEl.style.top = "50%";
     this.panelEl.style.transform = "translateY(-50%)";
+    this.panelEl.style.zIndex = "100";
 
     this.panelClickHandler = (e: MouseEvent) => {
       if (this.panelEl && !this.panelEl.contains(e.target as Node) &&

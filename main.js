@@ -2786,6 +2786,307 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
   }
 };
 
+// src/view/annotationViewPlugin.ts
+var import_view = require("@codemirror/view");
+var import_state = require("@codemirror/state");
+
+// src/view/annotationTagParser.ts
+var TAG_REGEX = /<\/?(?:mark|ruby|rt)(?:\s[^>]*)?>/g;
+function getAttr2(attrs, name) {
+  const regex = new RegExp(`${name}="([^"]*)"`, "i");
+  const match = attrs.match(regex);
+  return match ? match[1] : null;
+}
+function extractColorIndex(style) {
+  const match = style.match(/annotation-bg-color(\d+)/);
+  return match ? match[1] : "3";
+}
+function scanTags(text, offset) {
+  const tags = [];
+  let match;
+  TAG_REGEX.lastIndex = 0;
+  while ((match = TAG_REGEX.exec(text)) !== null) {
+    const tagText = match[0];
+    const from = match.index + offset;
+    const to = from + tagText.length;
+    if (tagText.startsWith("</")) {
+      if (tagText.startsWith("</mark")) {
+        tags.push({ type: "mark-close", from, to });
+      } else if (tagText.startsWith("</ruby")) {
+        tags.push({ type: "ruby-close", from, to });
+      } else if (tagText.startsWith("</rt")) {
+        tags.push({ type: "rt-close", from, to });
+      }
+    } else {
+      const spaceIdx = tagText.indexOf(" ");
+      const attrsStr = spaceIdx >= 0 ? tagText.substring(spaceIdx + 1, tagText.length - 1) : "";
+      if (tagText.startsWith("<mark")) {
+        const style = getAttr2(attrsStr, "style") || "";
+        tags.push({
+          type: "mark-open",
+          from,
+          to,
+          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0,
+          colorIndex: style ? extractColorIndex(style) : "3",
+          hasNote: !!getAttr2(attrsStr, "data-annotation-note")
+        });
+      } else if (tagText.startsWith("<ruby")) {
+        tags.push({
+          type: "ruby-open",
+          from,
+          to,
+          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0
+        });
+      } else if (tagText.startsWith("<rt")) {
+        tags.push({
+          type: "rt-open",
+          from,
+          to,
+          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0
+        });
+      }
+    }
+  }
+  return tags;
+}
+function scanAnnotationTags(text, offset, fullText) {
+  const tags = scanTags(text, offset);
+  const blocks = [];
+  const markStack = [];
+  for (const tag of tags) {
+    switch (tag.type) {
+      case "mark-open": {
+        markStack.push({
+          id: tag.annotationId || "",
+          colorIndex: tag.colorIndex || "3",
+          hasNote: tag.hasNote || false,
+          openFrom: tag.from,
+          openTo: tag.to,
+          rubies: [],
+          rubyStack: []
+        });
+        break;
+      }
+      case "mark-close": {
+        const mark = markStack.pop();
+        if (!mark) break;
+        blocks.push({
+          id: mark.id,
+          colorIndex: mark.colorIndex,
+          hasNote: mark.hasNote,
+          markOpenFrom: mark.openFrom,
+          markOpenTo: mark.openTo,
+          markCloseFrom: tag.from,
+          markCloseTo: tag.to,
+          rubies: mark.rubies
+        });
+        break;
+      }
+      case "ruby-open": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        currentMark.rubyStack.push({
+          openFrom: tag.from,
+          openTo: tag.to,
+          baseTextTo: tag.to,
+          rtCloseTo: tag.from
+        });
+        break;
+      }
+      case "rt-open": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        const currentRuby = currentMark.rubyStack[currentMark.rubyStack.length - 1];
+        if (!currentRuby) break;
+        currentRuby.baseTextTo = tag.from;
+        break;
+      }
+      case "rt-close": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        const currentRuby = currentMark.rubyStack[currentMark.rubyStack.length - 1];
+        if (!currentRuby) break;
+        currentRuby.rtCloseTo = tag.to;
+        break;
+      }
+      case "ruby-close": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        const currentRuby = currentMark.rubyStack.pop();
+        if (!currentRuby) break;
+        const rtText = fullText.substring(
+          // rt 开标签结束位置 = baseTextTo 后面紧跟着 <rt ...>，需要找到 rt 开标签的结束位置
+          // baseTextTo 是 <rt 开头的位置，需要跳过 <rt ...> 标签本身
+          // 通过搜索找到 > 来确定 rt 开标签结束
+          findRtOpenEnd(fullText, currentRuby.baseTextTo),
+          tag.from
+        );
+        currentMark.rubies.push({
+          rubyOpenFrom: currentRuby.openFrom,
+          rubyOpenTo: currentRuby.openTo,
+          baseTextTo: currentRuby.baseTextTo,
+          rtCloseTo: currentRuby.rtCloseTo,
+          rubyCloseFrom: tag.from,
+          rubyCloseTo: tag.to,
+          rtText
+        });
+        break;
+      }
+    }
+  }
+  return blocks;
+}
+function findRtOpenEnd(text, rtStartPos) {
+  const gtPos = text.indexOf(">", rtStartPos);
+  return gtPos >= 0 ? gtPos + 1 : rtStartPos;
+}
+function hasAnnotationTags(text) {
+  return text.includes("data-annotation-id") && text.includes("<mark");
+}
+
+// src/view/annotationViewPlugin.ts
+var DEBUG = false;
+function log(...args) {
+  if (DEBUG) console.log("[annotation-guard]", ...args);
+}
+var annotationRangesField = import_state.StateField.define({
+  create(state) {
+    const text = state.doc.toString();
+    if (!hasAnnotationTags(text)) {
+      log("StateField.create: no annotation tags found, text length:", text.length);
+      return [];
+    }
+    const blocks = scanAnnotationTags(text, 0, text);
+    log("StateField.create: found", blocks.length, "blocks");
+    for (const b of blocks) {
+      log(`  block id=${b.id} range=[${b.markOpenFrom},${b.markCloseTo}]`);
+    }
+    return blocks;
+  },
+  update(blocks, tr) {
+    if (tr.docChanged) {
+      const text = tr.newDoc.toString();
+      if (!hasAnnotationTags(text)) return [];
+      const newBlocks = scanAnnotationTags(text, 0, text);
+      log("StateField.update: doc changed, found", newBlocks.length, "blocks");
+      return newBlocks;
+    }
+    return blocks;
+  }
+});
+function isInAnnotationRange(blocks, pos) {
+  for (const block of blocks) {
+    if (block.markOpenFrom <= pos && pos <= block.markCloseTo) {
+      return block;
+    }
+  }
+  return null;
+}
+function getBlocks(view) {
+  const blocks = view.state.field(annotationRangesField, false);
+  return blocks && blocks.length > 0 ? blocks : [];
+}
+var annotationGuard = import_state.Prec.highest(import_view.EditorView.domEventHandlers({
+  keydown(event, view) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return false;
+    const pos = view.state.selection.main.head;
+    const blocks = getBlocks(view);
+    const blockInfo = blocks.length > 0 ? `blocks=${blocks.length} first=[${blocks[0].markOpenFrom},${blocks[0].markCloseTo}]` : "blocks=0";
+    const docPreview = view.state.doc.sliceString(Math.max(0, pos - 20), Math.min(view.state.doc.length, pos + 20));
+    log(`keydown: key=${event.key} pos=${pos} ${blockInfo}`);
+    log(`  doc@pos: ...${docPreview}...`);
+    if (blocks.length === 0) return false;
+    const docLen = view.state.doc.length;
+    if (event.key === "ArrowRight") {
+      for (const p of [pos, pos + 1]) {
+        const block = isInAnnotationRange(blocks, p);
+        if (block) {
+          const target = Math.min(docLen, block.markCloseTo + 1);
+          log(`  ArrowRight: pos=${p} in block [${block.markOpenFrom},${block.markCloseTo}], skip to ${target}`);
+          event.preventDefault();
+          event.stopPropagation();
+          view.dispatch({ selection: { anchor: target } });
+          return true;
+        }
+      }
+    } else {
+      for (const p of [pos, pos - 1]) {
+        if (p < 0) continue;
+        const block = isInAnnotationRange(blocks, p);
+        if (block) {
+          const target = Math.max(0, block.markOpenFrom - 1);
+          log(`  ArrowLeft: pos=${p} in block [${block.markOpenFrom},${block.markCloseTo}], skip to ${target}`);
+          event.preventDefault();
+          event.stopPropagation();
+          view.dispatch({ selection: { anchor: target } });
+          return true;
+        }
+      }
+    }
+    return false;
+  },
+  mousedown(event, view) {
+    const target = event.target;
+    const embed = target.closest(".cm-html-embed");
+    if (!embed) return false;
+    if (!embed.querySelector("[data-annotation-id]")) return false;
+    log("mousedown: blocked click on annotation embed");
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+}));
+var CursorGuardPlugin = class {
+  constructor(view) {
+    this.view = view;
+    log("CursorGuardPlugin created");
+  }
+  update(update) {
+    if (update.transactions.some((tr) => tr.isUserEvent("annotation.cursorGuard"))) return;
+    if (!update.selectionSet) return;
+    const blocks = update.state.field(annotationRangesField, false);
+    if (!blocks || blocks.length === 0) return;
+    const head = update.state.selection.main.head;
+    const block = isInAnnotationRange(blocks, head);
+    if (!block) return;
+    log(`ViewPlugin.update: head=${head} in block [${block.markOpenFrom},${block.markCloseTo}]`);
+    const distStart = Math.abs(head - block.markOpenFrom);
+    const distEnd = Math.abs(head - block.markCloseTo);
+    const target = distStart <= distEnd ? Math.max(0, block.markOpenFrom - 1) : Math.min(update.state.doc.length, block.markCloseTo + 1);
+    const view = this.view;
+    setTimeout(() => {
+      var _a;
+      if (!((_a = view.dom) == null ? void 0 : _a.isConnected)) return;
+      view.dispatch({
+        selection: { anchor: target },
+        userEvent: "annotation.cursorGuard"
+      });
+    }, 0);
+  }
+  destroy() {
+  }
+};
+var cursorGuardPlugin = import_view.ViewPlugin.fromClass(CursorGuardPlugin);
+function buildAtomicRanges(view) {
+  const blocks = view.state.field(annotationRangesField, false);
+  if (!blocks || blocks.length === 0) return import_view.Decoration.none;
+  const doc = view.state.doc;
+  const sorted = blocks.filter((b) => b.markCloseTo <= doc.length).sort((a, b) => a.markOpenFrom - b.markOpenFrom);
+  const builder = new import_state.RangeSetBuilder();
+  for (const block of sorted) {
+    builder.add(block.markOpenFrom, block.markCloseTo, import_view.Decoration.mark({}));
+  }
+  return builder.finish();
+}
+function createAnnotationViewExtension() {
+  return [
+    annotationRangesField,
+    annotationGuard,
+    cursorGuardPlugin,
+    import_view.EditorView.atomicRanges.of(buildAtomicRanges)
+  ];
+}
+
 // src/main.ts
 var AnnotationPlugin = class extends import_obsidian7.Plugin {
   constructor() {
@@ -2795,6 +3096,8 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     // DOM 元素 → 源文件行号的映射（由 MarkdownPostProcessor 填充）
     this.sectionLineMap = /* @__PURE__ */ new WeakMap();
     this.annotationPanels = /* @__PURE__ */ new Map();
+    // 实时同步防抖定时器
+    this.syncToOriginalTimers = /* @__PURE__ */ new Map();
   }
   async onload() {
     var _a;
@@ -2813,8 +3116,19 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     });
     this.addSettingTab(new AnnotationSettingTab(this));
     this.updateDynamicStyles();
+    this.registerEditorExtension(createAnnotationViewExtension());
   }
   onunload() {
+    for (const [originalPath] of this.activeAnnotationSessions) {
+      const timer = this.syncToOriginalTimers.get(originalPath);
+      if (timer) clearTimeout(timer);
+      try {
+        this.fileManager.syncToOriginal(originalPath);
+      } catch (e) {
+        console.error("\u540C\u6B65\u5931\u8D25:", e);
+      }
+    }
+    this.syncToOriginalTimers.clear();
     for (const [, annotationPath] of this.activeAnnotationSessions) {
       this.removeFakeTFile(annotationPath);
       this.removeMetadataCache(annotationPath);
@@ -2875,6 +3189,20 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     `;
     document.body.dataset.noteEffect = s.noteEffect;
   }
+  // ========== 实时同步 ==========
+  debouncedSyncToOriginal(originalPath) {
+    const existing = this.syncToOriginalTimers.get(originalPath);
+    if (existing) clearTimeout(existing);
+    const timer = window.setTimeout(async () => {
+      this.syncToOriginalTimers.delete(originalPath);
+      try {
+        await this.fileManager.syncToOriginal(originalPath);
+      } catch (e) {
+        console.error("\u5B9E\u65F6\u540C\u6B65\u5931\u8D25:", e);
+      }
+    }, 800);
+    this.syncToOriginalTimers.set(originalPath, timer);
+  }
   // ========== 假文件管理 ==========
   createFakeTFile(path) {
     const vault = this.app.vault;
@@ -2918,11 +3246,12 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
         const originalPath = this.getOriginalPathByAnnotationPath(filePath);
         if (originalPath) {
           this.injectMetadataCache(filePath, originalPath, info.file);
+          this.debouncedSyncToOriginal(originalPath);
         }
       })
     );
     this.registerEvent(
-      this.app.workspace.on("layout-change", () => {
+      this.app.workspace.on("layout-change", async () => {
         for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
           let isStillOpen = false;
           this.app.workspace.iterateAllLeaves((l) => {
@@ -2932,6 +3261,14 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
             }
           });
           if (!isStillOpen) {
+            const timer = this.syncToOriginalTimers.get(originalPath);
+            if (timer) clearTimeout(timer);
+            this.syncToOriginalTimers.delete(originalPath);
+            try {
+              await this.fileManager.syncToOriginal(originalPath);
+            } catch (e) {
+              console.error("\u540C\u6B65\u5931\u8D25:", e);
+            }
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
@@ -3028,6 +3365,14 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
       }
       this.activeAnnotationSessions.delete(originalPath);
       return;
+    }
+    const timer = this.syncToOriginalTimers.get(originalPath);
+    if (timer) clearTimeout(timer);
+    this.syncToOriginalTimers.delete(originalPath);
+    try {
+      await this.fileManager.syncToOriginal(originalPath);
+    } catch (e) {
+      console.error("\u540C\u6B65\u5931\u8D25:", e);
     }
     await leaf.openFile(originalFile);
     if (annotationPath) {

@@ -14,6 +14,7 @@ import { AnnotationSettingTab } from "./ui/AnnotationSettingTab";
 import { extractSelectionContext, calculateOffsetInBlock, extractCrossBlockSegments } from "./utils/contentMapper";
 import { countOccurrenceIndex } from "./utils/helpers";
 import type { BlockSegment } from "./types";
+import { createAnnotationViewExtension } from "./view/annotationViewPlugin";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -29,6 +30,9 @@ export default class AnnotationPlugin extends Plugin {
   selectionMenu!: SelectionMenu;
   annotationMenu!: AnnotationMenu;
   annotationPanels: Map<string, AnnotationListPanel> = new Map();
+
+  // 实时同步防抖定时器
+  private syncToOriginalTimers: Map<string, number> = new Map();
 
   async onload() {
     await this.loadSettings();
@@ -52,9 +56,24 @@ export default class AnnotationPlugin extends Plugin {
     this.addSettingTab(new AnnotationSettingTab(this));
 
     this.updateDynamicStyles();
+
+    // 注册 CM6 编辑模式装饰
+    this.registerEditorExtension(createAnnotationViewExtension());
   }
 
   onunload() {
+    // 同步所有活跃会话
+    for (const [originalPath] of this.activeAnnotationSessions) {
+      const timer = this.syncToOriginalTimers.get(originalPath);
+      if (timer) clearTimeout(timer);
+      try {
+        this.fileManager.syncToOriginal(originalPath);
+      } catch (e) {
+        console.error("同步失败:", e);
+      }
+    }
+    this.syncToOriginalTimers.clear();
+
     for (const [, annotationPath] of this.activeAnnotationSessions) {
       this.removeFakeTFile(annotationPath);
       this.removeMetadataCache(annotationPath);
@@ -129,6 +148,22 @@ export default class AnnotationPlugin extends Plugin {
     document.body.dataset.noteEffect = s.noteEffect;
   }
 
+  // ========== 实时同步 ==========
+
+  private debouncedSyncToOriginal(originalPath: string) {
+    const existing = this.syncToOriginalTimers.get(originalPath);
+    if (existing) clearTimeout(existing);
+    const timer = window.setTimeout(async () => {
+      this.syncToOriginalTimers.delete(originalPath);
+      try {
+        await this.fileManager.syncToOriginal(originalPath);
+      } catch (e) {
+        console.error("实时同步失败:", e);
+      }
+    }, 800);
+    this.syncToOriginalTimers.set(originalPath, timer);
+  }
+
   // ========== 假文件管理 ==========
 
   private createFakeTFile(path: string): TFile {
@@ -183,12 +218,13 @@ export default class AnnotationPlugin extends Plugin {
         const originalPath = this.getOriginalPathByAnnotationPath(filePath);
         if (originalPath) {
           this.injectMetadataCache(filePath, originalPath, (info as any).file);
+          this.debouncedSyncToOriginal(originalPath);
         }
       })
     );
 
     this.registerEvent(
-      this.app.workspace.on("layout-change", () => {
+      this.app.workspace.on("layout-change", async () => {
         for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
           let isStillOpen = false;
           this.app.workspace.iterateAllLeaves((l) => {
@@ -198,6 +234,16 @@ export default class AnnotationPlugin extends Plugin {
           });
 
           if (!isStillOpen) {
+            // 同步标注文件编辑回原文件
+            const timer = this.syncToOriginalTimers.get(originalPath);
+            if (timer) clearTimeout(timer);
+            this.syncToOriginalTimers.delete(originalPath);
+            try {
+              await this.fileManager.syncToOriginal(originalPath);
+            } catch (e) {
+              console.error("同步失败:", e);
+            }
+
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
@@ -310,6 +356,16 @@ export default class AnnotationPlugin extends Plugin {
       }
       this.activeAnnotationSessions.delete(originalPath);
       return;
+    }
+
+    // 取消防抖，立即同步
+    const timer = this.syncToOriginalTimers.get(originalPath);
+    if (timer) clearTimeout(timer);
+    this.syncToOriginalTimers.delete(originalPath);
+    try {
+      await this.fileManager.syncToOriginal(originalPath);
+    } catch (e) {
+      console.error("同步失败:", e);
     }
 
     await leaf.openFile(originalFile);

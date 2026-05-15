@@ -963,3 +963,56 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   color: var(--annotation-ruby-color, var(--text-muted));
   font-weight: normal;
 }
+
+/* ===== CM6 编辑模式标注样式 ===== */
+
+/* 高亮背景 */
+.cm-annotation-highlight {
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.cm-annotation-highlight.cm-annotation-color-1 { background: var(--annotation-bg-color1); }
+.cm-annotation-highlight.cm-annotation-color-2 { background: var(--annotation-bg-color2); }
+.cm-annotation-highlight.cm-annotation-color-3 { background: var(--annotation-bg-color3); }
+.cm-annotation-highlight.cm-annotation-color-4 { background: var(--annotation-bg-color4); }
+.cm-annotation-highlight.cm-annotation-color-5 { background: var(--annotation-bg-color5); }
+.cm-annotation-highlight.cm-annotation-color-none { background: transparent; }
+
+/* 批注效果 */
+[data-note-effect="underline-thick"] .cm-annotation-has-note {
+  border-bottom: 3px solid var(--annotation-accent, transparent);
+}
+[data-note-effect="underline-dashed"] .cm-annotation-has-note {
+  border-bottom: 2px dashed var(--annotation-accent, transparent);
+}
+[data-note-effect="underline-wavy"] .cm-annotation-has-note {
+  text-decoration: underline wavy var(--annotation-accent, transparent);
+  text-underline-offset: 3px;
+}
+[data-note-effect="underline-double"] .cm-annotation-has-note {
+  border-bottom: 3px double var(--annotation-accent, transparent);
+}
+
+/* 注音 Widget */
+.cm-annotation-ruby {
+  position: relative;
+  display: inline;
+}
+
+.cm-annotation-ruby-base {
+  /* 基本文本正常渲染 */
+}
+
+.cm-annotation-ruby-rt {
+  position: absolute;
+  top: -1.1em;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: var(--annotation-ruby-font-size, 0.7em);
+  color: var(--annotation-ruby-color, var(--text-muted));
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}

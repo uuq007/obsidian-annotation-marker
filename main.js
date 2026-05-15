@@ -1161,6 +1161,439 @@ function distributeRubyTexts(blocks, rubyTexts) {
   return result;
 }
 
+// node_modules/diff/libesm/diff/base.js
+var Diff = class {
+  diff(oldStr, newStr, options = {}) {
+    let callback;
+    if (typeof options === "function") {
+      callback = options;
+      options = {};
+    } else if ("callback" in options) {
+      callback = options.callback;
+    }
+    const oldString = this.castInput(oldStr, options);
+    const newString = this.castInput(newStr, options);
+    const oldTokens = this.removeEmpty(this.tokenize(oldString, options));
+    const newTokens = this.removeEmpty(this.tokenize(newString, options));
+    return this.diffWithOptionsObj(oldTokens, newTokens, options, callback);
+  }
+  diffWithOptionsObj(oldTokens, newTokens, options, callback) {
+    var _a;
+    const done = (value) => {
+      value = this.postProcess(value, options);
+      if (callback) {
+        setTimeout(function() {
+          callback(value);
+        }, 0);
+        return void 0;
+      } else {
+        return value;
+      }
+    };
+    const newLen = newTokens.length, oldLen = oldTokens.length;
+    let editLength = 1;
+    let maxEditLength = newLen + oldLen;
+    if (options.maxEditLength != null) {
+      maxEditLength = Math.min(maxEditLength, options.maxEditLength);
+    }
+    const maxExecutionTime = (_a = options.timeout) !== null && _a !== void 0 ? _a : Infinity;
+    const abortAfterTimestamp = Date.now() + maxExecutionTime;
+    const bestPath = [{ oldPos: -1, lastComponent: void 0 }];
+    let newPos = this.extractCommon(bestPath[0], newTokens, oldTokens, 0, options);
+    if (bestPath[0].oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+      return done(this.buildValues(bestPath[0].lastComponent, newTokens, oldTokens));
+    }
+    let minDiagonalToConsider = -Infinity, maxDiagonalToConsider = Infinity;
+    const execEditLength = () => {
+      for (let diagonalPath = Math.max(minDiagonalToConsider, -editLength); diagonalPath <= Math.min(maxDiagonalToConsider, editLength); diagonalPath += 2) {
+        let basePath;
+        const removePath = bestPath[diagonalPath - 1], addPath = bestPath[diagonalPath + 1];
+        if (removePath) {
+          bestPath[diagonalPath - 1] = void 0;
+        }
+        let canAdd = false;
+        if (addPath) {
+          const addPathNewPos = addPath.oldPos - diagonalPath;
+          canAdd = addPath && 0 <= addPathNewPos && addPathNewPos < newLen;
+        }
+        const canRemove = removePath && removePath.oldPos + 1 < oldLen;
+        if (!canAdd && !canRemove) {
+          bestPath[diagonalPath] = void 0;
+          continue;
+        }
+        if (!canRemove || canAdd && removePath.oldPos < addPath.oldPos) {
+          basePath = this.addToPath(addPath, true, false, 0, options);
+        } else {
+          basePath = this.addToPath(removePath, false, true, 1, options);
+        }
+        newPos = this.extractCommon(basePath, newTokens, oldTokens, diagonalPath, options);
+        if (basePath.oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+          return done(this.buildValues(basePath.lastComponent, newTokens, oldTokens)) || true;
+        } else {
+          bestPath[diagonalPath] = basePath;
+          if (basePath.oldPos + 1 >= oldLen) {
+            maxDiagonalToConsider = Math.min(maxDiagonalToConsider, diagonalPath - 1);
+          }
+          if (newPos + 1 >= newLen) {
+            minDiagonalToConsider = Math.max(minDiagonalToConsider, diagonalPath + 1);
+          }
+        }
+      }
+      editLength++;
+    };
+    if (callback) {
+      (function exec() {
+        setTimeout(function() {
+          if (editLength > maxEditLength || Date.now() > abortAfterTimestamp) {
+            return callback(void 0);
+          }
+          if (!execEditLength()) {
+            exec();
+          }
+        }, 0);
+      })();
+    } else {
+      while (editLength <= maxEditLength && Date.now() <= abortAfterTimestamp) {
+        const ret = execEditLength();
+        if (ret) {
+          return ret;
+        }
+      }
+    }
+  }
+  addToPath(path, added, removed, oldPosInc, options) {
+    const last = path.lastComponent;
+    if (last && !options.oneChangePerToken && last.added === added && last.removed === removed) {
+      return {
+        oldPos: path.oldPos + oldPosInc,
+        lastComponent: { count: last.count + 1, added, removed, previousComponent: last.previousComponent }
+      };
+    } else {
+      return {
+        oldPos: path.oldPos + oldPosInc,
+        lastComponent: { count: 1, added, removed, previousComponent: last }
+      };
+    }
+  }
+  extractCommon(basePath, newTokens, oldTokens, diagonalPath, options) {
+    const newLen = newTokens.length, oldLen = oldTokens.length;
+    let oldPos = basePath.oldPos, newPos = oldPos - diagonalPath, commonCount = 0;
+    while (newPos + 1 < newLen && oldPos + 1 < oldLen && this.equals(oldTokens[oldPos + 1], newTokens[newPos + 1], options)) {
+      newPos++;
+      oldPos++;
+      commonCount++;
+      if (options.oneChangePerToken) {
+        basePath.lastComponent = { count: 1, previousComponent: basePath.lastComponent, added: false, removed: false };
+      }
+    }
+    if (commonCount && !options.oneChangePerToken) {
+      basePath.lastComponent = { count: commonCount, previousComponent: basePath.lastComponent, added: false, removed: false };
+    }
+    basePath.oldPos = oldPos;
+    return newPos;
+  }
+  equals(left, right, options) {
+    if (options.comparator) {
+      return options.comparator(left, right);
+    } else {
+      return left === right || !!options.ignoreCase && left.toLowerCase() === right.toLowerCase();
+    }
+  }
+  removeEmpty(array) {
+    const ret = [];
+    for (let i = 0; i < array.length; i++) {
+      if (array[i]) {
+        ret.push(array[i]);
+      }
+    }
+    return ret;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  castInput(value, options) {
+    return value;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  tokenize(value, options) {
+    return Array.from(value);
+  }
+  join(chars) {
+    return chars.join("");
+  }
+  postProcess(changeObjects, options) {
+    return changeObjects;
+  }
+  get useLongestToken() {
+    return false;
+  }
+  buildValues(lastComponent, newTokens, oldTokens) {
+    const components = [];
+    let nextComponent;
+    while (lastComponent) {
+      components.push(lastComponent);
+      nextComponent = lastComponent.previousComponent;
+      delete lastComponent.previousComponent;
+      lastComponent = nextComponent;
+    }
+    components.reverse();
+    const componentLen = components.length;
+    let componentPos = 0, newPos = 0, oldPos = 0;
+    for (; componentPos < componentLen; componentPos++) {
+      const component = components[componentPos];
+      if (!component.removed) {
+        if (!component.added && this.useLongestToken) {
+          let value = newTokens.slice(newPos, newPos + component.count);
+          value = value.map(function(value2, i) {
+            const oldValue = oldTokens[oldPos + i];
+            return oldValue.length > value2.length ? oldValue : value2;
+          });
+          component.value = this.join(value);
+        } else {
+          component.value = this.join(newTokens.slice(newPos, newPos + component.count));
+        }
+        newPos += component.count;
+        if (!component.added) {
+          oldPos += component.count;
+        }
+      } else {
+        component.value = this.join(oldTokens.slice(oldPos, oldPos + component.count));
+        oldPos += component.count;
+      }
+    }
+    return components;
+  }
+};
+
+// node_modules/diff/libesm/diff/character.js
+var CharacterDiff = class extends Diff {
+};
+var characterDiff = new CharacterDiff();
+function diffChars(oldStr, newStr, options) {
+  return characterDiff.diff(oldStr, newStr, options);
+}
+
+// src/annotationFile/diffSync.ts
+function diffSync(originalContent, annotatedContent) {
+  if (!originalContent && !annotatedContent) {
+    return { content: annotatedContent, changed: false };
+  }
+  if (!annotatedContent) {
+    return { content: originalContent, changed: true };
+  }
+  const map = buildDiffContentMap(annotatedContent);
+  const { strippedContent, strippedToSource, tagSpans, tagPairs } = map;
+  if (strippedContent === originalContent) {
+    return { content: annotatedContent, changed: false };
+  }
+  const diffs = diffChars(strippedContent, originalContent);
+  const changes = [];
+  let strippedPos = 0;
+  for (const change of diffs) {
+    if (change.added) {
+      const sourcePos = mapStrippedToSource(strippedPos, strippedToSource);
+      let safePos = ensureOutsideTags(sourcePos, tagSpans);
+      safePos = ensureInsertOutsideElement(strippedPos, safePos, strippedToSource, tagPairs);
+      changes.push({ sourceStart: safePos, sourceEnd: safePos, replacement: change.value });
+    } else if (change.removed) {
+      const sourceStart = mapStrippedToSource(strippedPos, strippedToSource);
+      const sourceEnd = mapStrippedToSource(strippedPos + change.value.length - 1, strippedToSource) + 1;
+      const { start: safeStart, end: safeEnd } = expandToTagBoundaries(sourceStart, sourceEnd, tagSpans);
+      changes.push({ sourceStart: safeStart, sourceEnd: safeEnd, replacement: "" });
+      strippedPos += change.value.length;
+    } else {
+      strippedPos += change.value.length;
+    }
+  }
+  const mergedChanges = mergeAdjacentChanges(changes);
+  if (mergedChanges.length === 0) {
+    return { content: annotatedContent, changed: false };
+  }
+  const result = applyChangesBackward(annotatedContent, mergedChanges);
+  return { content: result, changed: true };
+}
+function buildDiffContentMap(annotatedContent) {
+  const rawTags = scanAllTags(annotatedContent);
+  const tagPairs = pairTags(rawTags);
+  const skipRanges = buildSkipRanges(tagPairs, annotatedContent);
+  const strippedChars = [];
+  const strippedToSource = [];
+  let i = 0;
+  let skipIdx = 0;
+  while (i < annotatedContent.length) {
+    while (skipIdx < skipRanges.length && skipRanges[skipIdx].end <= i) {
+      skipIdx++;
+    }
+    if (skipIdx < skipRanges.length && i >= skipRanges[skipIdx].start) {
+      i = skipRanges[skipIdx].end;
+      skipIdx++;
+      continue;
+    }
+    strippedChars.push(annotatedContent.charAt(i));
+    strippedToSource.push(i);
+    i++;
+  }
+  const tagSpans = [];
+  for (const pair of tagPairs) {
+    tagSpans.push({ start: pair.openStart, end: pair.openEnd });
+    tagSpans.push({ start: pair.closeStart, end: pair.closeEnd });
+  }
+  return {
+    strippedContent: strippedChars.join(""),
+    strippedToSource,
+    tagSpans,
+    tagPairs
+  };
+}
+function scanAllTags(content) {
+  const tags = [];
+  const openRe = /<(mark|ruby|rt)\s+[^>]*data-annotation-id="[^"]*"[^>]*>/gi;
+  let m;
+  while ((m = openRe.exec(content)) !== null) {
+    tags.push({
+      index: m.index,
+      length: m[0].length,
+      tagName: m[1].toLowerCase(),
+      isOpen: true
+    });
+  }
+  const closeRe = /<\/(mark|ruby|rt)>/gi;
+  while ((m = closeRe.exec(content)) !== null) {
+    tags.push({
+      index: m.index,
+      length: m[0].length,
+      tagName: m[1].toLowerCase(),
+      isOpen: false
+    });
+  }
+  tags.sort((a, b) => a.index - b.index);
+  return tags;
+}
+function pairTags(tags) {
+  const pairs = [];
+  const stack = [];
+  for (const tag of tags) {
+    if (tag.isOpen) {
+      stack.push(tag);
+    } else {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].tagName === tag.tagName) {
+          const open = stack[i];
+          pairs.push({
+            openStart: open.index,
+            openEnd: open.index + open.length,
+            closeStart: tag.index,
+            closeEnd: tag.index + tag.length,
+            tagName: open.tagName
+          });
+          stack.splice(i, 1);
+          break;
+        }
+      }
+    }
+  }
+  return pairs;
+}
+function buildSkipRanges(pairs, _content) {
+  const ranges = [];
+  for (const pair of pairs) {
+    if (pair.tagName === "rt") {
+      ranges.push({ start: pair.openStart, end: pair.closeEnd });
+    } else {
+      ranges.push({ start: pair.openStart, end: pair.openEnd });
+      ranges.push({ start: pair.closeStart, end: pair.closeEnd });
+    }
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const range of ranges) {
+    if (merged.length > 0 && merged[merged.length - 1].end >= range.start) {
+      merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, range.end);
+    } else {
+      merged.push({ start: range.start, end: range.end });
+    }
+  }
+  return merged;
+}
+function mapStrippedToSource(strippedOffset, strippedToSource) {
+  var _a;
+  if (strippedOffset < 0) return 0;
+  if (strippedOffset >= strippedToSource.length) {
+    const last = strippedToSource[strippedToSource.length - 1];
+    return last !== void 0 ? last + 1 : 0;
+  }
+  return (_a = strippedToSource[strippedOffset]) != null ? _a : 0;
+}
+function ensureOutsideTags(sourcePos, tagSpans) {
+  for (const span of tagSpans) {
+    if (sourcePos > span.start && sourcePos < span.end) {
+      return span.end;
+    }
+  }
+  return sourcePos;
+}
+function ensureInsertOutsideElement(strippedPos, sourcePos, strippedToSource, tagPairs) {
+  var _a;
+  const prevSourcePos = strippedPos > 0 ? (_a = strippedToSource[strippedPos - 1]) != null ? _a : 0 : 0;
+  for (const pair of tagPairs) {
+    if (pair.tagName === "rt") continue;
+    const inContent = sourcePos >= pair.openEnd && sourcePos <= pair.closeStart;
+    const prevInContent = prevSourcePos >= pair.openEnd && prevSourcePos <= pair.closeStart;
+    if (inContent && !prevInContent) {
+      return pair.openStart;
+    }
+  }
+  return sourcePos;
+}
+function expandToTagBoundaries(sourceStart, sourceEnd, tagSpans) {
+  let start = sourceStart;
+  let end = sourceEnd;
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const span of tagSpans) {
+      if (start < span.end && end > span.start) {
+        if (start > span.start || end < span.end) {
+          const newStart = Math.min(start, span.start);
+          const newEnd = Math.max(end, span.end);
+          if (newStart !== start || newEnd !== end) {
+            start = newStart;
+            end = newEnd;
+            expanded = true;
+          }
+        }
+      }
+    }
+  }
+  return { start, end };
+}
+function mergeAdjacentChanges(changes) {
+  if (changes.length === 0) return [];
+  const merged = [];
+  let current = { ...changes[0] };
+  for (let i = 1; i < changes.length; i++) {
+    const next = changes[i];
+    if (current.replacement === "" && next.sourceStart === next.sourceEnd && next.sourceStart >= current.sourceStart && next.sourceStart <= current.sourceEnd) {
+      current = {
+        sourceStart: current.sourceStart,
+        sourceEnd: current.sourceEnd,
+        replacement: next.replacement
+      };
+    } else {
+      merged.push(current);
+      current = { ...next };
+    }
+  }
+  merged.push(current);
+  return merged;
+}
+function applyChangesBackward(content, changes) {
+  const sorted = [...changes].sort((a, b) => b.sourceStart - a.sourceStart);
+  let result = content;
+  for (const change of sorted) {
+    result = result.substring(0, change.sourceStart) + change.replacement + result.substring(change.sourceEnd);
+  }
+  return result;
+}
+
 // src/annotationFile/AnnotationFileManager.ts
 var AnnotationFileManager = class {
   constructor(app, pluginDir) {
@@ -1209,34 +1642,10 @@ var AnnotationFileManager = class {
     if (!(file instanceof import_obsidian.TFile)) return;
     const originalContent = await this.app.vault.read(file);
     const annotatedContent = await this.readAnnotationFile(notePath);
-    const strippedContent = stripAnnotationTags(annotatedContent);
-    if (strippedContent === originalContent) return;
-    const syncedContent = this.simpleSync(originalContent, annotatedContent, strippedContent);
-    await this.writeAnnotationFile(notePath, syncedContent);
-  }
-  simpleSync(originalContent, annotatedContent, strippedContent) {
-    if (!originalContent || !annotatedContent) return originalContent;
-    const segments = this.buildContentMap(annotatedContent);
-    const stripped = segments.filter((s) => !s.isTag).map((s) => s.text).join("");
-    if (stripped === originalContent) return annotatedContent;
-    return annotatedContent;
-  }
-  buildContentMap(content) {
-    const segments = [];
-    const tagRegex = /<(?:mark|ruby|rt)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt)>/g;
-    let lastIndex = 0;
-    let match;
-    while ((match = tagRegex.exec(content)) !== null) {
-      if (match.index > lastIndex) {
-        segments.push({ text: content.substring(lastIndex, match.index), isTag: false, offset: lastIndex });
-      }
-      segments.push({ text: match[0], isTag: true, offset: match.index });
-      lastIndex = tagRegex.lastIndex;
+    const result = diffSync(originalContent, annotatedContent);
+    if (result.changed) {
+      await this.writeAnnotationFile(notePath, result.content);
     }
-    if (lastIndex < content.length) {
-      segments.push({ text: content.substring(lastIndex), isTag: false, offset: lastIndex });
-    }
-    return segments;
   }
   // 同步标注文件编辑回原文件
   async syncToOriginal(notePath) {

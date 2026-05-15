@@ -3,6 +3,7 @@ import type { NewAnnotation, ParsedAnnotation, AnnotationUpdates } from "../type
 import { notePathToAnnotationPath } from "../utils/helpers";
 import { parseAnnotations, stripAnnotationTags } from "./annotationParser";
 import { insertAnnotation, insertFullTextAnnotation, insertCrossBlockAnnotation, removeAnnotationTag, updateAnnotationTag } from "./annotationSerializer";
+import { diffSync } from "./diffSync";
 
 export class AnnotationFileManager {
   private app: App;
@@ -67,48 +68,11 @@ export class AnnotationFileManager {
 
     const originalContent = await this.app.vault.read(file);
     const annotatedContent = await this.readAnnotationFile(notePath);
-    const strippedContent = stripAnnotationTags(annotatedContent);
 
-    if (strippedContent === originalContent) return;
-
-    const syncedContent = this.simpleSync(originalContent, annotatedContent, strippedContent);
-    await this.writeAnnotationFile(notePath, syncedContent);
-  }
-
-  private simpleSync(
-    originalContent: string,
-    annotatedContent: string,
-    strippedContent: string
-  ): string {
-    if (!originalContent || !annotatedContent) return originalContent;
-
-    const segments = this.buildContentMap(annotatedContent);
-    const stripped = segments.filter((s) => !s.isTag).map((s) => s.text).join("");
-
-    if (stripped === originalContent) return annotatedContent;
-
-    return annotatedContent;
-  }
-
-  private buildContentMap(content: string): Array<{ text: string; isTag: boolean; offset: number }> {
-    const segments: Array<{ text: string; isTag: boolean; offset: number }> = [];
-    const tagRegex = /<(?:mark|ruby|rt)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt)>/g;
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = tagRegex.exec(content)) !== null) {
-      if (match.index > lastIndex) {
-        segments.push({ text: content.substring(lastIndex, match.index), isTag: false, offset: lastIndex });
-      }
-      segments.push({ text: match[0], isTag: true, offset: match.index });
-      lastIndex = tagRegex.lastIndex;
+    const result = diffSync(originalContent, annotatedContent);
+    if (result.changed) {
+      await this.writeAnnotationFile(notePath, result.content);
     }
-
-    if (lastIndex < content.length) {
-      segments.push({ text: content.substring(lastIndex), isTag: false, offset: lastIndex });
-    }
-
-    return segments;
   }
 
   // 同步标注文件编辑回原文件

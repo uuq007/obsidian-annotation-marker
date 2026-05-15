@@ -1742,7 +1742,8 @@ var AnnotationFileManager = class {
 // src/ui/SelectionMenu.ts
 var import_obsidian2 = require("obsidian");
 var SelectionMenu = class {
-  constructor(fileManager, getSettings) {
+  constructor(app, fileManager, getSettings) {
+    this.app = app;
     this.menuEl = null;
     this.selectedColor = DEFAULT_SETTINGS.defaultColor;
     this.currentNotePath = null;
@@ -1761,11 +1762,12 @@ var SelectionMenu = class {
     this.selectedRubyRange = null;
     this.updateRubyList = null;
     this.blockSegments = null;
+    this.editorRange = null;
     this.fileManager = fileManager;
     this.getSettings = getSettings;
   }
   show(params) {
-    var _a, _b;
+    var _a, _b, _c;
     this.hide();
     this.currentNotePath = params.notePath;
     this.selectedText = params.selectedText;
@@ -1781,6 +1783,7 @@ var SelectionMenu = class {
     this.rubyTextEnabled = false;
     this.selectedRubyRange = null;
     this.blockSegments = (_a = params.blockSegments) != null ? _a : null;
+    this.editorRange = (_b = params.editorRange) != null ? _b : null;
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
     this.menuEl.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -1804,7 +1807,7 @@ var SelectionMenu = class {
         cls: `annotation-color-dot ${COLOR_CLASSES[c]}`
       });
       if (c === this.selectedColor) btn.addClass("active");
-      btn.title = c === "none" ? "\u65E0\u8272" : (_b = settings[`colorLabel${c}`]) != null ? _b : `\u989C\u8272${c}`;
+      btn.title = c === "none" ? "\u65E0\u8272" : (_c = settings[`colorLabel${c}`]) != null ? _c : `\u989C\u8272${c}`;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.selectedColor = c;
@@ -2034,10 +2037,24 @@ var SelectionMenu = class {
     }
   }
   async createAnnotation(note, isFullText = false) {
-    var _a;
+    var _a, _b, _c;
     if (!this.currentNotePath) return;
     try {
       const rubyTexts = !isFullText && this.rubyTextEnabled && this.rubyTexts.length > 0 ? this.rubyTexts : void 0;
+      if (this.editorRange && !isFullText && !(this.blockSegments && this.blockSegments.length > 0)) {
+        const view = (_a = this.app) == null ? void 0 : _a.workspace.getActiveViewOfType(import_obsidian2.MarkdownView);
+        if (view) {
+          const id = generateId();
+          const markTag = buildMarkTag(id, this.selectedText, this.selectedColor, note || void 0, rubyTexts);
+          view.editor.replaceRange(markTag, this.editorRange.from, this.editorRange.to);
+          const newContent = view.editor.getValue();
+          await this.fileManager.writeAnnotationFile(this.currentNotePath, newContent);
+          (_b = window.getSelection()) == null ? void 0 : _b.removeAllRanges();
+          this.hide();
+          new import_obsidian2.Notice(note || rubyTexts ? "\u6807\u6CE8\u548C\u6279\u6CE8\u5DF2\u6DFB\u52A0" : "\u6807\u6CE8\u5DF2\u6DFB\u52A0");
+          return;
+        }
+      }
       let result;
       if (isFullText) {
         result = await this.fileManager.addFullTextAnnotation(this.currentNotePath, {
@@ -2068,7 +2085,7 @@ var SelectionMenu = class {
         });
       }
       if (result) {
-        (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
+        (_c = window.getSelection()) == null ? void 0 : _c.removeAllRanges();
         this.hide();
         if (this.onAddCallback) {
           await new Promise((resolve) => setTimeout(resolve, 100));
@@ -2311,9 +2328,203 @@ var EditNoteModal = class extends import_obsidian3.Modal {
   }
 };
 
+// src/view/annotationTagParser.ts
+var TAG_REGEX = /<\/?(?:mark|ruby|rt)(?:\s[^>]*)?>/g;
+function getAttr2(attrs, name) {
+  const regex = new RegExp(`${name}="([^"]*)"`, "i");
+  const match = attrs.match(regex);
+  return match ? match[1] : null;
+}
+function extractColorIndex(style) {
+  const match = style.match(/annotation-bg-color(\d+)/);
+  return match ? match[1] : "3";
+}
+function scanTags(text, offset) {
+  const tags = [];
+  let match;
+  TAG_REGEX.lastIndex = 0;
+  while ((match = TAG_REGEX.exec(text)) !== null) {
+    const tagText = match[0];
+    const from = match.index + offset;
+    const to = from + tagText.length;
+    if (tagText.startsWith("</")) {
+      if (tagText.startsWith("</mark")) {
+        tags.push({ type: "mark-close", from, to });
+      } else if (tagText.startsWith("</ruby")) {
+        tags.push({ type: "ruby-close", from, to });
+      } else if (tagText.startsWith("</rt")) {
+        tags.push({ type: "rt-close", from, to });
+      }
+    } else {
+      const spaceIdx = tagText.indexOf(" ");
+      const attrsStr = spaceIdx >= 0 ? tagText.substring(spaceIdx + 1, tagText.length - 1) : "";
+      if (tagText.startsWith("<mark")) {
+        const style = getAttr2(attrsStr, "style") || "";
+        tags.push({
+          type: "mark-open",
+          from,
+          to,
+          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0,
+          colorIndex: style ? extractColorIndex(style) : "3",
+          hasNote: !!getAttr2(attrsStr, "data-annotation-note")
+        });
+      } else if (tagText.startsWith("<ruby")) {
+        tags.push({
+          type: "ruby-open",
+          from,
+          to,
+          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0
+        });
+      } else if (tagText.startsWith("<rt")) {
+        tags.push({
+          type: "rt-open",
+          from,
+          to,
+          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0
+        });
+      }
+    }
+  }
+  return tags;
+}
+function scanAnnotationTags(text, offset, fullText) {
+  const tags = scanTags(text, offset);
+  const blocks = [];
+  const markStack = [];
+  for (const tag of tags) {
+    switch (tag.type) {
+      case "mark-open": {
+        markStack.push({
+          id: tag.annotationId || "",
+          colorIndex: tag.colorIndex || "3",
+          hasNote: tag.hasNote || false,
+          openFrom: tag.from,
+          openTo: tag.to,
+          rubies: [],
+          rubyStack: []
+        });
+        break;
+      }
+      case "mark-close": {
+        const mark = markStack.pop();
+        if (!mark) break;
+        blocks.push({
+          id: mark.id,
+          colorIndex: mark.colorIndex,
+          hasNote: mark.hasNote,
+          markOpenFrom: mark.openFrom,
+          markOpenTo: mark.openTo,
+          markCloseFrom: tag.from,
+          markCloseTo: tag.to,
+          rubies: mark.rubies
+        });
+        break;
+      }
+      case "ruby-open": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        currentMark.rubyStack.push({
+          openFrom: tag.from,
+          openTo: tag.to,
+          baseTextTo: tag.to,
+          rtCloseTo: tag.from
+        });
+        break;
+      }
+      case "rt-open": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        const currentRuby = currentMark.rubyStack[currentMark.rubyStack.length - 1];
+        if (!currentRuby) break;
+        currentRuby.baseTextTo = tag.from;
+        break;
+      }
+      case "rt-close": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        const currentRuby = currentMark.rubyStack[currentMark.rubyStack.length - 1];
+        if (!currentRuby) break;
+        currentRuby.rtCloseTo = tag.to;
+        break;
+      }
+      case "ruby-close": {
+        const currentMark = markStack[markStack.length - 1];
+        if (!currentMark) break;
+        const currentRuby = currentMark.rubyStack.pop();
+        if (!currentRuby) break;
+        const rtText = fullText.substring(
+          // rt 开标签结束位置 = baseTextTo 后面紧跟着 <rt ...>，需要找到 rt 开标签的结束位置
+          // baseTextTo 是 <rt 开头的位置，需要跳过 <rt ...> 标签本身
+          // 通过搜索找到 > 来确定 rt 开标签结束
+          findRtOpenEnd(fullText, currentRuby.baseTextTo),
+          tag.from
+        );
+        currentMark.rubies.push({
+          rubyOpenFrom: currentRuby.openFrom,
+          rubyOpenTo: currentRuby.openTo,
+          baseTextTo: currentRuby.baseTextTo,
+          rtCloseTo: currentRuby.rtCloseTo,
+          rubyCloseFrom: tag.from,
+          rubyCloseTo: tag.to,
+          rtText
+        });
+        break;
+      }
+    }
+  }
+  return blocks;
+}
+function findRtOpenEnd(text, rtStartPos) {
+  const gtPos = text.indexOf(">", rtStartPos);
+  return gtPos >= 0 ? gtPos + 1 : rtStartPos;
+}
+function hasAnnotationTags(text) {
+  return text.includes("data-annotation-id") && text.includes("<mark");
+}
+
+// src/utils/annotationEditorHelper.ts
+function stripRubyTags(text) {
+  return text.replace(/<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>[\s\S]*?<\/rt><\/ruby>/g, "$1");
+}
+async function editAnnotationInEditor(view, fileManager, notePath, annotationId, action) {
+  if (view.getMode() !== "source") return false;
+  const doc = view.editor.getValue();
+  const blocks = scanAnnotationTags(doc, 0, doc);
+  const targetBlocks = blocks.filter((b) => b.id === annotationId);
+  if (targetBlocks.length === 0) return false;
+  const sorted = [...targetBlocks].sort((a, b) => b.markOpenFrom - a.markOpenFrom);
+  for (const block of sorted) {
+    const from = view.editor.offsetToPos(block.markOpenFrom);
+    const to = view.editor.offsetToPos(block.markCloseTo);
+    if (action === "delete") {
+      const innerContent = doc.substring(block.markOpenTo, block.markCloseFrom);
+      const plainText = stripRubyTags(innerContent);
+      view.editor.replaceRange(plainText, from, to);
+    } else {
+      const innerContent = doc.substring(block.markOpenTo, block.markCloseFrom);
+      const plainText = stripRubyTags(innerContent);
+      const newTag = buildMarkTag(
+        annotationId,
+        plainText,
+        action.color,
+        action.note,
+        action.rubyTexts,
+        void 0,
+        action.isFullText,
+        action.isCrossBlock
+      );
+      view.editor.replaceRange(newTag, from, to);
+    }
+  }
+  const newContent = view.editor.getValue();
+  await fileManager.writeAnnotationFile(notePath, newContent);
+  return true;
+}
+
 // src/ui/AnnotationMenu.ts
 var AnnotationMenu = class {
-  constructor(fileManager, getSettings) {
+  constructor(app, fileManager, getSettings) {
+    this.app = app;
     this.menuEl = null;
     this.fileManager = fileManager;
     this.getSettings = getSettings;
@@ -2357,7 +2568,17 @@ var AnnotationMenu = class {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (c !== annotation.color) {
-          await this.fileManager.updateAnnotation(notePath, annotation.id, { color: c });
+          const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+          const edited = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, {
+            color: c,
+            note: annotation.note,
+            rubyTexts: annotation.rubyTexts,
+            isFullText: annotation.isFullText,
+            isCrossBlock: annotation.isCrossBlock
+          }) : false;
+          if (!edited) {
+            await this.fileManager.updateAnnotation(notePath, annotation.id, { color: c });
+          }
           this.hide();
           onUpdate();
           new import_obsidian4.Notice("\u6807\u6CE8\u989C\u8272\u5DF2\u4FEE\u6539");
@@ -2390,7 +2611,11 @@ var AnnotationMenu = class {
       e.stopPropagation();
       const msg = (annotation.isFullText || annotation.positions.length > 1) && annotation.positions.length > 1 ? `\u786E\u5B9A\u5220\u9664\u5168\u90E8 ${annotation.positions.length} \u5904\u6807\u6CE8\uFF1F` : "\u786E\u5B9A\u5220\u9664\u6B64\u6807\u6CE8\uFF1F";
       if (!confirm(msg)) return;
-      await this.fileManager.removeAnnotation(notePath, annotation.id);
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+      const deleted = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, "delete") : false;
+      if (!deleted) {
+        await this.fileManager.removeAnnotation(notePath, annotation.id);
+      }
       this.hide();
       onUpdate();
       new import_obsidian4.Notice("\u6807\u6CE8\u5DF2\u5220\u9664");
@@ -2432,11 +2657,21 @@ var AnnotationMenu = class {
         rubyTexts: annotation.rubyTexts
       },
       async (note, color, rubyTexts) => {
-        await this.fileManager.updateAnnotation(notePath, annotation.id, {
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+        const edited = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, {
           color,
           note,
-          rubyTexts
-        });
+          rubyTexts,
+          isFullText: annotation.isFullText,
+          isCrossBlock: annotation.isCrossBlock
+        }) : false;
+        if (!edited) {
+          await this.fileManager.updateAnnotation(notePath, annotation.id, {
+            color,
+            note,
+            rubyTexts
+          });
+        }
         onUpdate();
         new import_obsidian4.Notice("\u6279\u6CE8\u5DF2\u66F4\u65B0");
       }
@@ -2614,7 +2849,11 @@ var AnnotationListPanel = class {
     deleteBtn.addEventListener("click", async () => {
       var _a;
       if (!this.currentNotePath) return;
-      await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+      const deleted = view ? await editAnnotationInEditor(view, this.fileManager, this.currentNotePath, annotation.id, "delete") : false;
+      if (!deleted) {
+        await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
+      }
       menu.remove();
       new import_obsidian5.Notice("\u6807\u6CE8\u5DF2\u5220\u9664");
       this.hidePanel();
@@ -2789,162 +3028,6 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
 // src/view/annotationViewPlugin.ts
 var import_view = require("@codemirror/view");
 var import_state = require("@codemirror/state");
-
-// src/view/annotationTagParser.ts
-var TAG_REGEX = /<\/?(?:mark|ruby|rt)(?:\s[^>]*)?>/g;
-function getAttr2(attrs, name) {
-  const regex = new RegExp(`${name}="([^"]*)"`, "i");
-  const match = attrs.match(regex);
-  return match ? match[1] : null;
-}
-function extractColorIndex(style) {
-  const match = style.match(/annotation-bg-color(\d+)/);
-  return match ? match[1] : "3";
-}
-function scanTags(text, offset) {
-  const tags = [];
-  let match;
-  TAG_REGEX.lastIndex = 0;
-  while ((match = TAG_REGEX.exec(text)) !== null) {
-    const tagText = match[0];
-    const from = match.index + offset;
-    const to = from + tagText.length;
-    if (tagText.startsWith("</")) {
-      if (tagText.startsWith("</mark")) {
-        tags.push({ type: "mark-close", from, to });
-      } else if (tagText.startsWith("</ruby")) {
-        tags.push({ type: "ruby-close", from, to });
-      } else if (tagText.startsWith("</rt")) {
-        tags.push({ type: "rt-close", from, to });
-      }
-    } else {
-      const spaceIdx = tagText.indexOf(" ");
-      const attrsStr = spaceIdx >= 0 ? tagText.substring(spaceIdx + 1, tagText.length - 1) : "";
-      if (tagText.startsWith("<mark")) {
-        const style = getAttr2(attrsStr, "style") || "";
-        tags.push({
-          type: "mark-open",
-          from,
-          to,
-          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0,
-          colorIndex: style ? extractColorIndex(style) : "3",
-          hasNote: !!getAttr2(attrsStr, "data-annotation-note")
-        });
-      } else if (tagText.startsWith("<ruby")) {
-        tags.push({
-          type: "ruby-open",
-          from,
-          to,
-          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0
-        });
-      } else if (tagText.startsWith("<rt")) {
-        tags.push({
-          type: "rt-open",
-          from,
-          to,
-          annotationId: getAttr2(attrsStr, "data-annotation-id") || void 0
-        });
-      }
-    }
-  }
-  return tags;
-}
-function scanAnnotationTags(text, offset, fullText) {
-  const tags = scanTags(text, offset);
-  const blocks = [];
-  const markStack = [];
-  for (const tag of tags) {
-    switch (tag.type) {
-      case "mark-open": {
-        markStack.push({
-          id: tag.annotationId || "",
-          colorIndex: tag.colorIndex || "3",
-          hasNote: tag.hasNote || false,
-          openFrom: tag.from,
-          openTo: tag.to,
-          rubies: [],
-          rubyStack: []
-        });
-        break;
-      }
-      case "mark-close": {
-        const mark = markStack.pop();
-        if (!mark) break;
-        blocks.push({
-          id: mark.id,
-          colorIndex: mark.colorIndex,
-          hasNote: mark.hasNote,
-          markOpenFrom: mark.openFrom,
-          markOpenTo: mark.openTo,
-          markCloseFrom: tag.from,
-          markCloseTo: tag.to,
-          rubies: mark.rubies
-        });
-        break;
-      }
-      case "ruby-open": {
-        const currentMark = markStack[markStack.length - 1];
-        if (!currentMark) break;
-        currentMark.rubyStack.push({
-          openFrom: tag.from,
-          openTo: tag.to,
-          baseTextTo: tag.to,
-          rtCloseTo: tag.from
-        });
-        break;
-      }
-      case "rt-open": {
-        const currentMark = markStack[markStack.length - 1];
-        if (!currentMark) break;
-        const currentRuby = currentMark.rubyStack[currentMark.rubyStack.length - 1];
-        if (!currentRuby) break;
-        currentRuby.baseTextTo = tag.from;
-        break;
-      }
-      case "rt-close": {
-        const currentMark = markStack[markStack.length - 1];
-        if (!currentMark) break;
-        const currentRuby = currentMark.rubyStack[currentMark.rubyStack.length - 1];
-        if (!currentRuby) break;
-        currentRuby.rtCloseTo = tag.to;
-        break;
-      }
-      case "ruby-close": {
-        const currentMark = markStack[markStack.length - 1];
-        if (!currentMark) break;
-        const currentRuby = currentMark.rubyStack.pop();
-        if (!currentRuby) break;
-        const rtText = fullText.substring(
-          // rt 开标签结束位置 = baseTextTo 后面紧跟着 <rt ...>，需要找到 rt 开标签的结束位置
-          // baseTextTo 是 <rt 开头的位置，需要跳过 <rt ...> 标签本身
-          // 通过搜索找到 > 来确定 rt 开标签结束
-          findRtOpenEnd(fullText, currentRuby.baseTextTo),
-          tag.from
-        );
-        currentMark.rubies.push({
-          rubyOpenFrom: currentRuby.openFrom,
-          rubyOpenTo: currentRuby.openTo,
-          baseTextTo: currentRuby.baseTextTo,
-          rtCloseTo: currentRuby.rtCloseTo,
-          rubyCloseFrom: tag.from,
-          rubyCloseTo: tag.to,
-          rtText
-        });
-        break;
-      }
-    }
-  }
-  return blocks;
-}
-function findRtOpenEnd(text, rtStartPos) {
-  const gtPos = text.indexOf(">", rtStartPos);
-  return gtPos >= 0 ? gtPos + 1 : rtStartPos;
-}
-function hasAnnotationTags(text) {
-  return text.includes("data-annotation-id") && text.includes("<mark");
-}
-
-// src/view/annotationViewPlugin.ts
 var DEBUG = false;
 function log(...args) {
   if (DEBUG) console.log("[annotation-guard]", ...args);
@@ -3104,8 +3187,8 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     await this.loadSettings();
     const pluginDir = (_a = this.manifest.dir) != null ? _a : ".obsidian/plugins/obsidian-annotation-marker";
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
-    this.selectionMenu = new SelectionMenu(this.fileManager, () => this.settings);
-    this.annotationMenu = new AnnotationMenu(this.fileManager, () => this.settings);
+    this.selectionMenu = new SelectionMenu(this.app, this.fileManager, () => this.settings);
+    this.annotationMenu = new AnnotationMenu(this.app, this.fileManager, () => this.settings);
     this.registerEvents();
     this.registerCommands();
     this.registerCacheListeners();
@@ -3405,7 +3488,7 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
       if (target.closest(".internal-embed")) return;
       if (target.closest(".callout") && !target.closest(".callout-content")) return;
       setTimeout(() => {
-        var _a;
+        var _a, _b;
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed) return;
         const context = extractSelectionContext(selection);
@@ -3438,6 +3521,15 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
           );
         }
         this.annotationMenu.hide();
+        const activeLeaf = this.app.workspace.activeLeaf;
+        const view = activeLeaf == null ? void 0 : activeLeaf.view;
+        let editorRange;
+        if (((_b = view == null ? void 0 : view.getMode) == null ? void 0 : _b.call(view)) === "source" && view.editor) {
+          editorRange = {
+            from: view.editor.getCursor("from"),
+            to: view.editor.getCursor("to")
+          };
+        }
         this.selectionMenu.show({
           x: e.clientX,
           y: e.clientY,
@@ -3449,6 +3541,7 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
           endLine: lineEnd,
           occurrence,
           blockSegments,
+          editorRange,
           onAdd: () => this.refreshAnnotationView(notePath)
         });
       }, 10);
@@ -3517,12 +3610,25 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     const leaf = this.app.workspace.activeLeaf;
     if (!leaf) return;
     const view = leaf.view;
-    if (!view.previewMode) return;
     const content = await this.fileManager.readAnnotationFile(notePath);
-    const renderer = view.previewMode.renderer;
-    if (renderer && typeof renderer.set === "function") {
-      renderer.set(content);
+    if (view.getMode() === "preview") {
+      const renderer = view.previewMode.renderer;
+      if (renderer && typeof renderer.set === "function") {
+        renderer.set(content);
+      }
+    } else {
+      const editorView = view.editor.cm;
+      if (editorView && content !== editorView.state.doc.toString()) {
+        const scrollTop = editorView.scrollDOM.scrollTop;
+        editorView.dispatch({
+          changes: { from: 0, to: editorView.state.doc.length, insert: content }
+        });
+        requestAnimationFrame(() => {
+          editorView.scrollDOM.scrollTop = scrollTop;
+        });
+      }
     }
+    view.data = content;
     (_a = this.annotationPanels.get(notePath)) == null ? void 0 : _a.refresh();
   }
   // ========== Section 行号捕获 ==========

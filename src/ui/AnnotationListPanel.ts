@@ -2,6 +2,7 @@ import { App, MarkdownView, Notice } from "obsidian";
 import type { ParsedAnnotation } from "../types";
 import { COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
+import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
 
 // 标注列表浮动面板（右侧按钮打开）
 export class AnnotationListPanel {
@@ -214,7 +215,12 @@ export class AnnotationListPanel {
     });
     deleteBtn.addEventListener("click", async () => {
       if (!this.currentNotePath) return;
-      await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
+      // 编辑模式：用 replaceRange 局部替换
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      const deleted = view ? await editAnnotationInEditor(view, this.fileManager, this.currentNotePath, annotation.id, 'delete') : false;
+      if (!deleted) {
+        await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
+      }
       menu.remove();
       new Notice("标注已删除");
       this.hidePanel();

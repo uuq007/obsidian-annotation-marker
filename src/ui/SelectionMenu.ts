@@ -1,9 +1,10 @@
-import { Notice } from "obsidian";
+import { App, MarkdownView, Notice, type EditorPosition } from "obsidian";
 import type { AnnotationColor, AnnotationRuby, BlockSegment, AnnotationPluginSettings } from "../types";
 import { COLOR_NUMBERS, DEFAULT_SETTINGS } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
-import { calculateRangeOffsetInElement } from "../utils/helpers";
+import { calculateRangeOffsetInElement, generateId } from "../utils/helpers";
+import { buildMarkTag } from "../annotationFile/annotationSerializer";
 
 // 添加标注的浮动菜单
 export class SelectionMenu {
@@ -30,8 +31,9 @@ export class SelectionMenu {
   private selectedRubyRange: { start: number; end: number } | null = null;
   private updateRubyList: (() => void) | null = null;
   private blockSegments: BlockSegment[] | null = null;
+  private editorRange: { from: EditorPosition; to: EditorPosition } | null = null;
 
-  constructor(fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
+  constructor(private app: App, fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
     this.fileManager = fileManager;
     this.getSettings = getSettings;
   }
@@ -47,6 +49,7 @@ export class SelectionMenu {
     endLine?: number;
     occurrence?: number;
     blockSegments?: BlockSegment[];
+    editorRange?: { from: EditorPosition; to: EditorPosition };
     onAdd: () => void;
   }): void {
     this.hide();
@@ -65,6 +68,7 @@ export class SelectionMenu {
     this.rubyTextEnabled = false;
     this.selectedRubyRange = null;
     this.blockSegments = params.blockSegments ?? null;
+    this.editorRange = params.editorRange ?? null;
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
@@ -377,6 +381,26 @@ export class SelectionMenu {
       const rubyTexts = !isFullText && this.rubyTextEnabled && this.rubyTexts.length > 0
         ? this.rubyTexts
         : undefined;
+
+      // 编辑模式 + 普通标注（非全文/跨段）：直接用 replaceRange 局部替换
+      if (this.editorRange && !isFullText && !(this.blockSegments && this.blockSegments.length > 0)) {
+        const view = this.app?.workspace.getActiveViewOfType(MarkdownView);
+        if (view) {
+          const id = generateId();
+          const markTag = buildMarkTag(id, this.selectedText, this.selectedColor, note || undefined, rubyTexts);
+
+          view.editor.replaceRange(markTag, this.editorRange.from, this.editorRange.to);
+
+          // 将编辑器新内容写回标注文件
+          const newContent = view.editor.getValue();
+          await this.fileManager.writeAnnotationFile(this.currentNotePath, newContent);
+
+          window.getSelection()?.removeAllRanges();
+          this.hide();
+          new Notice(note || rubyTexts ? "标注和批注已添加" : "标注已添加");
+          return;
+        }
+      }
 
       let result;
 

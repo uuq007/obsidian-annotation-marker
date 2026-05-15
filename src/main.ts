@@ -4,7 +4,9 @@ import {
   Plugin,
   TFile,
   normalizePath,
+  type EditorPosition,
 } from "obsidian";
+import { EditorView } from "@codemirror/view";
 import { AnnotationFileManager } from "./annotationFile/AnnotationFileManager";
 import { DEFAULT_SETTINGS, type AnnotationPluginSettings } from "./types";
 import { SelectionMenu } from "./ui/SelectionMenu";
@@ -40,8 +42,8 @@ export default class AnnotationPlugin extends Plugin {
     const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
 
-    this.selectionMenu = new SelectionMenu(this.fileManager, () => this.settings);
-    this.annotationMenu = new AnnotationMenu(this.fileManager, () => this.settings);
+    this.selectionMenu = new SelectionMenu(this.app, this.fileManager, () => this.settings);
+    this.annotationMenu = new AnnotationMenu(this.app, this.fileManager, () => this.settings);
 
     this.registerEvents();
     this.registerCommands();
@@ -453,6 +455,17 @@ export default class AnnotationPlugin extends Plugin {
 
         this.annotationMenu.hide();
 
+        // 编辑模式下保存编辑器选区位置
+        const activeLeaf = this.app.workspace.activeLeaf;
+        const view = activeLeaf?.view as MarkdownView;
+        let editorRange: { from: EditorPosition; to: EditorPosition } | undefined;
+        if (view?.getMode?.() === "source" && view.editor) {
+          editorRange = {
+            from: view.editor.getCursor("from"),
+            to: view.editor.getCursor("to"),
+          };
+        }
+
         this.selectionMenu.show({
           x: e.clientX,
           y: e.clientY,
@@ -464,6 +477,7 @@ export default class AnnotationPlugin extends Plugin {
           endLine: lineEnd,
           occurrence,
           blockSegments,
+          editorRange,
           onAdd: () => this.refreshAnnotationView(notePath),
         });
       }, 10);
@@ -542,14 +556,31 @@ export default class AnnotationPlugin extends Plugin {
     if (!leaf) return;
 
     const view = leaf.view as MarkdownView;
-    if (!view.previewMode) return;
 
     const content = await this.fileManager.readAnnotationFile(notePath);
 
-    const renderer = (view.previewMode as any).renderer;
-    if (renderer && typeof renderer.set === "function") {
-      renderer.set(content);
+    if (view.getMode() === "preview") {
+      const renderer = (view.previewMode as any).renderer;
+      if (renderer && typeof renderer.set === "function") {
+        renderer.set(content);
+      }
+    } else {
+      // 编辑模式：通过 CM6 dispatch 更新编辑器内容
+      // @ts-expect-error — Obsidian 官方文档推荐的方式
+      const editorView: EditorView = view.editor.cm;
+      if (editorView && content !== editorView.state.doc.toString()) {
+        const scrollTop = editorView.scrollDOM.scrollTop;
+        editorView.dispatch({
+          changes: { from: 0, to: editorView.state.doc.length, insert: content }
+        });
+        requestAnimationFrame(() => {
+          editorView.scrollDOM.scrollTop = scrollTop;
+        });
+      }
     }
+
+    // 同步更新 MarkdownView 内部数据
+    (view as any).data = content;
 
     this.annotationPanels.get(notePath)?.refresh();
   }

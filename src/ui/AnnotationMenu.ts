@@ -1,8 +1,9 @@
-import { Notice } from "obsidian";
+import { App, MarkdownView, Notice } from "obsidian";
 import type { AnnotationColor, AnnotationPluginSettings, ParsedAnnotation } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { EditNoteModal } from "./EditNoteModal";
+import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
 
 // 标注详情的浮动菜单（点击已有标注时弹出）
 export class AnnotationMenu {
@@ -10,7 +11,7 @@ export class AnnotationMenu {
   private getSettings: () => AnnotationPluginSettings;
   private menuEl: HTMLElement | null = null;
 
-  constructor(fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
+  constructor(private app: App, fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
     this.fileManager = fileManager;
     this.getSettings = getSettings;
   }
@@ -70,7 +71,18 @@ export class AnnotationMenu {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (c !== annotation.color) {
-          await this.fileManager.updateAnnotation(notePath, annotation.id, { color: c });
+          // 编辑模式：用 replaceRange 局部替换
+          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+          const edited = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, {
+            color: c,
+            note: annotation.note,
+            rubyTexts: annotation.rubyTexts,
+            isFullText: annotation.isFullText,
+            isCrossBlock: annotation.isCrossBlock,
+          }) : false;
+          if (!edited) {
+            await this.fileManager.updateAnnotation(notePath, annotation.id, { color: c });
+          }
           this.hide();
           onUpdate();
           new Notice("标注颜色已修改");
@@ -109,7 +121,12 @@ export class AnnotationMenu {
         ? `确定删除全部 ${annotation.positions.length} 处标注？`
         : "确定删除此标注？";
       if (!confirm(msg)) return;
-      await this.fileManager.removeAnnotation(notePath, annotation.id);
+      // 编辑模式：用 replaceRange 局部替换
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      const deleted = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, 'delete') : false;
+      if (!deleted) {
+        await this.fileManager.removeAnnotation(notePath, annotation.id);
+      }
       this.hide();
       onUpdate();
       new Notice("标注已删除");
@@ -161,11 +178,22 @@ export class AnnotationMenu {
         rubyTexts: annotation.rubyTexts,
       },
       async (note, color, rubyTexts) => {
-        await this.fileManager.updateAnnotation(notePath, annotation.id, {
+        // 编辑模式：用 replaceRange 局部替换
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const edited = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, {
           color,
           note,
           rubyTexts,
-        });
+          isFullText: annotation.isFullText,
+          isCrossBlock: annotation.isCrossBlock,
+        }) : false;
+        if (!edited) {
+          await this.fileManager.updateAnnotation(notePath, annotation.id, {
+            color,
+            note,
+            rubyTexts,
+          });
+        }
         onUpdate();
         new Notice("批注已更新");
       }

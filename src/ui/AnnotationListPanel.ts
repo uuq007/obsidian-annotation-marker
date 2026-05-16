@@ -17,6 +17,21 @@ export class AnnotationListPanel {
   private sortOption: "position-asc" | "position-desc" | "time-asc" | "time-desc" | "color-asc" | "color-desc" = "position-asc";
   private panelClickHandler: ((e: MouseEvent) => void) | null = null;
 
+  // 拖动相关
+  private isMouseDown = false;
+  private isDragging = false;
+  private wasDragged = false;
+  private dragStartX = 0;
+  private dragStartY = 0;
+  private dragStartLeft = 0;
+  private dragStartTop = 0;
+  private dragContainerWidth = 0;
+  private dragContainerHeight = 0;
+  private dragBtnWidth = 0;
+  private dragBtnHeight = 0;
+  private dragMoveHandler: ((e: MouseEvent) => void) | null = null;
+  private dragEndHandler: ((e: MouseEvent) => void) | null = null;
+
   constructor(app: App, fileManager: AnnotationFileManager) {
     this.app = app;
     this.fileManager = fileManager;
@@ -52,7 +67,12 @@ export class AnnotationListPanel {
 
     this.containerEl.appendChild(this.listBtn);
 
+    // 点击切换面板（拖动后不触发）
     this.listBtn.addEventListener("click", (e) => {
+      if (this.wasDragged) {
+        this.wasDragged = false;
+        return;
+      }
       e.stopPropagation();
       if (this.panelEl && this.panelEl.style.display !== "none") {
         this.hidePanel();
@@ -60,6 +80,63 @@ export class AnnotationListPanel {
         this.showPanel();
       }
     });
+
+    // 拖动开始
+    this.listBtn.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      this.isMouseDown = true;
+      this.isDragging = false;
+      this.wasDragged = false;
+
+      // mousedown 时缓存所有尺寸，避免 mousemove 中触发回流
+      const btnRect = this.listBtn!.getBoundingClientRect();
+      const containerRect = this.containerEl!.getBoundingClientRect();
+      this.dragStartX = e.clientX;
+      this.dragStartY = e.clientY;
+      this.dragStartLeft = btnRect.left - containerRect.left;
+      this.dragStartTop = btnRect.top - containerRect.top;
+      this.dragContainerWidth = containerRect.width;
+      this.dragContainerHeight = containerRect.height;
+      this.dragBtnWidth = btnRect.width;
+      this.dragBtnHeight = btnRect.height;
+    });
+
+    // 拖动移动和结束
+    this.dragMoveHandler = (e: MouseEvent) => {
+      if (!this.isMouseDown || !this.listBtn) return;
+      const dx = e.clientX - this.dragStartX;
+      const dy = e.clientY - this.dragStartY;
+      if (!this.isDragging && Math.abs(dx) + Math.abs(dy) > 3) {
+        this.isDragging = true;
+        this.listBtn.classList.add("dragging");
+      }
+      if (!this.isDragging) return;
+
+      // 纯计算，不触发 DOM 读取
+      let newLeft = this.dragStartLeft + dx;
+      let newTop = this.dragStartTop + dy;
+      newLeft = Math.max(0, Math.min(this.dragContainerWidth - this.dragBtnWidth, newLeft));
+      newTop = Math.max(0, Math.min(this.dragContainerHeight - this.dragBtnHeight, newTop));
+
+      this.listBtn.style.left = `${newLeft}px`;
+      this.listBtn.style.top = `${newTop}px`;
+      this.listBtn.style.right = "auto";
+      this.listBtn.style.transform = "none";
+    };
+
+    this.dragEndHandler = () => {
+      if (this.isDragging) {
+        this.wasDragged = true;
+        this.isDragging = false;
+      }
+      this.isMouseDown = false;
+      if (this.listBtn) {
+        this.listBtn.classList.remove("dragging");
+      }
+    };
+
+    document.addEventListener("mousemove", this.dragMoveHandler);
+    document.addEventListener("mouseup", this.dragEndHandler);
   }
 
   private async showPanel(): Promise<void> {
@@ -93,18 +170,63 @@ export class AnnotationListPanel {
     closeBtn.addEventListener("click", () => this.hidePanel());
 
     const content = this.panelEl.createDiv({ cls: "annotation-list-content" });
-    this.renderContent(content);
+    // 先渲染内容，再定位，避免空面板闪烁后跳位
+    await this.renderContent(content);
 
     const container = this.containerEl;
     if (!container) return;
+
+    // 先放到屏幕外测量尺寸，避免用户看到错误位置
+    this.panelEl.style.position = "absolute";
+    this.panelEl.style.left = "-9999px";
+    this.panelEl.style.top = "-9999px";
+    this.panelEl.style.zIndex = "100";
     container.appendChild(this.panelEl);
 
-    // 绝对定位，跟随当前面板
-    this.panelEl.style.position = "absolute";
-    this.panelEl.style.right = "60px";
-    this.panelEl.style.top = "50%";
-    this.panelEl.style.transform = "translateY(-50%)";
-    this.panelEl.style.zIndex = "100";
+    // 读取面板实际高度
+    const panelHeight = this.panelEl.offsetHeight || 300;
+
+    if (this.listBtn) {
+      const btnRect = this.listBtn.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const panelWidth = 300;
+
+      // 按钮在容器内的偏移
+      const btnLeftInContainer = btnRect.left - containerRect.left;
+      const btnTopInContainer = btnRect.top - containerRect.top;
+
+      // 水平方向：根据视口空间决定放哪边
+      const viewportSpaceRight = window.innerWidth - btnRect.right;
+      const viewportSpaceLeft = btnRect.left;
+      if (viewportSpaceRight >= panelWidth + 10) {
+        this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 10}px`;
+      } else if (viewportSpaceLeft >= panelWidth + 10) {
+        this.panelEl.style.left = `${btnLeftInContainer - panelWidth - 10}px`;
+      } else if (viewportSpaceRight >= viewportSpaceLeft) {
+        this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 5}px`;
+      } else {
+        this.panelEl.style.left = `${Math.max(0, btnLeftInContainer - panelWidth - 5)}px`;
+      }
+
+      // 垂直方向：尽量顶部对齐，但保证面板不超出视口
+      let panelTop = btnTopInContainer;
+      const panelBottomInViewport = btnRect.top + panelHeight;
+      if (panelBottomInViewport > window.innerHeight - 10) {
+        // 先尝试底部对齐按钮
+        panelTop = btnTopInContainer + btnRect.height - panelHeight;
+        // 如果顶部也超出视口，就贴视口顶部
+        const panelTopInViewport = btnRect.bottom - panelHeight;
+        if (panelTopInViewport < 10) {
+          panelTop = 10 - btnRect.top + containerRect.top;
+        }
+      }
+      this.panelEl.style.top = `${panelTop}px`;
+      this.panelEl.style.transform = "";
+    } else {
+      this.panelEl.style.right = "60px";
+      this.panelEl.style.top = "50%";
+      this.panelEl.style.transform = "translateY(-50%)";
+    }
 
     this.panelClickHandler = (e: MouseEvent) => {
       if (this.panelEl && !this.panelEl.contains(e.target as Node) &&
@@ -362,10 +484,23 @@ export class AnnotationListPanel {
 
   hide(): void {
     this.hidePanel();
+    if (this.dragMoveHandler) {
+      document.removeEventListener("mousemove", this.dragMoveHandler);
+      this.dragMoveHandler = null;
+    }
+    if (this.dragEndHandler) {
+      document.removeEventListener("mouseup", this.dragEndHandler);
+      this.dragEndHandler = null;
+    }
     if (this.listBtn) {
       this.listBtn.remove();
       this.listBtn = null;
     }
+  }
+
+  // 更新内部 notePath（供文件重命名时使用）
+  updateNotePath(newPath: string): void {
+    this.currentNotePath = newPath;
   }
 
   async refresh(): Promise<void> {

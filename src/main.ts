@@ -13,6 +13,7 @@ import { SelectionMenu } from "./ui/SelectionMenu";
 import { AnnotationMenu } from "./ui/AnnotationMenu";
 import { AnnotationListPanel } from "./ui/AnnotationListPanel";
 import { AnnotationSettingTab } from "./ui/AnnotationSettingTab";
+import { TooltipManager } from "./ui/TooltipManager";
 import { extractSelectionContext, calculateOffsetInBlock, extractCrossBlockSegments } from "./utils/contentMapper";
 import { countOccurrenceIndex } from "./utils/helpers";
 import type { BlockSegment } from "./types";
@@ -31,6 +32,7 @@ export default class AnnotationPlugin extends Plugin {
   // UI 组件
   selectionMenu!: SelectionMenu;
   annotationMenu!: AnnotationMenu;
+  tooltipManager!: TooltipManager;
   annotationPanels: Map<string, AnnotationListPanel> = new Map();
 
   // 实时同步防抖定时器
@@ -44,6 +46,9 @@ export default class AnnotationPlugin extends Plugin {
 
     this.selectionMenu = new SelectionMenu(this.app, this.fileManager, () => this.settings);
     this.annotationMenu = new AnnotationMenu(this.app, this.fileManager, () => this.settings);
+
+    this.tooltipManager = new TooltipManager(this);
+    this.tooltipManager.register();
 
     this.registerEvents();
     this.registerCommands();
@@ -89,6 +94,7 @@ export default class AnnotationPlugin extends Plugin {
 
     this.selectionMenu.hide();
     this.annotationMenu.hide();
+    this.tooltipManager.destroy();
 
     // 清理动态样式
     const styleEl = document.getElementById("annotation-dynamic-styles");
@@ -694,10 +700,55 @@ export default class AnnotationPlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("rename", async (file, oldPath) => {
         if (file instanceof TFile && file.extension === "md") {
+          // 迁移标注文件
           try {
             await this.fileManager.migrateAnnotationFile(oldPath, file.path);
           } catch (e) {
             console.error("迁移标注文件失败:", e);
+          }
+
+          // 更新活跃标注会话
+          const annotationPath = this.activeAnnotationSessions.get(oldPath);
+          if (annotationPath) {
+            // 清除旧假文件和元数据缓存
+            this.removeFakeTFile(annotationPath);
+            this.removeMetadataCache(annotationPath);
+
+            // 创建新假文件
+            const newAnnotationPath = normalizePath(
+              this.fileManager.getAnnotationFilePath(file.path)
+            );
+            const newFakeTFile = this.createFakeTFile(newAnnotationPath);
+
+            // 更新会话映射
+            this.activeAnnotationSessions.delete(oldPath);
+            this.activeAnnotationSessions.set(file.path, newAnnotationPath);
+
+            // 注入新元数据缓存
+            this.injectMetadataCache(newAnnotationPath, file.path, newFakeTFile);
+
+            // 更新打开的 leaf
+            this.app.workspace.iterateAllLeaves((leaf) => {
+              if ((leaf.view as any)?.file?.path === annotationPath) {
+                leaf.openFile(newFakeTFile, { state: { mode: "preview" } });
+              }
+            });
+
+            // 迁移同步定时器
+            const timer = this.syncToOriginalTimers.get(oldPath);
+            if (timer !== undefined) {
+              clearTimeout(timer);
+              this.syncToOriginalTimers.delete(oldPath);
+              this.debouncedSyncToOriginal(file.path);
+            }
+
+            // 迁移面板
+            const panel = this.annotationPanels.get(oldPath);
+            if (panel) {
+              this.annotationPanels.delete(oldPath);
+              this.annotationPanels.set(file.path, panel);
+              panel.updateNotePath(file.path);
+            }
           }
         }
       })
@@ -706,10 +757,43 @@ export default class AnnotationPlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("delete", async (file) => {
         if (file instanceof TFile && file.extension === "md") {
+          // 删除标注文件
           try {
             await this.fileManager.deleteAnnotationFile(file.path);
           } catch (e) {
             console.error("删除标注文件失败:", e);
+          }
+
+          // 清理活跃标注会话
+          const annotationPath = this.activeAnnotationSessions.get(file.path);
+          if (annotationPath) {
+            // 取消同步定时器（不回写，原文件已删除）
+            const timer = this.syncToOriginalTimers.get(file.path);
+            if (timer !== undefined) {
+              clearTimeout(timer);
+              this.syncToOriginalTimers.delete(file.path);
+            }
+
+            // 清理假文件和元数据
+            this.removeFakeTFile(annotationPath);
+            this.removeMetadataCache(annotationPath);
+            this.activeAnnotationSessions.delete(file.path);
+
+            // 隐藏 UI
+            const panel = this.annotationPanels.get(file.path);
+            if (panel) {
+              panel.hide();
+              this.annotationPanels.delete(file.path);
+            }
+            this.selectionMenu.hide();
+            this.annotationMenu.hide();
+
+            // 关闭显示该标注文件的 leaf
+            this.app.workspace.iterateAllLeaves((leaf) => {
+              if ((leaf.view as any)?.file?.path === annotationPath) {
+                leaf.detach();
+              }
+            });
           }
         }
       })

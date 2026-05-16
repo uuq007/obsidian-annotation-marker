@@ -2697,6 +2697,20 @@ var AnnotationListPanel = class {
     this.onUpdate = null;
     this.sortOption = "position-asc";
     this.panelClickHandler = null;
+    // 拖动相关
+    this.isMouseDown = false;
+    this.isDragging = false;
+    this.wasDragged = false;
+    this.dragStartX = 0;
+    this.dragStartY = 0;
+    this.dragStartLeft = 0;
+    this.dragStartTop = 0;
+    this.dragContainerWidth = 0;
+    this.dragContainerHeight = 0;
+    this.dragBtnWidth = 0;
+    this.dragBtnHeight = 0;
+    this.dragMoveHandler = null;
+    this.dragEndHandler = null;
     this.app = app;
     this.fileManager = fileManager;
   }
@@ -2721,6 +2735,10 @@ var AnnotationListPanel = class {
     this.listBtn.style.zIndex = "100";
     this.containerEl.appendChild(this.listBtn);
     this.listBtn.addEventListener("click", (e) => {
+      if (this.wasDragged) {
+        this.wasDragged = false;
+        return;
+      }
       e.stopPropagation();
       if (this.panelEl && this.panelEl.style.display !== "none") {
         this.hidePanel();
@@ -2728,6 +2746,52 @@ var AnnotationListPanel = class {
         this.showPanel();
       }
     });
+    this.listBtn.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      this.isMouseDown = true;
+      this.isDragging = false;
+      this.wasDragged = false;
+      const btnRect = this.listBtn.getBoundingClientRect();
+      const containerRect = this.containerEl.getBoundingClientRect();
+      this.dragStartX = e.clientX;
+      this.dragStartY = e.clientY;
+      this.dragStartLeft = btnRect.left - containerRect.left;
+      this.dragStartTop = btnRect.top - containerRect.top;
+      this.dragContainerWidth = containerRect.width;
+      this.dragContainerHeight = containerRect.height;
+      this.dragBtnWidth = btnRect.width;
+      this.dragBtnHeight = btnRect.height;
+    });
+    this.dragMoveHandler = (e) => {
+      if (!this.isMouseDown || !this.listBtn) return;
+      const dx = e.clientX - this.dragStartX;
+      const dy = e.clientY - this.dragStartY;
+      if (!this.isDragging && Math.abs(dx) + Math.abs(dy) > 3) {
+        this.isDragging = true;
+        this.listBtn.classList.add("dragging");
+      }
+      if (!this.isDragging) return;
+      let newLeft = this.dragStartLeft + dx;
+      let newTop = this.dragStartTop + dy;
+      newLeft = Math.max(0, Math.min(this.dragContainerWidth - this.dragBtnWidth, newLeft));
+      newTop = Math.max(0, Math.min(this.dragContainerHeight - this.dragBtnHeight, newTop));
+      this.listBtn.style.left = `${newLeft}px`;
+      this.listBtn.style.top = `${newTop}px`;
+      this.listBtn.style.right = "auto";
+      this.listBtn.style.transform = "none";
+    };
+    this.dragEndHandler = () => {
+      if (this.isDragging) {
+        this.wasDragged = true;
+        this.isDragging = false;
+      }
+      this.isMouseDown = false;
+      if (this.listBtn) {
+        this.listBtn.classList.remove("dragging");
+      }
+    };
+    document.addEventListener("mousemove", this.dragMoveHandler);
+    document.addEventListener("mouseup", this.dragEndHandler);
   }
   async showPanel() {
     if (!this.currentNotePath) return;
@@ -2753,15 +2817,48 @@ var AnnotationListPanel = class {
     const closeBtn = header.createEl("button", { cls: "annotation-list-close", text: "\xD7" });
     closeBtn.addEventListener("click", () => this.hidePanel());
     const content = this.panelEl.createDiv({ cls: "annotation-list-content" });
-    this.renderContent(content);
+    await this.renderContent(content);
     const container = this.containerEl;
     if (!container) return;
-    container.appendChild(this.panelEl);
     this.panelEl.style.position = "absolute";
-    this.panelEl.style.right = "60px";
-    this.panelEl.style.top = "50%";
-    this.panelEl.style.transform = "translateY(-50%)";
+    this.panelEl.style.left = "-9999px";
+    this.panelEl.style.top = "-9999px";
     this.panelEl.style.zIndex = "100";
+    container.appendChild(this.panelEl);
+    const panelHeight = this.panelEl.offsetHeight || 300;
+    if (this.listBtn) {
+      const btnRect = this.listBtn.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const panelWidth = 300;
+      const btnLeftInContainer = btnRect.left - containerRect.left;
+      const btnTopInContainer = btnRect.top - containerRect.top;
+      const viewportSpaceRight = window.innerWidth - btnRect.right;
+      const viewportSpaceLeft = btnRect.left;
+      if (viewportSpaceRight >= panelWidth + 10) {
+        this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 10}px`;
+      } else if (viewportSpaceLeft >= panelWidth + 10) {
+        this.panelEl.style.left = `${btnLeftInContainer - panelWidth - 10}px`;
+      } else if (viewportSpaceRight >= viewportSpaceLeft) {
+        this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 5}px`;
+      } else {
+        this.panelEl.style.left = `${Math.max(0, btnLeftInContainer - panelWidth - 5)}px`;
+      }
+      let panelTop = btnTopInContainer;
+      const panelBottomInViewport = btnRect.top + panelHeight;
+      if (panelBottomInViewport > window.innerHeight - 10) {
+        panelTop = btnTopInContainer + btnRect.height - panelHeight;
+        const panelTopInViewport = btnRect.bottom - panelHeight;
+        if (panelTopInViewport < 10) {
+          panelTop = 10 - btnRect.top + containerRect.top;
+        }
+      }
+      this.panelEl.style.top = `${panelTop}px`;
+      this.panelEl.style.transform = "";
+    } else {
+      this.panelEl.style.right = "60px";
+      this.panelEl.style.top = "50%";
+      this.panelEl.style.transform = "translateY(-50%)";
+    }
     this.panelClickHandler = (e) => {
       if (this.panelEl && !this.panelEl.contains(e.target) && (!this.listBtn || !this.listBtn.contains(e.target))) {
         this.hidePanel();
@@ -2970,10 +3067,22 @@ var AnnotationListPanel = class {
   }
   hide() {
     this.hidePanel();
+    if (this.dragMoveHandler) {
+      document.removeEventListener("mousemove", this.dragMoveHandler);
+      this.dragMoveHandler = null;
+    }
+    if (this.dragEndHandler) {
+      document.removeEventListener("mouseup", this.dragEndHandler);
+      this.dragEndHandler = null;
+    }
     if (this.listBtn) {
       this.listBtn.remove();
       this.listBtn = null;
     }
+  }
+  // 更新内部 notePath（供文件重命名时使用）
+  updateNotePath(newPath) {
+    this.currentNotePath = newPath;
   }
   async refresh() {
     if (this.panelEl) {
@@ -3054,6 +3163,111 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
+  }
+};
+
+// src/ui/TooltipManager.ts
+var TooltipManager = class {
+  constructor(plugin) {
+    this.tooltipEl = null;
+    this.hideTooltipTimeout = null;
+    this.plugin = plugin;
+  }
+  register() {
+    this.plugin.registerDomEvent(document, "mouseover", (e) => {
+      this.handleMouseOver(e);
+    });
+    this.plugin.registerDomEvent(document, "mousemove", (e) => {
+      this.handleMouseMove(e);
+    });
+    this.plugin.registerDomEvent(document, "mouseout", (e) => {
+      this.handleMouseOut(e);
+    });
+  }
+  handleMouseOver(e) {
+    if (!this.plugin.getActiveAnnotationNotePath()) return;
+    const target = e.target;
+    const markEl = target.closest("mark[data-annotation-id]");
+    if (!markEl) return;
+    const note = markEl.getAttribute("data-annotation-note");
+    if (!note) return;
+    if (this.hideTooltipTimeout) {
+      clearTimeout(this.hideTooltipTimeout);
+      this.hideTooltipTimeout = null;
+    }
+    if (!this.tooltipEl) {
+      this.tooltipEl = document.createElement("div");
+      this.tooltipEl.className = "annotation-highlight-tooltip";
+      document.body.appendChild(this.tooltipEl);
+    }
+    this.tooltipEl.innerHTML = `<div class="annotation-tooltip-label">\u6279\u6CE8\u5185\u5BB9</div><div class="annotation-tooltip-content">${this.escapeHtml(note)}</div>`;
+    this.positionTooltip(markEl);
+  }
+  handleMouseMove(e) {
+    if (!this.tooltipEl || !this.plugin.getActiveAnnotationNotePath()) return;
+    const target = e.target;
+    const markEl = target.closest("mark[data-annotation-id]");
+    if (!markEl) return;
+    const note = markEl.getAttribute("data-annotation-note");
+    if (!note) return;
+    this.positionTooltip(markEl);
+  }
+  handleMouseOut(e) {
+    const target = e.target;
+    const markEl = target.closest("mark[data-annotation-id]");
+    if (!markEl) return;
+    const relatedTarget = e.relatedTarget;
+    if (relatedTarget) {
+      const relatedMark = relatedTarget.closest("mark[data-annotation-id]");
+      if (relatedMark === markEl) return;
+    }
+    this.hideTooltipTimeout = window.setTimeout(() => {
+      this.hideTooltip();
+    }, 150);
+  }
+  positionTooltip(markEl) {
+    if (!this.tooltipEl) return;
+    const rect = markEl.getBoundingClientRect();
+    const tooltipRect = this.tooltipEl.getBoundingClientRect();
+    const threshold = window.innerHeight * 0.5;
+    if (rect.bottom > threshold) {
+      this.tooltipEl.classList.add("tooltip-bottom");
+      this.tooltipEl.style.top = `${rect.top - tooltipRect.height - 12}px`;
+    } else {
+      this.tooltipEl.classList.remove("tooltip-bottom");
+      this.tooltipEl.style.top = `${rect.bottom + 8}px`;
+    }
+    const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+    this.tooltipEl.style.left = `${Math.max(10, Math.min(left, window.innerWidth - tooltipRect.width - 10))}px`;
+    const arrowLeft = tooltipRect.width / 2 - 5;
+    this.tooltipEl.style.setProperty("--arrow-left", `${arrowLeft}px`);
+    this.tooltipEl.style.opacity = "1";
+    this.tooltipEl.style.visibility = "visible";
+  }
+  hideTooltip() {
+    if (this.tooltipEl) {
+      this.tooltipEl.style.opacity = "0";
+      this.tooltipEl.style.visibility = "hidden";
+    }
+  }
+  escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text.length > 200 ? text.substring(0, 200) + "..." : text;
+    return div.innerHTML;
+  }
+  hide() {
+    if (this.hideTooltipTimeout) {
+      clearTimeout(this.hideTooltipTimeout);
+      this.hideTooltipTimeout = null;
+    }
+    this.hideTooltip();
+  }
+  destroy() {
+    this.hide();
+    if (this.tooltipEl) {
+      this.tooltipEl.remove();
+      this.tooltipEl = null;
+    }
   }
 };
 
@@ -3221,6 +3435,8 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
     this.selectionMenu = new SelectionMenu(this.app, this.fileManager, () => this.settings);
     this.annotationMenu = new AnnotationMenu(this.app, this.fileManager, () => this.settings);
+    this.tooltipManager = new TooltipManager(this);
+    this.tooltipManager.register();
     this.registerEvents();
     this.registerCommands();
     this.registerCacheListeners();
@@ -3255,6 +3471,7 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
     this.annotationPanels.clear();
     this.selectionMenu.hide();
     this.annotationMenu.hide();
+    this.tooltipManager.destroy();
     const styleEl = document.getElementById("annotation-dynamic-styles");
     if (styleEl) styleEl.remove();
   }
@@ -3766,6 +3983,36 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
           } catch (e) {
             console.error("\u8FC1\u79FB\u6807\u6CE8\u6587\u4EF6\u5931\u8D25:", e);
           }
+          const annotationPath = this.activeAnnotationSessions.get(oldPath);
+          if (annotationPath) {
+            this.removeFakeTFile(annotationPath);
+            this.removeMetadataCache(annotationPath);
+            const newAnnotationPath = (0, import_obsidian7.normalizePath)(
+              this.fileManager.getAnnotationFilePath(file.path)
+            );
+            const newFakeTFile = this.createFakeTFile(newAnnotationPath);
+            this.activeAnnotationSessions.delete(oldPath);
+            this.activeAnnotationSessions.set(file.path, newAnnotationPath);
+            this.injectMetadataCache(newAnnotationPath, file.path, newFakeTFile);
+            this.app.workspace.iterateAllLeaves((leaf) => {
+              var _a, _b;
+              if (((_b = (_a = leaf.view) == null ? void 0 : _a.file) == null ? void 0 : _b.path) === annotationPath) {
+                leaf.openFile(newFakeTFile, { state: { mode: "preview" } });
+              }
+            });
+            const timer = this.syncToOriginalTimers.get(oldPath);
+            if (timer !== void 0) {
+              clearTimeout(timer);
+              this.syncToOriginalTimers.delete(oldPath);
+              this.debouncedSyncToOriginal(file.path);
+            }
+            const panel = this.annotationPanels.get(oldPath);
+            if (panel) {
+              this.annotationPanels.delete(oldPath);
+              this.annotationPanels.set(file.path, panel);
+              panel.updateNotePath(file.path);
+            }
+          }
         }
       })
     );
@@ -3776,6 +4023,30 @@ var AnnotationPlugin = class extends import_obsidian7.Plugin {
             await this.fileManager.deleteAnnotationFile(file.path);
           } catch (e) {
             console.error("\u5220\u9664\u6807\u6CE8\u6587\u4EF6\u5931\u8D25:", e);
+          }
+          const annotationPath = this.activeAnnotationSessions.get(file.path);
+          if (annotationPath) {
+            const timer = this.syncToOriginalTimers.get(file.path);
+            if (timer !== void 0) {
+              clearTimeout(timer);
+              this.syncToOriginalTimers.delete(file.path);
+            }
+            this.removeFakeTFile(annotationPath);
+            this.removeMetadataCache(annotationPath);
+            this.activeAnnotationSessions.delete(file.path);
+            const panel = this.annotationPanels.get(file.path);
+            if (panel) {
+              panel.hide();
+              this.annotationPanels.delete(file.path);
+            }
+            this.selectionMenu.hide();
+            this.annotationMenu.hide();
+            this.app.workspace.iterateAllLeaves((leaf) => {
+              var _a, _b;
+              if (((_b = (_a = leaf.view) == null ? void 0 : _a.file) == null ? void 0 : _b.path) === annotationPath) {
+                leaf.detach();
+              }
+            });
           }
         }
       })

@@ -499,9 +499,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
   z-index: 100;
 }
 
@@ -509,8 +511,10 @@
   background: var(--background-modifier-hover);
 }
 
-.annotation-list-btn:hover {
-  transform: translateY(-50%) scale(1.05);
+.annotation-list-btn.dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+  transition: none;
 }
 
 .annotation-list-btn span {
@@ -525,19 +529,10 @@
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   z-index: 100;
-  animation: annotation-panel-fade-in 0.15s ease-out;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
-
-@keyframes annotation-panel-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(-50%) translateX(10px);
-  }
-  to {
-    opacity: 1;
     transform: translateY(-50%) translateX(0);
   }
 }

@@ -1011,3 +1011,349 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   white-space: nowrap;
   pointer-events: none;
 }
+
+/* ========== 侧边栏标注管理视图 ========== */
+
+.annotation-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.annotation-sidebar-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.annotation-sidebar-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-normal);
+}
+
+.annotation-sidebar-sort-select {
+  padding: 3px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.annotation-sidebar-sort-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.annotation-sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.annotation-sidebar-tab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.annotation-sidebar-tab:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.annotation-sidebar-tab.active {
+  color: var(--interactive-accent);
+  border-bottom-color: var(--interactive-accent);
+}
+
+.annotation-sidebar-search {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.annotation-sidebar-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  color: var(--text-normal);
+  font-size: 13px;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+}
+
+.annotation-sidebar-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.annotation-sidebar-color-filters {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.annotation-sidebar-color-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.annotation-sidebar-color-btn:hover {
+  transform: scale(1.15);
+}
+
+.annotation-sidebar-color-btn.active {
+  border-color: var(--text-normal);
+  box-shadow: 0 0 0 2px var(--background-primary);
+}
+
+.annotation-sidebar-color-btn.annotation-sidebar-color-all {
+  width: auto;
+  height: auto;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.annotation-sidebar-color-btn.annotation-sidebar-color-all.active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* 颜色按钮复用 annotation-list-dot 的颜色 */
+
+.annotation-sidebar-card-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px;
+}
+
+.annotation-sidebar-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.annotation-sidebar-card:hover {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.annotation-sidebar-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.annotation-sidebar-card-header .annotation-list-dot {
+  flex-shrink: 0;
+}
+
+.annotation-sidebar-card-filename {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotation-sidebar-card-text {
+  font-size: 13px;
+  color: var(--text-normal);
+  line-height: 1.4;
+  word-break: break-word;
+  margin-bottom: 4px;
+}
+
+.annotation-sidebar-card-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  padding: 6px 8px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.annotation-sidebar-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.annotation-sidebar-card-actions .annotation-btn {
+  font-size: 12px;
+  padding: 3px 10px;
+  min-width: auto;
+  flex: 0;
+}
+
+.annotation-sidebar-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 32px 16px;
+  font-size: 14px;
+}
+
+/* ========== 侧边栏标注详情面板 ========== */
+
+.annotation-sidebar-detail {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 12px;
+}
+
+.annotation-sidebar-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.annotation-sidebar-detail-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-normal);
+}
+
+.annotation-sidebar-detail-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annotation-sidebar-detail-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.annotation-sidebar-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.annotation-sidebar-detail-section label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.annotation-sidebar-detail-text {
+  font-size: 14px;
+  color: var(--text-normal);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  word-break: break-word;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.annotation-sidebar-detail-section .annotation-list-badge {
+  align-self: flex-start;
+}
+
+.annotation-sidebar-detail-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.annotation-sidebar-detail-color .annotation-list-dot {
+  width: 16px;
+  height: 16px;
+}
+
+.annotation-sidebar-detail-note {
+  font-size: 13px;
+  color: var(--text-normal);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.annotation-sidebar-detail-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.annotation-sidebar-detail-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.annotation-sidebar-detail-ruby-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.annotation-sidebar-detail-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  flex-wrap: wrap;
+}
+
+.annotation-sidebar-detail-actions .annotation-btn {
+  flex: 1;
+  min-width: 60px;
+}
+
+.annotation-sidebar-card-time {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+  flex-shrink: 0;
+}

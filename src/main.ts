@@ -18,6 +18,7 @@ import { extractSelectionContext, calculateOffsetInBlock, extractCrossBlockSegme
 import { countOccurrenceIndex } from "./utils/helpers";
 import type { BlockSegment } from "./types";
 import { createAnnotationViewExtension } from "./view/annotationViewPlugin";
+import { AnnotationSidebarView, ANNOTATION_SIDEBAR_VIEW_TYPE } from "./sidebar/AnnotationSidebarView";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -37,6 +38,9 @@ export default class AnnotationPlugin extends Plugin {
 
   // 实时同步防抖定时器
   private syncToOriginalTimers: Map<string, number> = new Map();
+
+  // 侧边栏刷新回调
+  annotationChangeCallbacks: Array<() => void> = [];
 
   async onload() {
     await this.loadSettings();
@@ -61,6 +65,12 @@ export default class AnnotationPlugin extends Plugin {
     });
 
     this.addSettingTab(new AnnotationSettingTab(this));
+
+    // 注册侧边栏视图
+    this.registerView(
+      ANNOTATION_SIDEBAR_VIEW_TYPE,
+      (leaf) => new AnnotationSidebarView(leaf, this)
+    );
 
     this.updateDynamicStyles();
 
@@ -99,6 +109,9 @@ export default class AnnotationPlugin extends Plugin {
     // 清理动态样式
     const styleEl = document.getElementById("annotation-dynamic-styles");
     if (styleEl) styleEl.remove();
+
+    // 清理侧边栏回调
+    this.annotationChangeCallbacks = [];
   }
 
   async loadSettings() {
@@ -285,7 +298,7 @@ export default class AnnotationPlugin extends Plugin {
     }
   }
 
-  private getOriginalPathByAnnotationPath(annotationPath: string): string | null {
+  getOriginalPathByAnnotationPath(annotationPath: string): string | null {
     for (const [originalPath, aPath] of this.activeAnnotationSessions) {
       if (aPath === annotationPath) return originalPath;
     }
@@ -557,11 +570,21 @@ export default class AnnotationPlugin extends Plugin {
     });
   }
 
-  private async refreshAnnotationView(notePath: string) {
-    const leaf = this.app.workspace.activeLeaf;
-    if (!leaf) return;
+  async refreshAnnotationView(notePath: string) {
+    // 查找持有该标注文件的 MarkdownView（而非用 activeLeaf）
+    const annotationPath = this.activeAnnotationSessions.get(notePath);
+    if (!annotationPath) return;
 
-    const view = leaf.view as MarkdownView;
+    const views: MarkdownView[] = [];
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const v = leaf.view;
+      if (v instanceof MarkdownView && (v as any)?.file?.path === annotationPath) {
+        views.push(v);
+      }
+    });
+
+    if (views.length === 0) return;
+    const view = views[0]!;
 
     const content = await this.fileManager.readAnnotationFile(notePath);
 
@@ -589,6 +612,37 @@ export default class AnnotationPlugin extends Plugin {
     (view as any).data = content;
 
     this.annotationPanels.get(notePath)?.refresh();
+
+    // 通知侧边栏刷新
+    this.notifyAnnotationChange();
+  }
+
+  // ========== 侧边栏 ==========
+
+  notifyAnnotationChange(): void {
+    for (const cb of this.annotationChangeCallbacks) {
+      cb();
+    }
+  }
+
+  async toggleSidebarView(): Promise<void> {
+    const { workspace } = this.app;
+    const leaves = workspace.getLeavesOfType(ANNOTATION_SIDEBAR_VIEW_TYPE);
+
+    if (leaves.length > 0) {
+      for (const leaf of leaves) {
+        leaf.detach();
+      }
+    } else {
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({
+          type: ANNOTATION_SIDEBAR_VIEW_TYPE,
+          active: true,
+        });
+        workspace.revealLeaf(rightLeaf);
+      }
+    }
   }
 
   // ========== Section 行号捕获 ==========
@@ -815,6 +869,12 @@ export default class AnnotationPlugin extends Plugin {
         }
         return true;
       },
+    });
+
+    this.addCommand({
+      id: "toggle-annotation-sidebar",
+      name: "打开/关闭标注管理侧边栏",
+      callback: () => this.toggleSidebarView(),
     });
   }
 }

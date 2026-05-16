@@ -195,29 +195,32 @@ export class AnnotationListPanel {
       const btnLeftInContainer = btnRect.left - containerRect.left;
       const btnTopInContainer = btnRect.top - containerRect.top;
 
-      // 水平方向：根据视口空间决定放哪边
-      const viewportSpaceRight = window.innerWidth - btnRect.right;
-      const viewportSpaceLeft = btnRect.left;
-      if (viewportSpaceRight >= panelWidth + 10) {
+      // 容器在视口中的可见边界
+      const containerVisibleLeft = Math.max(containerRect.left, 0);
+      const containerVisibleRight = Math.min(containerRect.right, window.innerWidth);
+
+      // 面板在按钮右侧/左侧的可用空间（基于容器可见区域）
+      const spaceRight = containerVisibleRight - btnRect.right;
+      const spaceLeft = btnRect.left - containerVisibleLeft;
+
+      if (spaceRight >= panelWidth + 10) {
         this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 10}px`;
-      } else if (viewportSpaceLeft >= panelWidth + 10) {
+      } else if (spaceLeft >= panelWidth + 10) {
         this.panelEl.style.left = `${btnLeftInContainer - panelWidth - 10}px`;
-      } else if (viewportSpaceRight >= viewportSpaceLeft) {
+      } else if (spaceRight >= spaceLeft) {
         this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 5}px`;
       } else {
         this.panelEl.style.left = `${Math.max(0, btnLeftInContainer - panelWidth - 5)}px`;
       }
 
-      // 垂直方向：尽量顶部对齐，但保证面板不超出视口
+      // 垂直方向：使用容器可见边界
+      const containerVisibleTop = Math.max(containerRect.top, 0);
+      const containerVisibleBottom = Math.min(containerRect.bottom, window.innerHeight);
       let panelTop = btnTopInContainer;
-      const panelBottomInViewport = btnRect.top + panelHeight;
-      if (panelBottomInViewport > window.innerHeight - 10) {
-        // 先尝试底部对齐按钮
+      if (btnRect.top + panelHeight > containerVisibleBottom - 10) {
         panelTop = btnTopInContainer + btnRect.height - panelHeight;
-        // 如果顶部也超出视口，就贴视口顶部
-        const panelTopInViewport = btnRect.bottom - panelHeight;
-        if (panelTopInViewport < 10) {
-          panelTop = 10 - btnRect.top + containerRect.top;
+        if (btnRect.bottom - panelHeight < containerVisibleTop + 10) {
+          panelTop = containerVisibleTop - btnRect.top + containerRect.top + 10;
         }
       }
       this.panelEl.style.top = `${panelTop}px`;

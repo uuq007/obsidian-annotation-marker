@@ -2743,6 +2743,8 @@ var AnnotationListPanel = class {
       <option value="position-desc" ${this.sortOption === "position-desc" ? "selected" : ""}>\u6309\u5185\u5BB9\u5012\u5E8F\uFF08\u4ECE\u4E0B\u5230\u4E0A\uFF09</option>
       <option value="time-asc" ${this.sortOption === "time-asc" ? "selected" : ""}>\u6309\u65F6\u95F4\u6B63\u5E8F\uFF08\u4ECE\u65E7\u5230\u65B0\uFF09</option>
       <option value="time-desc" ${this.sortOption === "time-desc" ? "selected" : ""}>\u6309\u65F6\u95F4\u5012\u5E8F\uFF08\u4ECE\u65B0\u5230\u65E7\uFF09</option>
+      <option value="color-asc" ${this.sortOption === "color-asc" ? "selected" : ""}>\u6309\u989C\u8272\u6392\u5E8F\uFF08\u6B63\u5E8F\uFF09</option>
+      <option value="color-desc" ${this.sortOption === "color-desc" ? "selected" : ""}>\u6309\u989C\u8272\u6392\u5E8F\uFF08\u5012\u5E8F\uFF09</option>
     `;
     sortSelect.addEventListener("change", () => {
       this.sortOption = sortSelect.value;
@@ -2801,6 +2803,12 @@ var AnnotationListPanel = class {
         break;
       case "time-desc":
         sorted.sort((a, b) => parseInt(b.id) - parseInt(a.id));
+        break;
+      case "color-asc":
+        sorted.sort((a, b) => a.color.localeCompare(b.color));
+        break;
+      case "color-desc":
+        sorted.sort((a, b) => b.color.localeCompare(a.color));
         break;
     }
     for (const annotation of sorted) {

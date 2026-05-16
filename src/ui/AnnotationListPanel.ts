@@ -14,7 +14,7 @@ export class AnnotationListPanel {
   private listBtn: HTMLElement | null = null;
   private currentNotePath: string | null = null;
   private onUpdate: (() => void) | null = null;
-  private sortOption: "position-asc" | "position-desc" | "time-asc" | "time-desc" = "position-asc";
+  private sortOption: "position-asc" | "position-desc" | "time-asc" | "time-desc" | "color-asc" | "color-desc" = "position-asc";
   private panelClickHandler: ((e: MouseEvent) => void) | null = null;
 
   constructor(app: App, fileManager: AnnotationFileManager) {
@@ -81,6 +81,8 @@ export class AnnotationListPanel {
       <option value="position-desc" ${this.sortOption === "position-desc" ? "selected" : ""}>按内容倒序（从下到上）</option>
       <option value="time-asc" ${this.sortOption === "time-asc" ? "selected" : ""}>按时间正序（从旧到新）</option>
       <option value="time-desc" ${this.sortOption === "time-desc" ? "selected" : ""}>按时间倒序（从新到旧）</option>
+      <option value="color-asc" ${this.sortOption === "color-asc" ? "selected" : ""}>按颜色排序（正序）</option>
+      <option value="color-desc" ${this.sortOption === "color-desc" ? "selected" : ""}>按颜色排序（倒序）</option>
     `;
     sortSelect.addEventListener("change", () => {
       this.sortOption = sortSelect.value as typeof this.sortOption;
@@ -152,6 +154,12 @@ export class AnnotationListPanel {
         break;
       case "time-desc":
         sorted.sort((a, b) => parseInt(b.id) - parseInt(a.id));
+        break;
+      case "color-asc":
+        sorted.sort((a, b) => a.color.localeCompare(b.color));
+        break;
+      case "color-desc":
+        sorted.sort((a, b) => b.color.localeCompare(a.color));
         break;
     }
 

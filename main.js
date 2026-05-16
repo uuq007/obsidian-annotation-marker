@@ -2880,10 +2880,34 @@ var AnnotationListPanel = class {
   async scrollToAnnotation(annotation) {
     var _a, _b;
     this.hidePanel();
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    if (!view) return;
+    if (view.getMode() === "source") {
+      const doc = view.editor.getValue();
+      const blocks = scanAnnotationTags(doc, 0, doc);
+      const target = blocks.find((b) => b.id === annotation.id);
+      if (!target) {
+        new import_obsidian5.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8\uFF0C\u53EF\u80FD\u6587\u6863\u5185\u5BB9\u5DF2\u66F4\u6539");
+        return;
+      }
+      const pos = view.editor.offsetToPos(target.markOpenFrom);
+      view.editor.setCursor(pos);
+      view.editor.scrollIntoView({ from: pos, to: pos }, true);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const editorEl = view.containerEl;
+      if (editorEl) {
+        const highlightEls2 = editorEl.querySelectorAll(
+          `mark[data-annotation-id="${annotation.id}"]`
+        );
+        if (highlightEls2 && highlightEls2.length > 0) {
+          this.highlightElements(Array.from(highlightEls2));
+        }
+      }
+      return;
+    }
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath);
     const lineIndex = content.substring(0, annotation.positions[0].start).split("\n").length - 1;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
-    if (view == null ? void 0 : view.previewMode) {
+    if (view.previewMode) {
       const renderer = view.previewMode.renderer;
       if (renderer && typeof renderer.applyScroll === "function") {
         const currentFile = view == null ? void 0 : view.file;
@@ -2904,7 +2928,7 @@ var AnnotationListPanel = class {
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const containerEl = (_b = view == null ? void 0 : view.previewMode) == null ? void 0 : _b.containerEl;
+    const containerEl = (_b = view.previewMode) == null ? void 0 : _b.containerEl;
     const highlightEls = containerEl == null ? void 0 : containerEl.querySelectorAll(
       `mark[data-annotation-id="${annotation.id}"]`
     );

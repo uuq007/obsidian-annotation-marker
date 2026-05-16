@@ -3,6 +3,7 @@ import type { ParsedAnnotation } from "../types";
 import { COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
+import { scanAnnotationTags } from "../view/annotationTagParser";
 
 // 标注列表浮动面板（右侧按钮打开）
 export class AnnotationListPanel {
@@ -253,12 +254,41 @@ export class AnnotationListPanel {
   private async scrollToAnnotation(annotation: ParsedAnnotation): Promise<void> {
     this.hidePanel();
 
-    // 计算行号
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) return;
+
+    // 编辑模式：用 scanAnnotationTags 精确定位标注位置
+    if (view.getMode() === "source") {
+      const doc = view.editor.getValue();
+      const blocks = scanAnnotationTags(doc, 0, doc);
+      const target = blocks.find(b => b.id === annotation.id);
+      if (!target) {
+        new Notice("未能定位到标注，可能文档内容已更改");
+        return;
+      }
+      const pos = view.editor.offsetToPos(target.markOpenFrom);
+      view.editor.setCursor(pos);
+      view.editor.scrollIntoView({ from: pos, to: pos }, true);
+
+      // 等待渲染后高亮标注元素
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const editorEl = view.containerEl;
+      if (editorEl) {
+        const highlightEls = editorEl.querySelectorAll(
+          `mark[data-annotation-id="${annotation.id}"]`
+        );
+        if (highlightEls && highlightEls.length > 0) {
+          this.highlightElements(Array.from(highlightEls) as HTMLElement[]);
+        }
+      }
+      return;
+    }
+
+    // 阅读模式：计算行号并滚动
     const content = await this.fileManager.readAnnotationFile(this.currentNotePath!);
     const lineIndex = content.substring(0, annotation.positions[0]!.start).split("\n").length - 1;
 
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (view?.previewMode) {
+    if (view.previewMode) {
       const renderer = (view.previewMode as any).renderer;
       if (renderer && typeof renderer.applyScroll === "function") {
         // 判断是否为脚注区域的标注
@@ -286,7 +316,7 @@ export class AnnotationListPanel {
     // 等待渲染完成后查找并高亮
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    const containerEl = view?.previewMode?.containerEl;
+    const containerEl = view.previewMode?.containerEl;
     const highlightEls = containerEl?.querySelectorAll(
       `mark[data-annotation-id="${annotation.id}"]`
     );

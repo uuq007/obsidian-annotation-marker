@@ -54,11 +54,23 @@ export class EditNoteModal extends Modal {
     contentEl.createEl("h3", { text: this.currentNote ? "编辑批注" : "添加批注" });
 
     const previewEl = contentEl.createDiv({ cls: "annotation-modal-preview" });
-    previewEl.createEl("strong", { text: "标注文字：" });
-    const previewText = this.annotationText.length > 50
-      ? this.annotationText.substring(0, 50) + "..."
+    const previewHeader = previewEl.createDiv({ cls: "annotation-modal-preview-header" });
+    previewHeader.createEl("strong", { text: "标注文字：" });
+    const copyBtn = previewHeader.createEl("button", {
+      cls: "annotation-copy-btn",
+      text: "复制",
+    });
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(this.annotationText).then(() => {
+        copyBtn.textContent = "已复制";
+        setTimeout(() => { copyBtn.textContent = "复制"; }, 1500);
+      });
+    });
+    const previewText = this.annotationText.length > 200
+      ? this.annotationText.substring(0, 200) + "..."
       : this.annotationText;
-    previewEl.createEl("span", { text: previewText });
+    const previewSpan = previewEl.createEl("span", { text: previewText, cls: "annotation-modal-preview-text" });
+    previewSpan.style.whiteSpace = "pre-wrap";
 
     // 颜色选择
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });

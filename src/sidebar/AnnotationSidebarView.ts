@@ -11,7 +11,7 @@ import type AnnotationPlugin from "../main";
 export const ANNOTATION_SIDEBAR_VIEW_TYPE = "annotation-sidebar-view";
 
 type SidebarMode = "current" | "all";
-type SortOption = "position-asc" | "position-desc" | "time-asc" | "time-desc" | "color-asc" | "color-desc";
+type SortOption = "position-asc" | "position-desc" | "time-asc" | "time-desc" | "color-asc" | "color-desc" | "by-note";
 
 export class AnnotationSidebarView extends ItemView {
   private plugin: AnnotationPlugin;
@@ -26,6 +26,7 @@ export class AnnotationSidebarView extends ItemView {
   // DOM 引用
   private cardListEl: HTMLElement | null = null;
   private searchInput: HTMLInputElement | null = null;
+  private sortSelect: HTMLSelectElement | null = null;
   private tabs: Record<SidebarMode, HTMLElement> = { current: null!, all: null! };
   private colorBtns: Map<string, HTMLElement> = new Map();
 
@@ -114,19 +115,45 @@ export class AnnotationSidebarView extends ItemView {
     const toolbar = container.createDiv({ cls: "annotation-sidebar-toolbar" });
     toolbar.createSpan({ cls: "annotation-sidebar-title", text: "标注管理" });
 
-    const sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
-    sortSelect.innerHTML = `
-      <option value="position-asc">按内容顺序</option>
-      <option value="position-desc">按内容倒序</option>
-      <option value="time-asc">按时间正序</option>
-      <option value="time-desc">按时间倒序</option>
-      <option value="color-asc">按颜色排序</option>
-      <option value="color-desc">按颜色倒序</option>
-    `;
-    sortSelect.addEventListener("change", () => {
-      this.sortOption = sortSelect.value as SortOption;
+    this.sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
+    this.sortSelect.addEventListener("change", () => {
+      this.sortOption = this.sortSelect!.value as SortOption;
       this.renderCards();
     });
+    this.updateSortOptions();
+  }
+
+  private updateSortOptions(): void {
+    if (!this.sortSelect) return;
+    const currentValue = this.sortOption;
+    this.sortSelect.innerHTML = "";
+
+    if (this.mode === "current") {
+      this.sortSelect.innerHTML = `
+        <option value="position-asc">按内容顺序</option>
+        <option value="position-desc">按内容倒序</option>
+        <option value="time-asc">按时间正序</option>
+        <option value="time-desc">按时间倒序</option>
+        <option value="color-asc">按颜色排序</option>
+        <option value="color-desc">按颜色倒序</option>
+      `;
+      // 如果当前选项不适用于当前笔记模式，回退
+      if (!["position-asc", "position-desc", "time-asc", "time-desc", "color-asc", "color-desc"].includes(currentValue)) {
+        this.sortOption = "position-asc";
+      }
+    } else {
+      this.sortSelect.innerHTML = `
+        <option value="by-note">按笔记排序</option>
+        <option value="time-asc">按时间正序</option>
+        <option value="time-desc">按时间倒序</option>
+        <option value="color-asc">按颜色排序</option>
+      `;
+      // 如果当前选项不适用于全部笔记模式，回退
+      if (!["by-note", "time-asc", "time-desc", "color-asc"].includes(currentValue)) {
+        this.sortOption = "by-note";
+      }
+    }
+    this.sortSelect.value = this.sortOption;
   }
 
   private renderTabs(container: HTMLElement): void {
@@ -150,6 +177,7 @@ export class AnnotationSidebarView extends ItemView {
     this.mode = newMode;
     this.tabs.current.toggleClass("active", newMode === "current");
     this.tabs.all.toggleClass("active", newMode === "all");
+    this.updateSortOptions();
     this.closeDetailPanel();
     this.refresh();
   }
@@ -352,6 +380,13 @@ export class AnnotationSidebarView extends ItemView {
       case "color-desc":
         sorted.sort((a, b) => b.annotation.color.localeCompare(a.annotation.color));
         break;
+      case "by-note":
+        sorted.sort((a, b) => {
+          const cmp = a.notePath.localeCompare(b.notePath);
+          if (cmp !== 0) return cmp;
+          return a.annotation.positions[0]!.start - b.annotation.positions[0]!.start;
+        });
+        break;
     }
     return sorted;
   }
@@ -397,9 +432,17 @@ export class AnnotationSidebarView extends ItemView {
     });
     closeBtn.addEventListener("click", () => this.closeDetailPanel());
 
-    // 标注文字（只读）
+    // 标注文字（可选中）
     const textSection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
-    textSection.createEl("label", { text: "标注文字" });
+    const textHeader = textSection.createDiv({ cls: "annotation-sidebar-detail-label-row" });
+    textHeader.createEl("label", { text: "标注文字" });
+    const textCopyBtn = textHeader.createEl("button", { cls: "annotation-copy-btn", text: "复制" });
+    textCopyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(annotation.text).then(() => {
+        textCopyBtn.textContent = "已复制";
+        setTimeout(() => { textCopyBtn.textContent = "复制"; }, 1500);
+      });
+    });
     textSection.createDiv({ cls: "annotation-sidebar-detail-text", text: annotation.text });
 
     // 全文/跨段标记
@@ -441,7 +484,8 @@ export class AnnotationSidebarView extends ItemView {
 
     // 批注内容
     const noteSection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
-    noteSection.createEl("label", { text: "批注内容" });
+    const noteHeader = noteSection.createDiv({ cls: "annotation-sidebar-detail-label-row" });
+    noteHeader.createEl("label", { text: "批注内容" });
 
     if (this.detailIsEditing) {
       const noteInput = noteSection.createEl("textarea", {
@@ -462,6 +506,15 @@ export class AnnotationSidebarView extends ItemView {
         charCount.toggleClass("annotation-char-count-error", noteInput.value.length > 400);
       });
     } else {
+      if (annotation.note) {
+        const noteCopyBtn = noteHeader.createEl("button", { cls: "annotation-copy-btn", text: "复制" });
+        noteCopyBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText(annotation.note).then(() => {
+            noteCopyBtn.textContent = "已复制";
+            setTimeout(() => { noteCopyBtn.textContent = "复制"; }, 1500);
+          });
+        });
+      }
       noteSection.createDiv({
         cls: "annotation-sidebar-detail-note",
         text: annotation.note || "（无批注）",

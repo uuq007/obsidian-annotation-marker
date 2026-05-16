@@ -2164,9 +2164,23 @@ var EditNoteModal = class extends import_obsidian3.Modal {
     this.containerEl.addEventListener("focusin", (e) => e.stopPropagation());
     contentEl.createEl("h3", { text: this.currentNote ? "\u7F16\u8F91\u6279\u6CE8" : "\u6DFB\u52A0\u6279\u6CE8" });
     const previewEl = contentEl.createDiv({ cls: "annotation-modal-preview" });
-    previewEl.createEl("strong", { text: "\u6807\u6CE8\u6587\u5B57\uFF1A" });
-    const previewText = this.annotationText.length > 50 ? this.annotationText.substring(0, 50) + "..." : this.annotationText;
-    previewEl.createEl("span", { text: previewText });
+    const previewHeader = previewEl.createDiv({ cls: "annotation-modal-preview-header" });
+    previewHeader.createEl("strong", { text: "\u6807\u6CE8\u6587\u5B57\uFF1A" });
+    const copyBtn = previewHeader.createEl("button", {
+      cls: "annotation-copy-btn",
+      text: "\u590D\u5236"
+    });
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(this.annotationText).then(() => {
+        copyBtn.textContent = "\u5DF2\u590D\u5236";
+        setTimeout(() => {
+          copyBtn.textContent = "\u590D\u5236";
+        }, 1500);
+      });
+    });
+    const previewText = this.annotationText.length > 200 ? this.annotationText.substring(0, 200) + "..." : this.annotationText;
+    const previewSpan = previewEl.createEl("span", { text: previewText, cls: "annotation-modal-preview-text" });
+    previewSpan.style.whiteSpace = "pre-wrap";
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });
     colorContainer.createEl("label", { text: "\u6807\u6CE8\u989C\u8272\uFF1A" });
     const colors = [...ALL_COLORS];
@@ -3498,6 +3512,7 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     // DOM 引用
     this.cardListEl = null;
     this.searchInput = null;
+    this.sortSelect = null;
     this.tabs = { current: null, all: null };
     this.colorBtns = /* @__PURE__ */ new Map();
     // 详情面板状态
@@ -3562,19 +3577,41 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
   renderToolbar(container) {
     const toolbar = container.createDiv({ cls: "annotation-sidebar-toolbar" });
     toolbar.createSpan({ cls: "annotation-sidebar-title", text: "\u6807\u6CE8\u7BA1\u7406" });
-    const sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
-    sortSelect.innerHTML = `
-      <option value="position-asc">\u6309\u5185\u5BB9\u987A\u5E8F</option>
-      <option value="position-desc">\u6309\u5185\u5BB9\u5012\u5E8F</option>
-      <option value="time-asc">\u6309\u65F6\u95F4\u6B63\u5E8F</option>
-      <option value="time-desc">\u6309\u65F6\u95F4\u5012\u5E8F</option>
-      <option value="color-asc">\u6309\u989C\u8272\u6392\u5E8F</option>
-      <option value="color-desc">\u6309\u989C\u8272\u5012\u5E8F</option>
-    `;
-    sortSelect.addEventListener("change", () => {
-      this.sortOption = sortSelect.value;
+    this.sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
+    this.sortSelect.addEventListener("change", () => {
+      this.sortOption = this.sortSelect.value;
       this.renderCards();
     });
+    this.updateSortOptions();
+  }
+  updateSortOptions() {
+    if (!this.sortSelect) return;
+    const currentValue = this.sortOption;
+    this.sortSelect.innerHTML = "";
+    if (this.mode === "current") {
+      this.sortSelect.innerHTML = `
+        <option value="position-asc">\u6309\u5185\u5BB9\u987A\u5E8F</option>
+        <option value="position-desc">\u6309\u5185\u5BB9\u5012\u5E8F</option>
+        <option value="time-asc">\u6309\u65F6\u95F4\u6B63\u5E8F</option>
+        <option value="time-desc">\u6309\u65F6\u95F4\u5012\u5E8F</option>
+        <option value="color-asc">\u6309\u989C\u8272\u6392\u5E8F</option>
+        <option value="color-desc">\u6309\u989C\u8272\u5012\u5E8F</option>
+      `;
+      if (!["position-asc", "position-desc", "time-asc", "time-desc", "color-asc", "color-desc"].includes(currentValue)) {
+        this.sortOption = "position-asc";
+      }
+    } else {
+      this.sortSelect.innerHTML = `
+        <option value="by-note">\u6309\u7B14\u8BB0\u6392\u5E8F</option>
+        <option value="time-asc">\u6309\u65F6\u95F4\u6B63\u5E8F</option>
+        <option value="time-desc">\u6309\u65F6\u95F4\u5012\u5E8F</option>
+        <option value="color-asc">\u6309\u989C\u8272\u6392\u5E8F</option>
+      `;
+      if (!["by-note", "time-asc", "time-desc", "color-asc"].includes(currentValue)) {
+        this.sortOption = "by-note";
+      }
+    }
+    this.sortSelect.value = this.sortOption;
   }
   renderTabs(container) {
     const tabsEl = container.createDiv({ cls: "annotation-sidebar-tabs" });
@@ -3594,6 +3631,7 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     this.mode = newMode;
     this.tabs.current.toggleClass("active", newMode === "current");
     this.tabs.all.toggleClass("active", newMode === "all");
+    this.updateSortOptions();
     this.closeDetailPanel();
     this.refresh();
   }
@@ -3765,6 +3803,13 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
       case "color-desc":
         sorted.sort((a, b) => b.annotation.color.localeCompare(a.annotation.color));
         break;
+      case "by-note":
+        sorted.sort((a, b) => {
+          const cmp = a.notePath.localeCompare(b.notePath);
+          if (cmp !== 0) return cmp;
+          return a.annotation.positions[0].start - b.annotation.positions[0].start;
+        });
+        break;
     }
     return sorted;
   }
@@ -3800,7 +3845,17 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     });
     closeBtn.addEventListener("click", () => this.closeDetailPanel());
     const textSection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
-    textSection.createEl("label", { text: "\u6807\u6CE8\u6587\u5B57" });
+    const textHeader = textSection.createDiv({ cls: "annotation-sidebar-detail-label-row" });
+    textHeader.createEl("label", { text: "\u6807\u6CE8\u6587\u5B57" });
+    const textCopyBtn = textHeader.createEl("button", { cls: "annotation-copy-btn", text: "\u590D\u5236" });
+    textCopyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(annotation.text).then(() => {
+        textCopyBtn.textContent = "\u5DF2\u590D\u5236";
+        setTimeout(() => {
+          textCopyBtn.textContent = "\u590D\u5236";
+        }, 1500);
+      });
+    });
     textSection.createDiv({ cls: "annotation-sidebar-detail-text", text: annotation.text });
     if (annotation.isFullText && annotation.positions.length > 1) {
       textSection.createDiv({
@@ -3834,7 +3889,8 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
       });
     }
     const noteSection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
-    noteSection.createEl("label", { text: "\u6279\u6CE8\u5185\u5BB9" });
+    const noteHeader = noteSection.createDiv({ cls: "annotation-sidebar-detail-label-row" });
+    noteHeader.createEl("label", { text: "\u6279\u6CE8\u5185\u5BB9" });
     if (this.detailIsEditing) {
       const noteInput = noteSection.createEl("textarea", {
         cls: "annotation-sidebar-detail-textarea"
@@ -3853,6 +3909,17 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
         charCount.toggleClass("annotation-char-count-error", noteInput.value.length > 400);
       });
     } else {
+      if (annotation.note) {
+        const noteCopyBtn = noteHeader.createEl("button", { cls: "annotation-copy-btn", text: "\u590D\u5236" });
+        noteCopyBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText(annotation.note).then(() => {
+            noteCopyBtn.textContent = "\u5DF2\u590D\u5236";
+            setTimeout(() => {
+              noteCopyBtn.textContent = "\u590D\u5236";
+            }, 1500);
+          });
+        });
+      }
       noteSection.createDiv({
         cls: "annotation-sidebar-detail-note",
         text: annotation.note || "\uFF08\u65E0\u6279\u6CE8\uFF09"

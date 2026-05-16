@@ -266,6 +266,7 @@
 
 .annotation-note-modal {
   padding: 16px;
+  max-width: 480px;
 }
 
 .annotation-note-modal h3 {
@@ -281,21 +282,48 @@
   border-radius: 6px;
 }
 
-.annotation-modal-preview strong {
-  color: var(--text-muted);
-  font-size: 12px;
-  display: block;
+.annotation-modal-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 4px;
 }
 
-.annotation-modal-preview span {
+.annotation-modal-preview strong {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.annotation-modal-preview-text {
   color: var(--text-normal);
   font-size: 13px;
-  word-break: break-all;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
+}
+
+.annotation-copy-btn {
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.annotation-copy-btn:hover {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-normal);
 }
 
 .annotation-color-picker {
   margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .annotation-color-picker label {
@@ -1277,6 +1305,17 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   font-weight: 500;
 }
 
+.annotation-sidebar-detail-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.annotation-sidebar-detail-label-row label {
+  margin-bottom: 0;
+}
+
 .annotation-sidebar-detail-text {
   font-size: 14px;
   color: var(--text-normal);
@@ -1286,6 +1325,9 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   border-radius: 6px;
   word-break: break-word;
   border-left: 3px solid var(--interactive-accent);
+  white-space: pre-wrap;
+  user-select: text;
+  cursor: text;
 }
 
 .annotation-sidebar-detail-section .annotation-list-badge {
@@ -1312,6 +1354,8 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   border-radius: 6px;
   word-break: break-word;
   white-space: pre-wrap;
+  user-select: text;
+  cursor: text;
 }
 
 .annotation-sidebar-detail-textarea {

@@ -913,12 +913,11 @@ mark[data-annotation-id] {
   cursor: pointer;
   border-radius: 2px;
   padding: 0 2px;
-  transition: all 0.15s ease;
+  transition: box-shadow 0.15s ease;
 }
 
 mark[data-annotation-id]:hover {
-  filter: brightness(0.9);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   outline: 1px solid rgba(0, 0, 0, 0.2);
 }
 

@@ -1,13 +1,13 @@
 .annotation-mode-active .markdown-preview-viewer,
 .annotation-mode-active .markdown-preview-sizer,
 .annotation-mode-active .markdown-preview {
-  cursor: text !important;
+  cursor: text;
 }
 
 .annotation-mode-active .markdown-preview-viewer:hover,
 .annotation-mode-active .markdown-preview-sizer:hover,
 .annotation-mode-active .markdown-preview:hover {
-  cursor: text !important;
+  cursor: text;
 }
 
 .annotation-highlight {
@@ -373,6 +373,10 @@
   margin-top: 6px;
 }
 
+.annotation-char-count-error {
+  color: #ff6b6b;
+}
+
 .annotation-modal-buttons {
   display: flex;
   justify-content: flex-end;
@@ -439,15 +443,6 @@
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 500;
-}
-
-.annotation-char-count {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.annotation-char-count-error {
-  color: #ff6b6b;
 }
 
 .annotation-highlight-tooltip {
@@ -570,6 +565,8 @@
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   border-radius: 8px 8px 0 0;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .annotation-list-title {
@@ -676,18 +673,6 @@
   line-height: 1.4;
   word-break: break-word;
   overflow-wrap: break-word;
-}
-
-.annotation-list-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  border-radius: 8px 8px 0 0;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .annotation-list-sort-container {
@@ -940,8 +925,7 @@ mark[data-annotation-id] mark[data-annotation-id] {
 
 /* 波浪线 */
 [data-note-effect="underline-wavy"] mark[data-annotation-note]:not([data-annotation-note=""]) {
-  text-decoration: underline wavy var(--annotation-accent, transparent);
-  text-underline-offset: 3px;
+  border-bottom: 2px wavy var(--annotation-accent, transparent);
 }
 
 /* 双下划线 */
@@ -1006,8 +990,7 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   border-bottom: 2px dashed var(--annotation-accent, transparent);
 }
 [data-note-effect="underline-wavy"] .cm-annotation-has-note {
-  text-decoration: underline wavy var(--annotation-accent, transparent);
-  text-underline-offset: 3px;
+  border-bottom: 2px wavy var(--annotation-accent, transparent);
 }
 [data-note-effect="underline-double"] .cm-annotation-has-note {
   border-bottom: 3px double var(--annotation-accent, transparent);

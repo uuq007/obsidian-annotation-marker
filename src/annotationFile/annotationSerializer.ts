@@ -58,8 +58,8 @@ export function buildMarkTag(
 }
 
 // 在标注文件内容中插入新标注
-export function insertAnnotation(content: string, annotation: NewAnnotation): { content: string; id: string } {
-  const id = generateId();
+export function insertAnnotation(content: string, annotation: NewAnnotation, customId?: string): { content: string; id: string } {
+  const id = customId ?? generateId();
 
   let start = -1;
   let end = -1;

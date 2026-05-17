@@ -220,7 +220,7 @@ export class AnnotationListPanel {
       if (btnRect.top + panelHeight > containerVisibleBottom - 10) {
         panelTop = btnTopInContainer + btnRect.height - panelHeight;
         if (btnRect.bottom - panelHeight < containerVisibleTop + 10) {
-          panelTop = containerVisibleTop - btnRect.top + containerRect.top + 10;
+          panelTop = containerVisibleTop - containerRect.top + 10;
         }
       }
       this.panelEl.style.top = `${panelTop}px`;

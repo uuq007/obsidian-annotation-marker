@@ -176,7 +176,9 @@ export async function importOldAnnotations(
           newAnnotation.rubyTexts = oldAnn.rubyTexts;
         }
 
-        const insertResult = insertAnnotation(content, newAnnotation);
+        const createdTimestamp = new Date(oldAnn.createdAt).getTime().toString();
+        const importId = createdTimestamp + "-" + Math.random().toString(36).substring(2, 11);
+        const insertResult = insertAnnotation(content, newAnnotation, importId);
 
         if (insertResult.content !== content) {
           content = insertResult.content;
@@ -191,7 +193,7 @@ export async function importOldAnnotations(
             contextAfter: oldAnn.contextAfter,
           };
 
-          const fallbackResult = insertAnnotation(content, fallbackAnn);
+          const fallbackResult = insertAnnotation(content, fallbackAnn, importId);
           if (fallbackResult.content !== content) {
             content = fallbackResult.content;
             result.imported++;

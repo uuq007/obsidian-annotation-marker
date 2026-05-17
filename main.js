@@ -81,7 +81,7 @@ var PATH_SEPARATOR = "&.";
 
 // src/utils/helpers.ts
 function generateId() {
-  return Date.now().toString();
+  return Date.now().toString() + "-" + Math.random().toString(36).substring(2, 11);
 }
 function notePathToAnnotationPath(pluginDir, notePath) {
   const normalizedPath = notePath.replace(/[/\\]/g, PATH_SEPARATOR);
@@ -824,8 +824,8 @@ function buildMarkTag(id, text, color, note, rubyTexts, createdAt, isFullText, i
   const annotatedText = buildAnnotatedText(text, id, rubyTexts);
   return `<mark style="background:${bgVar};--annotation-accent:${accentVar}" data-annotation-id="${id}"${noteAttr}${fullTextAttr}${crossBlockAttr}>${annotatedText}</mark>`;
 }
-function insertAnnotation(content, annotation) {
-  const id = generateId();
+function insertAnnotation(content, annotation, customId) {
+  const id = customId != null ? customId : generateId();
   let start = -1;
   let end = -1;
   if (annotation.position) {
@@ -2967,7 +2967,7 @@ var AnnotationListPanel = class {
       if (btnRect.top + panelHeight > containerVisibleBottom - 10) {
         panelTop = btnTopInContainer + btnRect.height - panelHeight;
         if (btnRect.bottom - panelHeight < containerVisibleTop + 10) {
-          panelTop = containerVisibleTop - btnRect.top + containerRect.top + 10;
+          panelTop = containerVisibleTop - containerRect.top + 10;
         }
       }
       this.panelEl.style.top = `${panelTop}px`;
@@ -4253,7 +4253,9 @@ async function importOldAnnotations(app, fileManager, pluginDir) {
         if (oldAnn.rubyTexts && oldAnn.rubyTexts.length > 0) {
           newAnnotation.rubyTexts = oldAnn.rubyTexts;
         }
-        const insertResult = insertAnnotation(content, newAnnotation);
+        const createdTimestamp = new Date(oldAnn.createdAt).getTime().toString();
+        const importId = createdTimestamp + "-" + Math.random().toString(36).substring(2, 11);
+        const insertResult = insertAnnotation(content, newAnnotation, importId);
         if (insertResult.content !== content) {
           content = insertResult.content;
           result.imported++;
@@ -4265,7 +4267,7 @@ async function importOldAnnotations(app, fileManager, pluginDir) {
             contextBefore: oldAnn.contextBefore,
             contextAfter: oldAnn.contextAfter
           };
-          const fallbackResult = insertAnnotation(content, fallbackAnn);
+          const fallbackResult = insertAnnotation(content, fallbackAnn, importId);
           if (fallbackResult.content !== content) {
             content = fallbackResult.content;
             result.imported++;

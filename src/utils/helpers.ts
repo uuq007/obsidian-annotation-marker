@@ -2,7 +2,7 @@ import { PATH_SEPARATOR } from "../constants";
 
 // 生成唯一 ID（时间戳）
 export function generateId(): string {
-  return Date.now().toString();
+  return Date.now().toString() + "-" + Math.random().toString(36).substring(2, 11);
 }
 
 // 将笔记路径转换为标注文件路径

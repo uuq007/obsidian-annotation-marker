@@ -3,3 +3,4 @@ node_modules/
 Thumbs.db
 *.map
 data.json
+main.js

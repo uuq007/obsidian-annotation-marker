@@ -77,6 +77,19 @@ export class AnnotationSettingTab extends PluginSettingTab {
         });
       });
 
+    // 批注最大长度
+    new Setting(containerEl)
+      .setName("批注最大长度")
+      .setDesc("批注内容允许的最大字符数")
+      .addText((txt) => {
+        txt.setValue(String(this.plugin.settings.maxNoteLength));
+        txt.onChange(async (v) => {
+          const num = parseInt(v, 10);
+          this.plugin.settings.maxNoteLength = isNaN(num) ? 500 : num;
+          await this.plugin.saveSettings();
+        });
+      });
+
     // 注音样式
     containerEl.createEl("h3", { text: "注音样式" });
 

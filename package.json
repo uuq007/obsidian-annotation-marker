@@ -1,6 +1,6 @@
 {
   "name": "obsidian-annotation-marker",
-  "version": "3.0.0",
+  "version": "3.0.2",
   "description": "Obsidian标注插件 - 为 Markdown 笔记添加标注、高亮和批注",
   "main": "main.js",
   "type": "module",

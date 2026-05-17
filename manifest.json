@@ -1,7 +1,7 @@
 {
   "id": "annotation-marker",
   "name": "Annotation Marker",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "minAppVersion": "1.12.7",
   "description": "为 Markdown 笔记添加标注、高亮和批注，使用自定义视图渲染.",
   "author": "uuq007",

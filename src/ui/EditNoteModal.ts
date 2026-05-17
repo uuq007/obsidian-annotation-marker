@@ -45,6 +45,7 @@ export class EditNoteModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     const settings = this.getSettings();
+    const maxLen = settings.maxNoteLength;
     contentEl.addClass("annotation-note-modal");
 
     this.containerEl.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -90,21 +91,21 @@ export class EditNoteModal extends Modal {
     }
 
     const noteContainer = contentEl.createDiv({ cls: "annotation-note-container" });
-    noteContainer.createEl("label", { text: "批注内容（最多400字）：" });
+    noteContainer.createEl("label", { text: `批注内容（最多${maxLen}字）：` });
     this.noteInput = noteContainer.createEl("textarea", { cls: "annotation-note-input" });
-    this.noteInput.setAttribute("maxlength", "400");
+    this.noteInput.setAttribute("maxlength", String(maxLen));
     this.noteInput.setAttribute("rows", "4");
     this.noteInput.setAttribute("placeholder", "请输入批注内容...");
     this.noteInput.value = this.currentNote;
 
     const charCount = noteContainer.createDiv({
       cls: "annotation-char-count",
-      text: `${this.currentNote.length}/400`,
+      text: `${this.currentNote.length}/${maxLen}`,
     });
     this.noteInput.addEventListener("input", () => {
       const len = this.noteInput?.value.length ?? 0;
-      charCount.textContent = `${len}/400`;
-      charCount.toggleClass("annotation-char-count-error", len > 400);
+      charCount.textContent = `${len}/${maxLen}`;
+      charCount.toggleClass("annotation-char-count-error", len > maxLen);
     });
 
     this.buildRubySection(contentEl);

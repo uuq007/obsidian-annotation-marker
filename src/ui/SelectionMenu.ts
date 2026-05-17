@@ -69,6 +69,7 @@ export class SelectionMenu {
     this.selectedRubyRange = null;
     this.blockSegments = params.blockSegments ?? null;
     this.editorRange = params.editorRange ?? null;
+    const maxLen = this.getSettings().maxNoteLength;
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
@@ -125,18 +126,18 @@ export class SelectionMenu {
     const noteSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
     const noteLabel = noteSection.createDiv({ cls: "annotation-note-label-row" });
     noteLabel.createEl("label", { text: "或添加批注" });
-    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: "(0/400)" });
+    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: `(0/${maxLen})` });
 
     this.noteInput = noteSection.createEl("textarea", {
       cls: "annotation-note-input-small",
-      placeholder: "输入批注内容（可选，最多400字）...",
+      placeholder: `输入批注内容（可选，最多${maxLen}字）...`,
     });
-    this.noteInput.setAttribute("maxlength", "400");
+    this.noteInput.setAttribute("maxlength", String(maxLen));
     this.noteInput.addEventListener("input", () => {
       const len = this.noteInput!.value.length;
       this.pendingNote = this.noteInput!.value;
-      charCount.textContent = `(${len}/400)`;
-      charCount.toggleClass("annotation-char-count-error", len > 400);
+      charCount.textContent = `(${len}/${maxLen})`;
+      charCount.toggleClass("annotation-char-count-error", len > maxLen);
     });
 
     // 注音区域
@@ -162,8 +163,8 @@ export class SelectionMenu {
     saveBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const note = this.noteInput!.value.trim();
-      if (note.length > 400) {
-        new Notice("批注内容不能超过400字");
+      if (note.length > maxLen) {
+        new Notice(`批注内容不能超过${maxLen}字`);
         return;
       }
       await this.createAnnotation(note);
@@ -176,8 +177,8 @@ export class SelectionMenu {
     fullTextBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const note = this.noteInput!.value.trim();
-      if (note.length > 400) {
-        new Notice("批注内容不能超过400字");
+      if (note.length > maxLen) {
+        new Notice(`批注内容不能超过${maxLen}字`);
         return;
       }
       await this.createAnnotation(note, true);

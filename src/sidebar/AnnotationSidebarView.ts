@@ -498,23 +498,25 @@ export class AnnotationSidebarView extends ItemView {
     const noteHeader = noteSection.createDiv({ cls: "annotation-sidebar-detail-label-row" });
     noteHeader.createEl("label", { text: "批注内容" });
 
+    const maxLen = this.plugin.settings.maxNoteLength;
+
     if (this.detailIsEditing) {
       const noteInput = noteSection.createEl("textarea", {
         cls: "annotation-sidebar-detail-textarea",
       });
-      noteInput.setAttribute("maxlength", "400");
+      noteInput.setAttribute("maxlength", String(maxLen));
       noteInput.setAttribute("rows", "3");
       noteInput.setAttribute("placeholder", "请输入批注内容...");
       noteInput.value = this.editNote;
 
       const charCount = noteSection.createDiv({
         cls: "annotation-char-count",
-        text: `${this.editNote.length}/400`,
+        text: `${this.editNote.length}/${maxLen}`,
       });
       noteInput.addEventListener("input", () => {
         this.editNote = noteInput.value;
-        charCount.textContent = `${noteInput.value.length}/400`;
-        charCount.toggleClass("annotation-char-count-error", noteInput.value.length > 400);
+        charCount.textContent = `${noteInput.value.length}/${maxLen}`;
+        charCount.toggleClass("annotation-char-count-error", noteInput.value.length > maxLen);
       });
     } else {
       if (annotation.note) {

@@ -3,7 +3,7 @@ import type { ParsedAnnotation } from "../types";
 import { COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
-import { scanAnnotationTags } from "../view/annotationTagParser";
+import { scrollToAnnotation } from "../utils/scrollToAnnotation";
 
 // 标注列表浮动面板（右侧按钮打开）
 export class AnnotationListPanel {
@@ -318,7 +318,7 @@ export class AnnotationListPanel {
       }
 
       item.addEventListener("click", () => {
-        this.scrollToAnnotation(annotation);
+        this.jumpToAnnotation(annotation);
       });
 
       item.addEventListener("contextmenu", (e) => {
@@ -383,95 +383,20 @@ export class AnnotationListPanel {
     setTimeout(() => document.addEventListener("click", handler), 10);
   }
 
-  // 滚动到指定标注位置并高亮
-  private async scrollToAnnotation(annotation: ParsedAnnotation): Promise<void> {
+  // 跳转到指定标注位置并高亮
+  private async jumpToAnnotation(annotation: ParsedAnnotation): Promise<void> {
     this.hidePanel();
 
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view) return;
 
-    // 编辑模式：用 scanAnnotationTags 精确定位标注位置
-    if (view.getMode() === "source") {
-      const doc = view.editor.getValue();
-      const blocks = scanAnnotationTags(doc, 0, doc);
-      const target = blocks.find(b => b.id === annotation.id);
-      if (!target) {
-        new Notice("未能定位到标注，可能文档内容已更改");
-        return;
-      }
-      const pos = view.editor.offsetToPos(target.markOpenFrom);
-      view.editor.setCursor(pos);
-      view.editor.scrollIntoView({ from: pos, to: pos }, true);
-
-      // 等待渲染后高亮标注元素
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const editorEl = view.containerEl;
-      if (editorEl) {
-        const highlightEls = editorEl.querySelectorAll(
-          `mark[data-annotation-id="${annotation.id}"]`
-        );
-        if (highlightEls && highlightEls.length > 0) {
-          this.highlightElements(Array.from(highlightEls) as HTMLElement[]);
-        }
-      }
-      return;
-    }
-
-    // 阅读模式：计算行号并滚动
-    const content = await this.fileManager.readAnnotationFile(this.currentNotePath!);
-    const lineIndex = content.substring(0, annotation.positions[0]!.start).split("\n").length - 1;
-
-    if (view.previewMode) {
-      const renderer = (view.previewMode as any).renderer;
-      if (renderer && typeof renderer.applyScroll === "function") {
-        // 判断是否为脚注区域的标注
-        const currentFile = (view as any)?.file;
-        const cache = this.app.metadataCache.getFileCache(currentFile);
-        const isFootnote = cache?.footnotes?.some(
-          fn => lineIndex >= fn.position.start.line && lineIndex <= fn.position.end.line
-        );
-
-        if (isFootnote) {
-          // 脚注标注：用 applyScroll 滚到最后一个有效 section
-          const sections = cache?.sections;
-          if (sections && sections.length > 0) {
-            const lastSection = sections[sections.length - 1]!;
-            const lastLine = lastSection.position.end.line;
-            renderer.applyScroll(lastLine, { center: true });
-          }
-        } else {
-          // 普通标注：滚到标注所在行
-          renderer.applyScroll(lineIndex, { center: true });
-        }
-      }
-    }
-
-    // 等待渲染完成后查找并高亮
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const containerEl = view.previewMode?.containerEl;
-    const highlightEls = containerEl?.querySelectorAll(
-      `mark[data-annotation-id="${annotation.id}"]`
+    await scrollToAnnotation(
+      this.app,
+      this.fileManager,
+      view,
+      this.currentNotePath!,
+      annotation
     );
-
-    if (highlightEls && highlightEls.length > 0) {
-      this.highlightElements(Array.from(highlightEls) as HTMLElement[]);
-    } else {
-      new Notice("未能定位到标注，可能文档内容已更改");
-    }
-  }
-
-  // 给标注元素添加临时蓝色边框高亮
-  private highlightElements(elements: HTMLElement[]): void {
-    for (const el of elements) {
-      el.style.transition = "box-shadow 0.3s ease";
-      el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-    }
-    setTimeout(() => {
-      for (const el of elements) {
-        el.style.boxShadow = "";
-      }
-    }, 2000);
   }
 
   private hidePanel(): void {

@@ -41,6 +41,7 @@ export default class AnnotationPlugin extends Plugin {
 
   // 侧边栏刷新回调
   annotationChangeCallbacks: Array<() => void> = [];
+  private notifyDebounceTimer: number | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -571,58 +572,69 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   async refreshAnnotationView(notePath: string) {
-    // 查找持有该标注文件的 MarkdownView（而非用 activeLeaf）
-    const annotationPath = this.activeAnnotationSessions.get(notePath);
-    if (!annotationPath) return;
+    try {
+      // 查找持有该标注文件的 MarkdownView（而非用 activeLeaf）
+      const annotationPath = this.activeAnnotationSessions.get(notePath);
+      if (!annotationPath) return;
 
-    const views: MarkdownView[] = [];
-    this.app.workspace.iterateAllLeaves((leaf) => {
-      const v = leaf.view;
-      if (v instanceof MarkdownView && (v as any)?.file?.path === annotationPath) {
-        views.push(v);
+      const views: MarkdownView[] = [];
+      this.app.workspace.iterateAllLeaves((leaf) => {
+        const v = leaf.view;
+        if (v instanceof MarkdownView && (v as any)?.file?.path === annotationPath) {
+          views.push(v);
+        }
+      });
+
+      if (views.length === 0) return;
+      const view = views[0]!;
+
+      const content = await this.fileManager.readAnnotationFile(notePath);
+
+      if (view.getMode() === "preview") {
+        const renderer = (view.previewMode as any).renderer;
+        if (renderer && typeof renderer.set === "function") {
+          renderer.set(content);
+        }
+      } else {
+        // 编辑模式：通过 CM6 dispatch 更新编辑器内容
+        // @ts-expect-error — Obsidian 官方文档推荐的方式
+        const editorView: EditorView = view.editor.cm;
+        if (editorView && content !== editorView.state.doc.toString()) {
+          const scrollTop = editorView.scrollDOM.scrollTop;
+          editorView.dispatch({
+            changes: { from: 0, to: editorView.state.doc.length, insert: content }
+          });
+          requestAnimationFrame(() => {
+            editorView.scrollDOM.scrollTop = scrollTop;
+          });
+        }
       }
-    });
 
-    if (views.length === 0) return;
-    const view = views[0]!;
+      // 同步更新 MarkdownView 内部数据
+      (view as any).data = content;
 
-    const content = await this.fileManager.readAnnotationFile(notePath);
+      this.annotationPanels.get(notePath)?.refresh();
 
-    if (view.getMode() === "preview") {
-      const renderer = (view.previewMode as any).renderer;
-      if (renderer && typeof renderer.set === "function") {
-        renderer.set(content);
-      }
-    } else {
-      // 编辑模式：通过 CM6 dispatch 更新编辑器内容
-      // @ts-expect-error — Obsidian 官方文档推荐的方式
-      const editorView: EditorView = view.editor.cm;
-      if (editorView && content !== editorView.state.doc.toString()) {
-        const scrollTop = editorView.scrollDOM.scrollTop;
-        editorView.dispatch({
-          changes: { from: 0, to: editorView.state.doc.length, insert: content }
-        });
-        requestAnimationFrame(() => {
-          editorView.scrollDOM.scrollTop = scrollTop;
-        });
-      }
+      // 通知侧边栏刷新
+      this.notifyAnnotationChange();
+    } catch (e) {
+      console.error("刷新标注视图失败:", notePath, e);
     }
-
-    // 同步更新 MarkdownView 内部数据
-    (view as any).data = content;
-
-    this.annotationPanels.get(notePath)?.refresh();
-
-    // 通知侧边栏刷新
-    this.notifyAnnotationChange();
   }
 
   // ========== 侧边栏 ==========
 
   notifyAnnotationChange(): void {
-    for (const cb of this.annotationChangeCallbacks) {
-      cb();
-    }
+    if (this.notifyDebounceTimer) clearTimeout(this.notifyDebounceTimer);
+    this.notifyDebounceTimer = window.setTimeout(() => {
+      for (const cb of this.annotationChangeCallbacks) {
+        try {
+          cb();
+        } catch (e) {
+          console.error("标注变更回调执行失败:", e);
+        }
+      }
+    }, 200);
   }
 
   async toggleSidebarView(): Promise<void> {

@@ -27,26 +27,31 @@ export class AnnotationFileManager {
 
   // 确保标注文件存在（不存在则从原文件复制创建）
   async ensureAnnotationFile(notePath: string): Promise<boolean> {
-    const annotationPath = normalizePath(this.getAnnotationFilePath(notePath));
+    try {
+      const annotationPath = normalizePath(this.getAnnotationFilePath(notePath));
 
-    if (await this.app.vault.adapter.exists(annotationPath)) {
-      await this.syncFromOriginal(notePath);
+      if (await this.app.vault.adapter.exists(annotationPath)) {
+        await this.syncFromOriginal(notePath);
+        return true;
+      }
+
+      // 读取原文件内容
+      const originalFile = this.app.vault.getAbstractFileByPath(notePath);
+      if (!(originalFile instanceof TFile)) return false;
+      const content = await this.app.vault.read(originalFile);
+
+      // 确保目录存在
+      const dir = annotationPath.substring(0, annotationPath.lastIndexOf("/"));
+      if (dir && !(await this.app.vault.adapter.exists(dir))) {
+        await this.app.vault.adapter.mkdir(dir);
+      }
+
+      await this.app.vault.adapter.write(annotationPath, content);
       return true;
+    } catch (e) {
+      console.error("创建标注文件失败:", notePath, e);
+      return false;
     }
-
-    // 读取原文件内容
-    const originalFile = this.app.vault.getAbstractFileByPath(notePath);
-    if (!(originalFile instanceof TFile)) return false;
-    const content = await this.app.vault.read(originalFile);
-
-    // 确保目录存在
-    const dir = annotationPath.substring(0, annotationPath.lastIndexOf("/"));
-    if (dir && !(await this.app.vault.adapter.exists(dir))) {
-      await this.app.vault.adapter.mkdir(dir);
-    }
-
-    await this.app.vault.adapter.write(annotationPath, content);
-    return true;
   }
 
   // 读取标注文件内容
@@ -63,29 +68,37 @@ export class AnnotationFileManager {
 
   // 同步原文件更新到标注文件
   async syncFromOriginal(notePath: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (!(file instanceof TFile)) return;
+    try {
+      const file = this.app.vault.getAbstractFileByPath(notePath);
+      if (!(file instanceof TFile)) return;
 
-    const originalContent = await this.app.vault.read(file);
-    const annotatedContent = await this.readAnnotationFile(notePath);
+      const originalContent = await this.app.vault.read(file);
+      const annotatedContent = await this.readAnnotationFile(notePath);
 
-    const result = diffSync(originalContent, annotatedContent);
-    if (result.changed) {
-      await this.writeAnnotationFile(notePath, result.content);
+      const result = diffSync(originalContent, annotatedContent);
+      if (result.changed) {
+        await this.writeAnnotationFile(notePath, result.content);
+      }
+    } catch (e) {
+      console.error("同步标注文件失败:", notePath, e);
     }
   }
 
   // 同步标注文件编辑回原文件
   async syncToOriginal(notePath: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (!(file instanceof TFile)) return;
+    try {
+      const file = this.app.vault.getAbstractFileByPath(notePath);
+      if (!(file instanceof TFile)) return;
 
-    const annotatedContent = await this.readAnnotationFile(notePath);
-    const pureContent = stripAnnotationTags(annotatedContent);
+      const annotatedContent = await this.readAnnotationFile(notePath);
+      const pureContent = stripAnnotationTags(annotatedContent);
 
-    const currentContent = await this.app.vault.read(file);
-    if (currentContent !== pureContent) {
-      await this.app.vault.modify(file, pureContent);
+      const currentContent = await this.app.vault.read(file);
+      if (currentContent !== pureContent) {
+        await this.app.vault.modify(file, pureContent);
+      }
+    } catch (e) {
+      console.error("同步回原文件失败:", notePath, e);
     }
   }
 
@@ -133,8 +146,13 @@ export class AnnotationFileManager {
 
   // 解析标注文件中的所有标注
   async getAnnotations(notePath: string): Promise<ParsedAnnotation[]> {
-    const content = await this.readAnnotationFile(notePath);
-    return parseAnnotations(content);
+    try {
+      const content = await this.readAnnotationFile(notePath);
+      return parseAnnotations(content);
+    } catch (e) {
+      console.error("解析标注失败:", notePath, e);
+      return [];
+    }
   }
 
   // 添加标注

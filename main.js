@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => AnnotationPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/annotationFile/AnnotationFileManager.ts
 var import_obsidian = require("obsidian");
@@ -1620,20 +1620,25 @@ var AnnotationFileManager = class {
   }
   // 确保标注文件存在（不存在则从原文件复制创建）
   async ensureAnnotationFile(notePath) {
-    const annotationPath = (0, import_obsidian.normalizePath)(this.getAnnotationFilePath(notePath));
-    if (await this.app.vault.adapter.exists(annotationPath)) {
-      await this.syncFromOriginal(notePath);
+    try {
+      const annotationPath = (0, import_obsidian.normalizePath)(this.getAnnotationFilePath(notePath));
+      if (await this.app.vault.adapter.exists(annotationPath)) {
+        await this.syncFromOriginal(notePath);
+        return true;
+      }
+      const originalFile = this.app.vault.getAbstractFileByPath(notePath);
+      if (!(originalFile instanceof import_obsidian.TFile)) return false;
+      const content = await this.app.vault.read(originalFile);
+      const dir = annotationPath.substring(0, annotationPath.lastIndexOf("/"));
+      if (dir && !await this.app.vault.adapter.exists(dir)) {
+        await this.app.vault.adapter.mkdir(dir);
+      }
+      await this.app.vault.adapter.write(annotationPath, content);
       return true;
+    } catch (e) {
+      console.error("\u521B\u5EFA\u6807\u6CE8\u6587\u4EF6\u5931\u8D25:", notePath, e);
+      return false;
     }
-    const originalFile = this.app.vault.getAbstractFileByPath(notePath);
-    if (!(originalFile instanceof import_obsidian.TFile)) return false;
-    const content = await this.app.vault.read(originalFile);
-    const dir = annotationPath.substring(0, annotationPath.lastIndexOf("/"));
-    if (dir && !await this.app.vault.adapter.exists(dir)) {
-      await this.app.vault.adapter.mkdir(dir);
-    }
-    await this.app.vault.adapter.write(annotationPath, content);
-    return true;
   }
   // 读取标注文件内容
   async readAnnotationFile(notePath) {
@@ -1647,24 +1652,32 @@ var AnnotationFileManager = class {
   }
   // 同步原文件更新到标注文件
   async syncFromOriginal(notePath) {
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (!(file instanceof import_obsidian.TFile)) return;
-    const originalContent = await this.app.vault.read(file);
-    const annotatedContent = await this.readAnnotationFile(notePath);
-    const result = diffSync(originalContent, annotatedContent);
-    if (result.changed) {
-      await this.writeAnnotationFile(notePath, result.content);
+    try {
+      const file = this.app.vault.getAbstractFileByPath(notePath);
+      if (!(file instanceof import_obsidian.TFile)) return;
+      const originalContent = await this.app.vault.read(file);
+      const annotatedContent = await this.readAnnotationFile(notePath);
+      const result = diffSync(originalContent, annotatedContent);
+      if (result.changed) {
+        await this.writeAnnotationFile(notePath, result.content);
+      }
+    } catch (e) {
+      console.error("\u540C\u6B65\u6807\u6CE8\u6587\u4EF6\u5931\u8D25:", notePath, e);
     }
   }
   // 同步标注文件编辑回原文件
   async syncToOriginal(notePath) {
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (!(file instanceof import_obsidian.TFile)) return;
-    const annotatedContent = await this.readAnnotationFile(notePath);
-    const pureContent = stripAnnotationTags(annotatedContent);
-    const currentContent = await this.app.vault.read(file);
-    if (currentContent !== pureContent) {
-      await this.app.vault.modify(file, pureContent);
+    try {
+      const file = this.app.vault.getAbstractFileByPath(notePath);
+      if (!(file instanceof import_obsidian.TFile)) return;
+      const annotatedContent = await this.readAnnotationFile(notePath);
+      const pureContent = stripAnnotationTags(annotatedContent);
+      const currentContent = await this.app.vault.read(file);
+      if (currentContent !== pureContent) {
+        await this.app.vault.modify(file, pureContent);
+      }
+    } catch (e) {
+      console.error("\u540C\u6B65\u56DE\u539F\u6587\u4EF6\u5931\u8D25:", notePath, e);
     }
   }
   // 文件重命名时迁移标注文件
@@ -1703,8 +1716,13 @@ var AnnotationFileManager = class {
   }
   // 解析标注文件中的所有标注
   async getAnnotations(notePath) {
-    const content = await this.readAnnotationFile(notePath);
-    return parseAnnotations(content);
+    try {
+      const content = await this.readAnnotationFile(notePath);
+      return parseAnnotations(content);
+    } catch (e) {
+      console.error("\u89E3\u6790\u6807\u6CE8\u5931\u8D25:", notePath, e);
+      return [];
+    }
   }
   // 添加标注
   async addAnnotation(notePath, annotation) {
@@ -2710,7 +2728,82 @@ var AnnotationMenu = class {
 };
 
 // src/ui/AnnotationListPanel.ts
+var import_obsidian6 = require("obsidian");
+
+// src/utils/scrollToAnnotation.ts
 var import_obsidian5 = require("obsidian");
+async function scrollToAnnotation(app, fileManager, view, notePath, annotation, options) {
+  if (options == null ? void 0 : options.delayBeforeScroll) {
+    await new Promise((resolve) => setTimeout(resolve, options.delayBeforeScroll));
+  }
+  if (!view) return;
+  if (view.getMode() === "source") {
+    scrollToAnnotationInEditor(view, annotation);
+    return;
+  }
+  await scrollToAnnotationInPreview(app, fileManager, view, notePath, annotation);
+}
+function scrollToAnnotationInEditor(view, annotation) {
+  const doc = view.editor.getValue();
+  const blocks = scanAnnotationTags(doc, 0, doc);
+  const target = blocks.find((b) => b.id === annotation.id);
+  if (!target) {
+    new import_obsidian5.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8\uFF0C\u53EF\u80FD\u6587\u6863\u5185\u5BB9\u5DF2\u66F4\u6539");
+    return;
+  }
+  const pos = view.editor.offsetToPos(target.markOpenFrom);
+  view.editor.setCursor(pos);
+  view.editor.scrollIntoView({ from: pos, to: pos }, true);
+  setTimeout(() => {
+    highlightAnnotationElements(view.containerEl, annotation.id);
+  }, 300);
+}
+async function scrollToAnnotationInPreview(app, fileManager, view, notePath, annotation) {
+  var _a, _b, _c, _d;
+  try {
+    const content = await fileManager.readAnnotationFile(notePath);
+    const lineIndex = content.substring(0, annotation.positions[0].start).split("\n").length - 1;
+    const previewMode = view.previewMode;
+    if ((_a = previewMode == null ? void 0 : previewMode.renderer) == null ? void 0 : _a.applyScroll) {
+      const currentFile = view == null ? void 0 : view.file;
+      const cache = app.metadataCache.getFileCache(currentFile);
+      const isFootnote = (_b = cache == null ? void 0 : cache.footnotes) == null ? void 0 : _b.some(
+        (fn) => lineIndex >= fn.position.start.line && lineIndex <= fn.position.end.line
+      );
+      if (isFootnote) {
+        const sections = cache == null ? void 0 : cache.sections;
+        if (sections && sections.length > 0) {
+          const lastLine = sections[sections.length - 1].position.end.line;
+          previewMode.renderer.applyScroll(lastLine, { center: true });
+        }
+      } else {
+        previewMode.renderer.applyScroll(lineIndex, { center: true });
+      }
+    }
+  } catch (e) {
+  }
+  const containerEl = (_d = (_c = view.previewMode) == null ? void 0 : _c.containerEl) != null ? _d : view.containerEl;
+  setTimeout(() => {
+    highlightAnnotationElements(containerEl, annotation.id);
+  }, 300);
+}
+function highlightAnnotationElements(containerEl, annotationId) {
+  const els = containerEl.querySelectorAll(
+    `mark[data-annotation-id="${annotationId}"]`
+  );
+  if (!els || els.length === 0) return;
+  for (const el of Array.from(els)) {
+    el.style.transition = "box-shadow 0.3s ease";
+    el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+  }
+  setTimeout(() => {
+    for (const el of Array.from(els)) {
+      el.style.boxShadow = "";
+    }
+  }, 2e3);
+}
+
+// src/ui/AnnotationListPanel.ts
 var AnnotationListPanel = class {
   constructor(app, fileManager) {
     this.containerEl = null;
@@ -2952,7 +3045,7 @@ var AnnotationListPanel = class {
         notePreview.textContent = `\u{1F4DD} ${noteText}`;
       }
       item.addEventListener("click", () => {
-        this.scrollToAnnotation(annotation);
+        this.jumpToAnnotation(annotation);
       });
       item.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -2979,13 +3072,13 @@ var AnnotationListPanel = class {
     deleteBtn.addEventListener("click", async () => {
       var _a;
       if (!this.currentNotePath) return;
-      const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
       const deleted = view ? await editAnnotationInEditor(view, this.fileManager, this.currentNotePath, annotation.id, "delete") : false;
       if (!deleted) {
         await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
       }
       menu.remove();
-      new import_obsidian5.Notice("\u6807\u6CE8\u5DF2\u5220\u9664");
+      new import_obsidian6.Notice("\u6807\u6CE8\u5DF2\u5220\u9664");
       this.hidePanel();
       (_a = this.onUpdate) == null ? void 0 : _a.call(this);
     });
@@ -3006,79 +3099,18 @@ var AnnotationListPanel = class {
     };
     setTimeout(() => document.addEventListener("click", handler), 10);
   }
-  // 滚动到指定标注位置并高亮
-  async scrollToAnnotation(annotation) {
-    var _a, _b;
+  // 跳转到指定标注位置并高亮
+  async jumpToAnnotation(annotation) {
     this.hidePanel();
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     if (!view) return;
-    if (view.getMode() === "source") {
-      const doc = view.editor.getValue();
-      const blocks = scanAnnotationTags(doc, 0, doc);
-      const target = blocks.find((b) => b.id === annotation.id);
-      if (!target) {
-        new import_obsidian5.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8\uFF0C\u53EF\u80FD\u6587\u6863\u5185\u5BB9\u5DF2\u66F4\u6539");
-        return;
-      }
-      const pos = view.editor.offsetToPos(target.markOpenFrom);
-      view.editor.setCursor(pos);
-      view.editor.scrollIntoView({ from: pos, to: pos }, true);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const editorEl = view.containerEl;
-      if (editorEl) {
-        const highlightEls2 = editorEl.querySelectorAll(
-          `mark[data-annotation-id="${annotation.id}"]`
-        );
-        if (highlightEls2 && highlightEls2.length > 0) {
-          this.highlightElements(Array.from(highlightEls2));
-        }
-      }
-      return;
-    }
-    const content = await this.fileManager.readAnnotationFile(this.currentNotePath);
-    const lineIndex = content.substring(0, annotation.positions[0].start).split("\n").length - 1;
-    if (view.previewMode) {
-      const renderer = view.previewMode.renderer;
-      if (renderer && typeof renderer.applyScroll === "function") {
-        const currentFile = view == null ? void 0 : view.file;
-        const cache = this.app.metadataCache.getFileCache(currentFile);
-        const isFootnote = (_a = cache == null ? void 0 : cache.footnotes) == null ? void 0 : _a.some(
-          (fn) => lineIndex >= fn.position.start.line && lineIndex <= fn.position.end.line
-        );
-        if (isFootnote) {
-          const sections = cache == null ? void 0 : cache.sections;
-          if (sections && sections.length > 0) {
-            const lastSection = sections[sections.length - 1];
-            const lastLine = lastSection.position.end.line;
-            renderer.applyScroll(lastLine, { center: true });
-          }
-        } else {
-          renderer.applyScroll(lineIndex, { center: true });
-        }
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const containerEl = (_b = view.previewMode) == null ? void 0 : _b.containerEl;
-    const highlightEls = containerEl == null ? void 0 : containerEl.querySelectorAll(
-      `mark[data-annotation-id="${annotation.id}"]`
+    await scrollToAnnotation(
+      this.app,
+      this.fileManager,
+      view,
+      this.currentNotePath,
+      annotation
     );
-    if (highlightEls && highlightEls.length > 0) {
-      this.highlightElements(Array.from(highlightEls));
-    } else {
-      new import_obsidian5.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8\uFF0C\u53EF\u80FD\u6587\u6863\u5185\u5BB9\u5DF2\u66F4\u6539");
-    }
-  }
-  // 给标注元素添加临时蓝色边框高亮
-  highlightElements(elements) {
-    for (const el of elements) {
-      el.style.transition = "box-shadow 0.3s ease";
-      el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-    }
-    setTimeout(() => {
-      for (const el of elements) {
-        el.style.boxShadow = "";
-      }
-    }, 2e3);
   }
   hidePanel() {
     if (this.panelClickHandler) {
@@ -3117,8 +3149,8 @@ var AnnotationListPanel = class {
 };
 
 // src/ui/AnnotationSettingTab.ts
-var import_obsidian6 = require("obsidian");
-var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
+var import_obsidian7 = require("obsidian");
+var AnnotationSettingTab = class extends import_obsidian7.PluginSettingTab {
   constructor(plugin) {
     super(plugin.app, plugin);
     this.plugin = plugin;
@@ -3128,7 +3160,7 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "\u6807\u6CE8\u63D2\u4EF6\u8BBE\u7F6E" });
-    new import_obsidian6.Setting(containerEl).setName("\u9ED8\u8BA4\u6807\u6CE8\u989C\u8272").setDesc("\u521B\u5EFA\u65B0\u6807\u6CE8\u65F6\u9ED8\u8BA4\u4F7F\u7528\u7684\u989C\u8272").addDropdown((dd) => {
+    new import_obsidian7.Setting(containerEl).setName("\u9ED8\u8BA4\u6807\u6CE8\u989C\u8272").setDesc("\u521B\u5EFA\u65B0\u6807\u6CE8\u65F6\u9ED8\u8BA4\u4F7F\u7528\u7684\u989C\u8272").addDropdown((dd) => {
       var _a2;
       for (const n of COLOR_NUMBERS) {
         dd.addOption(n, (_a2 = this.plugin.settings[`colorLabel${n}`]) != null ? _a2 : `\u989C\u8272${n}`);
@@ -3142,7 +3174,7 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
     });
     containerEl.createEl("h3", { text: "\u989C\u8272\u81EA\u5B9A\u4E49" });
     for (const n of COLOR_NUMBERS) {
-      new import_obsidian6.Setting(containerEl).setName((_a = this.plugin.settings[`colorLabel${n}`]) != null ? _a : `\u989C\u8272${n}`).addColorPicker((cp) => {
+      new import_obsidian7.Setting(containerEl).setName((_a = this.plugin.settings[`colorLabel${n}`]) != null ? _a : `\u989C\u8272${n}`).addColorPicker((cp) => {
         cp.setValue(this.plugin.settings[`color${n}`]);
         cp.onChange(async (v) => {
           this.plugin.settings[`color${n}`] = v;
@@ -3158,7 +3190,7 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
       });
     }
     containerEl.createEl("h3", { text: "\u6279\u6CE8\u6837\u5F0F" });
-    new import_obsidian6.Setting(containerEl).setName("\u6279\u6CE8\u6548\u679C").setDesc("\u6709\u6279\u6CE8\u5185\u5BB9\u7684\u6807\u6CE8\u7684\u663E\u793A\u6548\u679C").addDropdown((dd) => {
+    new import_obsidian7.Setting(containerEl).setName("\u6279\u6CE8\u6548\u679C").setDesc("\u6709\u6279\u6CE8\u5185\u5BB9\u7684\u6807\u6CE8\u7684\u663E\u793A\u6548\u679C").addDropdown((dd) => {
       dd.addOption("none", "\u65E0");
       dd.addOption("underline-thick", "\u7C97\u4E0B\u5212\u7EBF");
       dd.addOption("underline-dashed", "\u865A\u7EBF\u4E0B\u5212\u7EBF");
@@ -3172,7 +3204,7 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
       });
     });
     containerEl.createEl("h3", { text: "\u6CE8\u97F3\u6837\u5F0F" });
-    new import_obsidian6.Setting(containerEl).setName("\u6CE8\u97F3\u5B57\u4F53\u5927\u5C0F").setDesc("\u4F8B\u5982 0.7em\u30010.6em").addText((txt) => {
+    new import_obsidian7.Setting(containerEl).setName("\u6CE8\u97F3\u5B57\u4F53\u5927\u5C0F").setDesc("\u4F8B\u5982 0.7em\u30010.6em").addText((txt) => {
       txt.setValue(this.plugin.settings.rubyFontSize);
       txt.onChange(async (v) => {
         this.plugin.settings.rubyFontSize = v || "0.7em";
@@ -3180,7 +3212,7 @@ var AnnotationSettingTab = class extends import_obsidian6.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("\u6CE8\u97F3\u6587\u5B57\u989C\u8272").addColorPicker((cp) => {
+    new import_obsidian7.Setting(containerEl).setName("\u6CE8\u97F3\u6587\u5B57\u989C\u8272").addColorPicker((cp) => {
       cp.setValue(this.plugin.settings.rubyColor);
       cp.onChange(async (v) => {
         this.plugin.settings.rubyColor = v;
@@ -3442,7 +3474,7 @@ function createAnnotationViewExtension() {
 }
 
 // src/sidebar/AnnotationSidebarView.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/sidebar/AnnotationCard.ts
 function createAnnotationCard(parent, cardData, handlers) {
@@ -3501,7 +3533,7 @@ function createAnnotationCard(parent, cardData, handlers) {
 
 // src/sidebar/AnnotationSidebarView.ts
 var ANNOTATION_SIDEBAR_VIEW_TYPE = "annotation-sidebar-view";
-var AnnotationSidebarView = class extends import_obsidian7.ItemView {
+var AnnotationSidebarView = class extends import_obsidian8.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     // 状态
@@ -3526,6 +3558,8 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     this.allAnnotationsCache = null;
     // 防抖定时器
     this.searchDebounceTimer = null;
+    this.leafChangeTimer = null;
+    this.lastRefreshedNotePath = null;
     this.plugin = plugin;
     this.fileManager = plugin.fileManager;
   }
@@ -3548,8 +3582,15 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     this.cardListEl = container.createDiv({ cls: "annotation-sidebar-card-list" });
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
+        var _a;
         if (this.mode === "current" && !this.detailCardData) {
-          this.refresh();
+          const activeFile = this.app.workspace.getActiveFile();
+          const currentPath = (_a = activeFile == null ? void 0 : activeFile.path) != null ? _a : null;
+          if (currentPath === this.lastRefreshedNotePath) return;
+          if (this.leafChangeTimer) clearTimeout(this.leafChangeTimer);
+          this.leafChangeTimer = window.setTimeout(() => {
+            this.refresh();
+          }, 200);
         }
       })
     );
@@ -3680,8 +3721,11 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
   }
   // ========== 数据加载 ==========
   async refresh() {
+    var _a;
     this.allAnnotationsCache = null;
     await this.renderCards();
+    const activeFile = this.app.workspace.getActiveFile();
+    this.lastRefreshedNotePath = (_a = activeFile == null ? void 0 : activeFile.path) != null ? _a : null;
   }
   async renderCards() {
     if (!this.cardListEl) return;
@@ -3739,7 +3783,7 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     var _a;
     if (this.allAnnotationsCache) return this.allAnnotationsCache;
     const pluginDir = (_a = this.plugin.manifest.dir) != null ? _a : ".obsidian/plugins/obsidian-annotation-marker";
-    const annotationsDir = (0, import_obsidian7.normalizePath)(`${pluginDir}/annotations`);
+    const annotationsDir = (0, import_obsidian8.normalizePath)(`${pluginDir}/annotations`);
     const exists = await this.app.vault.adapter.exists(annotationsDir);
     if (!exists) {
       this.allAnnotationsCache = [];
@@ -3752,7 +3796,7 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
       try {
         const notePath = annotationPathToNotePath(pluginDir, filePath);
         const originalFile = this.app.vault.getAbstractFileByPath(notePath);
-        if (!(originalFile instanceof import_obsidian7.TFile)) continue;
+        if (!(originalFile instanceof import_obsidian8.TFile)) continue;
         const annotations = await this.fileManager.getAnnotations(notePath);
         const fileName = originalFile.name;
         for (const annotation of annotations) {
@@ -4031,7 +4075,7 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     }
     this.plugin.refreshAnnotationView(notePath);
     this.closeDetailPanel();
-    new import_obsidian7.Notice("\u6807\u6CE8\u5DF2\u66F4\u65B0");
+    new import_obsidian8.Notice("\u6807\u6CE8\u5DF2\u66F4\u65B0");
   }
   // ========== 查找标注视图 ==========
   findAnnotationView(notePath) {
@@ -4041,7 +4085,7 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     this.app.workspace.iterateAllLeaves((leaf) => {
       var _a;
       const view = leaf.view;
-      if (view instanceof import_obsidian7.MarkdownView && ((_a = view == null ? void 0 : view.file) == null ? void 0 : _a.path) === annotationPath) {
+      if (view instanceof import_obsidian8.MarkdownView && ((_a = view == null ? void 0 : view.file) == null ? void 0 : _a.path) === annotationPath) {
         result = view;
       }
     });
@@ -4062,8 +4106,8 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     }
     if (!targetLeaf) {
       const file = this.app.vault.getAbstractFileByPath(notePath);
-      if (!(file instanceof import_obsidian7.TFile)) {
-        new import_obsidian7.Notice("\u627E\u4E0D\u5230\u5BF9\u5E94\u7B14\u8BB0\u6587\u4EF6");
+      if (!(file instanceof import_obsidian8.TFile)) {
+        new import_obsidian8.Notice("\u627E\u4E0D\u5230\u5BF9\u5E94\u7B14\u8BB0\u6587\u4EF6");
         return;
       }
       targetLeaf = this.app.workspace.getLeaf(false);
@@ -4074,63 +4118,27 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     await this.scrollToAnnotationInLeaf(targetLeaf, annotation);
   }
   async scrollToAnnotationInLeaf(leaf, annotation) {
-    var _a, _b, _c;
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    var _a;
     const view = leaf.view;
     if (!view) return;
     const viewNotePath = this.getNotePathForView(view);
     if (!viewNotePath) return;
     const ap = this.plugin.activeAnnotationSessions.get(viewNotePath);
     const notePath = ap ? (_a = this.plugin.getOriginalPathByAnnotationPath(ap)) != null ? _a : viewNotePath : viewNotePath;
-    if (view.getMode() === "source") {
-      const doc = view.editor.getValue();
-      const blocks = scanAnnotationTags(doc, 0, doc);
-      const target = blocks.find((b) => b.id === annotation.id);
-      if (!target) {
-        new import_obsidian7.Notice("\u672A\u80FD\u5B9A\u4F4D\u5230\u6807\u6CE8");
-        return;
-      }
-      const pos = view.editor.offsetToPos(target.markOpenFrom);
-      view.editor.setCursor(pos);
-      view.editor.scrollIntoView({ from: pos, to: pos }, true);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      this.highlightAnnotationInContainer(view.containerEl, annotation.id);
-      return;
-    }
-    try {
-      const content = await this.fileManager.readAnnotationFile(notePath);
-      const lineIndex = content.substring(0, annotation.positions[0].start).split("\n").length - 1;
-      const previewMode = view.previewMode;
-      if ((_b = previewMode == null ? void 0 : previewMode.renderer) == null ? void 0 : _b.applyScroll) {
-        previewMode.renderer.applyScroll(lineIndex, { center: true });
-      }
-    } catch (e) {
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const containerEl = (_c = view.previewMode) == null ? void 0 : _c.containerEl;
-    this.highlightAnnotationInContainer(containerEl != null ? containerEl : view.containerEl, annotation.id);
+    await scrollToAnnotation(
+      this.app,
+      this.fileManager,
+      view,
+      notePath,
+      annotation,
+      { delayBeforeScroll: 400 }
+    );
   }
   getNotePathForView(view) {
     var _a, _b;
     const filePath = (_a = view == null ? void 0 : view.file) == null ? void 0 : _a.path;
     if (!filePath) return null;
     return (_b = this.plugin.getOriginalPathByAnnotationPath(filePath)) != null ? _b : filePath;
-  }
-  highlightAnnotationInContainer(containerEl, annotationId) {
-    const els = containerEl.querySelectorAll(
-      `mark[data-annotation-id="${annotationId}"]`
-    );
-    if (els && els.length > 0) {
-      for (const el of Array.from(els)) {
-        el.style.transition = "box-shadow 0.3s ease";
-        el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-      }
-      setTimeout(() => {
-        for (const el of Array.from(els)) {
-          el.style.boxShadow = "";
-        }
-      }, 2e3);
-    }
   }
   async handleCardDelete(cardData) {
     const { annotation, notePath } = cardData;
@@ -4143,12 +4151,12 @@ var AnnotationSidebarView = class extends import_obsidian7.ItemView {
     }
     this.plugin.refreshAnnotationView(notePath);
     this.closeDetailPanel();
-    new import_obsidian7.Notice("\u6807\u6CE8\u5DF2\u5220\u9664");
+    new import_obsidian8.Notice("\u6807\u6CE8\u5DF2\u5220\u9664");
   }
 };
 
 // src/main.ts
-var AnnotationPlugin = class extends import_obsidian8.Plugin {
+var AnnotationPlugin = class extends import_obsidian9.Plugin {
   constructor() {
     super(...arguments);
     // 原始文件路径 → 标注文件路径的映射
@@ -4160,6 +4168,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
     this.syncToOriginalTimers = /* @__PURE__ */ new Map();
     // 侧边栏刷新回调
     this.annotationChangeCallbacks = [];
+    this.notifyDebounceTimer = null;
   }
   async onload() {
     var _a;
@@ -4389,7 +4398,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
     if (!leaf) return;
     const currentFile = (_a = leaf.view) == null ? void 0 : _a.file;
     if (!currentFile) {
-      new import_obsidian8.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u6587\u4EF6");
+      new import_obsidian9.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u6587\u4EF6");
       return;
     }
     const originalPath = this.getOriginalPathByAnnotationPath(currentFile.path);
@@ -4403,10 +4412,10 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
     const savedScroll = this.getSavedScroll(leaf);
     const ok = await this.fileManager.ensureAnnotationFile(notePath);
     if (!ok) {
-      new import_obsidian8.Notice("\u6807\u6CE8\u6587\u4EF6\u521B\u5EFA\u5931\u8D25");
+      new import_obsidian9.Notice("\u6807\u6CE8\u6587\u4EF6\u521B\u5EFA\u5931\u8D25");
       return;
     }
-    const annotationPath = (0, import_obsidian8.normalizePath)(this.fileManager.getAnnotationFilePath(notePath));
+    const annotationPath = (0, import_obsidian9.normalizePath)(this.fileManager.getAnnotationFilePath(notePath));
     const fakeTFile = this.createFakeTFile(annotationPath);
     this.activeAnnotationSessions.set(notePath, annotationPath);
     try {
@@ -4420,15 +4429,15 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
       this.setupAnnotationListPanel(notePath);
     } catch (e) {
       console.error("[\u6807\u6CE8] openFile \u5931\u8D25:", e);
-      new import_obsidian8.Notice("\u6253\u5F00\u6807\u6CE8\u6587\u4EF6\u5931\u8D25: " + e);
+      new import_obsidian9.Notice("\u6253\u5F00\u6807\u6CE8\u6587\u4EF6\u5931\u8D25: " + e);
     }
   }
   async closeAnnotationView(leaf, originalPath) {
     const savedScroll = this.getSavedScroll(leaf);
     const annotationPath = this.activeAnnotationSessions.get(originalPath);
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
-    if (!(originalFile instanceof import_obsidian8.TFile)) {
-      new import_obsidian8.Notice("\u539F\u59CB\u6587\u4EF6\u4E0D\u5B58\u5728");
+    if (!(originalFile instanceof import_obsidian9.TFile)) {
+      new import_obsidian9.Notice("\u539F\u59CB\u6587\u4EF6\u4E0D\u5B58\u5728");
       if (annotationPath) {
         this.removeFakeTFile(annotationPath);
         this.removeMetadataCache(annotationPath);
@@ -4492,7 +4501,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
           const startCallout = startEl == null ? void 0 : startEl.closest(".callout");
           const endCallout = endEl == null ? void 0 : endEl.closest(".callout");
           if (startCallout !== endCallout) {
-            new import_obsidian8.Notice("\u4E0D\u80FD\u8DE8 Callout \u8FB9\u754C\u6DFB\u52A0\u6807\u6CE8");
+            new import_obsidian9.Notice("\u4E0D\u80FD\u8DE8 Callout \u8FB9\u754C\u6DFB\u52A0\u6807\u6CE8");
             return;
           }
         }
@@ -4578,7 +4587,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
     });
   }
   setupAnnotationListPanel(notePath) {
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
     if (!view) return;
     const oldPanel = this.annotationPanels.get(notePath);
     if (oldPanel) {
@@ -4594,45 +4603,56 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
   }
   async refreshAnnotationView(notePath) {
     var _a;
-    const annotationPath = this.activeAnnotationSessions.get(notePath);
-    if (!annotationPath) return;
-    const views = [];
-    this.app.workspace.iterateAllLeaves((leaf) => {
-      var _a2;
-      const v = leaf.view;
-      if (v instanceof import_obsidian8.MarkdownView && ((_a2 = v == null ? void 0 : v.file) == null ? void 0 : _a2.path) === annotationPath) {
-        views.push(v);
+    try {
+      const annotationPath = this.activeAnnotationSessions.get(notePath);
+      if (!annotationPath) return;
+      const views = [];
+      this.app.workspace.iterateAllLeaves((leaf) => {
+        var _a2;
+        const v = leaf.view;
+        if (v instanceof import_obsidian9.MarkdownView && ((_a2 = v == null ? void 0 : v.file) == null ? void 0 : _a2.path) === annotationPath) {
+          views.push(v);
+        }
+      });
+      if (views.length === 0) return;
+      const view = views[0];
+      const content = await this.fileManager.readAnnotationFile(notePath);
+      if (view.getMode() === "preview") {
+        const renderer = view.previewMode.renderer;
+        if (renderer && typeof renderer.set === "function") {
+          renderer.set(content);
+        }
+      } else {
+        const editorView = view.editor.cm;
+        if (editorView && content !== editorView.state.doc.toString()) {
+          const scrollTop = editorView.scrollDOM.scrollTop;
+          editorView.dispatch({
+            changes: { from: 0, to: editorView.state.doc.length, insert: content }
+          });
+          requestAnimationFrame(() => {
+            editorView.scrollDOM.scrollTop = scrollTop;
+          });
+        }
       }
-    });
-    if (views.length === 0) return;
-    const view = views[0];
-    const content = await this.fileManager.readAnnotationFile(notePath);
-    if (view.getMode() === "preview") {
-      const renderer = view.previewMode.renderer;
-      if (renderer && typeof renderer.set === "function") {
-        renderer.set(content);
-      }
-    } else {
-      const editorView = view.editor.cm;
-      if (editorView && content !== editorView.state.doc.toString()) {
-        const scrollTop = editorView.scrollDOM.scrollTop;
-        editorView.dispatch({
-          changes: { from: 0, to: editorView.state.doc.length, insert: content }
-        });
-        requestAnimationFrame(() => {
-          editorView.scrollDOM.scrollTop = scrollTop;
-        });
-      }
+      view.data = content;
+      (_a = this.annotationPanels.get(notePath)) == null ? void 0 : _a.refresh();
+      this.notifyAnnotationChange();
+    } catch (e) {
+      console.error("\u5237\u65B0\u6807\u6CE8\u89C6\u56FE\u5931\u8D25:", notePath, e);
     }
-    view.data = content;
-    (_a = this.annotationPanels.get(notePath)) == null ? void 0 : _a.refresh();
-    this.notifyAnnotationChange();
   }
   // ========== 侧边栏 ==========
   notifyAnnotationChange() {
-    for (const cb of this.annotationChangeCallbacks) {
-      cb();
-    }
+    if (this.notifyDebounceTimer) clearTimeout(this.notifyDebounceTimer);
+    this.notifyDebounceTimer = window.setTimeout(() => {
+      for (const cb of this.annotationChangeCallbacks) {
+        try {
+          cb();
+        } catch (e) {
+          console.error("\u6807\u6CE8\u53D8\u66F4\u56DE\u8C03\u6267\u884C\u5931\u8D25:", e);
+        }
+      }
+    }, 200);
   }
   async toggleSidebarView() {
     const { workspace } = this.app;
@@ -4661,7 +4681,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
         const footnotesSection = el.querySelector("section.footnotes");
         if (footnotesSection) {
           const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-          if (file instanceof import_obsidian8.TFile) {
+          if (file instanceof import_obsidian9.TFile) {
             const cache = this.app.metadataCache.getFileCache(file);
             const footnotes = cache == null ? void 0 : cache.footnotes;
             if (footnotes && footnotes.length > 0) {
@@ -4749,7 +4769,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
   registerEvents() {
     this.registerEvent(
       this.app.vault.on("rename", async (file, oldPath) => {
-        if (file instanceof import_obsidian8.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian9.TFile && file.extension === "md") {
           try {
             await this.fileManager.migrateAnnotationFile(oldPath, file.path);
           } catch (e) {
@@ -4759,7 +4779,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
           if (annotationPath) {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
-            const newAnnotationPath = (0, import_obsidian8.normalizePath)(
+            const newAnnotationPath = (0, import_obsidian9.normalizePath)(
               this.fileManager.getAnnotationFilePath(file.path)
             );
             const newFakeTFile = this.createFakeTFile(newAnnotationPath);
@@ -4790,7 +4810,7 @@ var AnnotationPlugin = class extends import_obsidian8.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("delete", async (file) => {
-        if (file instanceof import_obsidian8.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian9.TFile && file.extension === "md") {
           try {
             await this.fileManager.deleteAnnotationFile(file.path);
           } catch (e) {

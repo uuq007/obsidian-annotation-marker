@@ -4,7 +4,7 @@ import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { annotationPathToNotePath } from "../utils/helpers";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
-import { scanAnnotationTags } from "../view/annotationTagParser";
+import { scrollToAnnotation } from "../utils/scrollToAnnotation";
 import { createAnnotationCard, type AnnotationCardData } from "./AnnotationCard";
 import type AnnotationPlugin from "../main";
 
@@ -43,6 +43,8 @@ export class AnnotationSidebarView extends ItemView {
 
   // 防抖定时器
   private searchDebounceTimer: number | null = null;
+  private leafChangeTimer: number | null = null;
+  private lastRefreshedNotePath: string | null = null;
 
   constructor(leaf: any, plugin: AnnotationPlugin) {
     super(leaf);
@@ -77,7 +79,14 @@ export class AnnotationSidebarView extends ItemView {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         if (this.mode === "current" && !this.detailCardData) {
-          this.refresh();
+          const activeFile = this.app.workspace.getActiveFile();
+          const currentPath = activeFile?.path ?? null;
+          if (currentPath === this.lastRefreshedNotePath) return;
+
+          if (this.leafChangeTimer) clearTimeout(this.leafChangeTimer);
+          this.leafChangeTimer = window.setTimeout(() => {
+            this.refresh();
+          }, 200);
         }
       })
     );
@@ -236,6 +245,8 @@ export class AnnotationSidebarView extends ItemView {
   async refresh(): Promise<void> {
     this.allAnnotationsCache = null;
     await this.renderCards();
+    const activeFile = this.app.workspace.getActiveFile();
+    this.lastRefreshedNotePath = activeFile?.path ?? null;
   }
 
   private async renderCards(): Promise<void> {
@@ -695,8 +706,6 @@ export class AnnotationSidebarView extends ItemView {
   }
 
   private async scrollToAnnotationInLeaf(leaf: any, annotation: ParsedAnnotation): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
     const view = leaf.view as MarkdownView;
     if (!view) return;
 
@@ -706,62 +715,20 @@ export class AnnotationSidebarView extends ItemView {
     const ap = this.plugin.activeAnnotationSessions.get(viewNotePath);
     const notePath = ap ? this.plugin.getOriginalPathByAnnotationPath(ap) ?? viewNotePath : viewNotePath;
 
-    // 编辑模式
-    if (view.getMode() === "source") {
-      const doc = view.editor.getValue();
-      const blocks = scanAnnotationTags(doc, 0, doc);
-      const target = blocks.find((b) => b.id === annotation.id);
-      if (!target) {
-        new Notice("未能定位到标注");
-        return;
-      }
-      const pos = view.editor.offsetToPos(target.markOpenFrom);
-      view.editor.setCursor(pos);
-      view.editor.scrollIntoView({ from: pos, to: pos }, true);
-
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      this.highlightAnnotationInContainer(view.containerEl, annotation.id);
-      return;
-    }
-
-    // 阅读模式
-    try {
-      const content = await this.fileManager.readAnnotationFile(notePath);
-      const lineIndex = content.substring(0, annotation.positions[0]!.start).split("\n").length - 1;
-      const previewMode = view.previewMode as any;
-      if (previewMode?.renderer?.applyScroll) {
-        previewMode.renderer.applyScroll(lineIndex, { center: true });
-      }
-    } catch {
-      // 忽略
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const containerEl = view.previewMode?.containerEl;
-    this.highlightAnnotationInContainer(containerEl ?? view.containerEl, annotation.id);
+    await scrollToAnnotation(
+      this.app,
+      this.fileManager,
+      view,
+      notePath,
+      annotation,
+      { delayBeforeScroll: 400 }
+    );
   }
 
   private getNotePathForView(view: MarkdownView): string | null {
     const filePath = (view as any)?.file?.path;
     if (!filePath) return null;
     return this.plugin.getOriginalPathByAnnotationPath(filePath) ?? filePath;
-  }
-
-  private highlightAnnotationInContainer(containerEl: HTMLElement, annotationId: string): void {
-    const els = containerEl.querySelectorAll(
-      `mark[data-annotation-id="${annotationId}"]`
-    );
-    if (els && els.length > 0) {
-      for (const el of Array.from(els) as HTMLElement[]) {
-        el.style.transition = "box-shadow 0.3s ease";
-        el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
-      }
-      setTimeout(() => {
-        for (const el of Array.from(els) as HTMLElement[]) {
-          el.style.boxShadow = "";
-        }
-      }, 2000);
-    }
   }
 
   private async handleCardDelete(cardData: AnnotationCardData): Promise<void> {

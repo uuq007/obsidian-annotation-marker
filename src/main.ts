@@ -19,6 +19,8 @@ import { countOccurrenceIndex } from "./utils/helpers";
 import type { BlockSegment } from "./types";
 import { createAnnotationViewExtension } from "./view/annotationViewPlugin";
 import { AnnotationSidebarView, ANNOTATION_SIDEBAR_VIEW_TYPE } from "./sidebar/AnnotationSidebarView";
+import { preScanOldAnnotations } from "./importer/oldAnnotationImporter";
+import { ImportConfirmModal } from "./importer/ImportConfirmModal";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -887,6 +889,20 @@ export default class AnnotationPlugin extends Plugin {
       id: "toggle-annotation-sidebar",
       name: "打开/关闭标注管理侧边栏",
       callback: () => this.toggleSidebarView(),
+    });
+
+    this.addCommand({
+      id: "import-old-annotations",
+      name: "导入旧标注插件数据",
+      callback: async () => {
+        const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
+        const scan = await preScanOldAnnotations(this.app, pluginDir);
+        if (scan.fileCount === 0) {
+          new Notice("未发现可导入的旧版标注数据");
+          return;
+        }
+        new ImportConfirmModal(this.app, this.fileManager, pluginDir, scan).open();
+      },
     });
   }
 }

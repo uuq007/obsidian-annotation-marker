@@ -1,6 +1,7 @@
 import { PluginSettingTab, Setting } from "obsidian";
 import type AnnotationPlugin from "../main";
 import { COLOR_NUMBERS } from "../types";
+import { t } from "../i18n";
 
 export class AnnotationSettingTab extends PluginSettingTab {
   private plugin: AnnotationPlugin;
@@ -13,18 +14,18 @@ export class AnnotationSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    const loc = t();
 
-    containerEl.createEl("h2", { text: "标注插件设置" });
+    containerEl.createEl("h2", { text: loc.settingsTitle });
 
-    // 默认颜色
     new Setting(containerEl)
-      .setName("默认标注颜色")
-      .setDesc("创建新标注时默认使用的颜色")
+      .setName(loc.settingsDefaultColor)
+      .setDesc(loc.settingsDefaultColorDesc)
       .addDropdown((dd) => {
         for (const n of COLOR_NUMBERS) {
-          dd.addOption(n, (this.plugin.settings as any)[`colorLabel${n}`] ?? `颜色${n}`);
+          dd.addOption(n, (this.plugin.settings as any)[`colorLabel${n}`] ?? loc.colorLabel(n));
         }
-        dd.addOption("none", "无色");
+        dd.addOption("none", loc.none);
         dd.setValue(this.plugin.settings.defaultColor);
         dd.onChange(async (v) => {
           this.plugin.settings.defaultColor = v as any;
@@ -32,12 +33,11 @@ export class AnnotationSettingTab extends PluginSettingTab {
         });
       });
 
-    // 颜色自定义
-    containerEl.createEl("h3", { text: "颜色自定义" });
+    containerEl.createEl("h3", { text: loc.settingsColorCustom });
 
     for (const n of COLOR_NUMBERS) {
       new Setting(containerEl)
-        .setName((this.plugin.settings as any)[`colorLabel${n}`] ?? `颜色${n}`)
+        .setName((this.plugin.settings as any)[`colorLabel${n}`] ?? loc.colorLabel(n))
         .addColorPicker((cp) => {
           cp.setValue((this.plugin.settings as any)[`color${n}`]);
           cp.onChange(async (v) => {
@@ -47,28 +47,27 @@ export class AnnotationSettingTab extends PluginSettingTab {
           });
         })
         .addText((txt) => {
-          txt.setPlaceholder("显示名")
+          txt.setPlaceholder(loc.settingsColorPlaceholder)
             .setValue((this.plugin.settings as any)[`colorLabel${n}`])
             .onChange(async (v) => {
-              (this.plugin.settings as any)[`colorLabel${n}`] = v || `颜色${n}`;
+              (this.plugin.settings as any)[`colorLabel${n}`] = v || loc.colorLabel(n);
               await this.plugin.saveSettings();
               this.display();
             });
         });
     }
 
-    // 批注效果
-    containerEl.createEl("h3", { text: "批注样式" });
+    containerEl.createEl("h3", { text: loc.settingsNoteStyle });
 
     new Setting(containerEl)
-      .setName("批注效果")
-      .setDesc("有批注内容的标注的显示效果")
+      .setName(loc.settingsNoteEffect)
+      .setDesc(loc.settingsNoteEffectDesc)
       .addDropdown((dd) => {
-        dd.addOption("none", "无");
-        dd.addOption("underline-thick", "粗下划线");
-        dd.addOption("underline-dashed", "虚线下划线");
-        dd.addOption("underline-wavy", "波浪线");
-        dd.addOption("underline-double", "双下划线");
+        dd.addOption("none", loc.none);
+        dd.addOption("underline-thick", loc.settingsNoteEffectThick);
+        dd.addOption("underline-dashed", loc.settingsNoteEffectDashed);
+        dd.addOption("underline-wavy", loc.settingsNoteEffectWavy);
+        dd.addOption("underline-double", loc.settingsNoteEffectDouble);
         dd.setValue(this.plugin.settings.noteEffect);
         dd.onChange(async (v) => {
           this.plugin.settings.noteEffect = v as any;
@@ -77,10 +76,9 @@ export class AnnotationSettingTab extends PluginSettingTab {
         });
       });
 
-    // 批注最大长度
     new Setting(containerEl)
-      .setName("批注最大长度")
-      .setDesc("批注内容允许的最大字符数")
+      .setName(loc.settingsMaxNoteLength)
+      .setDesc(loc.settingsMaxNoteLengthDesc)
       .addText((txt) => {
         txt.setValue(String(this.plugin.settings.maxNoteLength));
         txt.onChange(async (v) => {
@@ -90,12 +88,11 @@ export class AnnotationSettingTab extends PluginSettingTab {
         });
       });
 
-    // 注音样式
-    containerEl.createEl("h3", { text: "注音样式" });
+    containerEl.createEl("h3", { text: loc.settingsRubyStyle });
 
     new Setting(containerEl)
-      .setName("注音字体大小")
-      .setDesc("例如 0.7em、0.6em")
+      .setName(loc.settingsRubyFontSize)
+      .setDesc(loc.settingsRubyFontSizeDesc)
       .addText((txt) => {
         txt.setValue(this.plugin.settings.rubyFontSize);
         txt.onChange(async (v) => {
@@ -106,7 +103,7 @@ export class AnnotationSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("注音文字颜色")
+      .setName(loc.settingsRubyColor)
       .addColorPicker((cp) => {
         cp.setValue(this.plugin.settings.rubyColor);
         cp.onChange(async (v) => {

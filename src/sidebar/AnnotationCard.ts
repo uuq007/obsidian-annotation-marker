@@ -1,5 +1,6 @@
 import type { ParsedAnnotation, AnnotationColor } from "../types";
 import { COLOR_CLASSES } from "../constants";
+import { t } from "../i18n";
 
 // 侧边栏卡片数据
 export interface AnnotationCardData {
@@ -19,6 +20,7 @@ export function createAnnotationCard(
   }
 ): HTMLElement {
   const { annotation, fileName } = cardData;
+  const loc = t();
 
   const card = parent.createDiv({ cls: "annotation-sidebar-card" });
 
@@ -29,10 +31,10 @@ export function createAnnotationCard(
   // 全文/跨段标记
   if (annotation.isFullText && annotation.positions.length > 1) {
     const badge = header.createSpan({ cls: "annotation-list-badge" });
-    badge.textContent = `全文(${annotation.positions.length})`;
+    badge.textContent = loc.fullTextBadge(annotation.positions.length);
   } else if (annotation.isCrossBlock) {
     const badge = header.createSpan({ cls: "annotation-list-badge" });
-    badge.textContent = `跨段(${annotation.positions.length})`;
+    badge.textContent = loc.crossBlockBadge(annotation.positions.length);
   }
 
   // 创建时间
@@ -68,11 +70,11 @@ export function createAnnotationCard(
   // 操作按钮
   const actions = card.createDiv({ cls: "annotation-sidebar-card-actions" });
   const openBtn = actions.createEl("button", {
-    text: "打开",
+    text: loc.cardOpen,
     cls: "annotation-btn annotation-btn-secondary",
   });
   const deleteBtn = actions.createEl("button", {
-    text: "删除",
+    text: loc.cardDelete,
     cls: "annotation-btn annotation-btn-danger",
   });
 

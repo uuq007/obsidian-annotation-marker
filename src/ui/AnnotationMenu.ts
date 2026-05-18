@@ -4,6 +4,7 @@ import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { EditNoteModal } from "./EditNoteModal";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
+import { t } from "../i18n";
 
 // 标注详情的浮动菜单（点击已有标注时弹出）
 export class AnnotationMenu {
@@ -27,13 +28,14 @@ export class AnnotationMenu {
 
     const { annotation, notePath, onUpdate } = params;
     const settings = this.getSettings();
+    const loc = t();
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-view-menu";
 
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
-    header.createEl("span", { text: "标注详情", cls: "annotation-menu-title" });
-    const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: "×" });
+    header.createEl("span", { text: loc.menuAnnotationDetail, cls: "annotation-menu-title" });
+    const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: loc.close });
     closeBtn.addEventListener("click", () => this.hide());
 
     const textPreview = this.menuEl.createDiv({ cls: "annotation-menu-text" });
@@ -44,21 +46,21 @@ export class AnnotationMenu {
 
     if (annotation.isFullText && annotation.positions.length > 1) {
       const fullTextHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
-      fullTextHint.createEl("span", { text: `全文标注（共 ${annotation.positions.length} 处）` });
+      fullTextHint.createEl("span", { text: loc.fullTextAnnotation(annotation.positions.length) });
     } else if (annotation.isCrossBlock) {
       const crossBlockHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
-      crossBlockHint.createEl("span", { text: `跨段标注（共 ${annotation.positions.length} 处）` });
+      crossBlockHint.createEl("span", { text: loc.crossBlockAnnotation(annotation.positions.length) });
     }
 
     if (annotation.note) {
       const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note" });
-      noteSection.createEl("label", { text: "批注内容" });
+      noteSection.createEl("label", { text: loc.noteContent });
       noteSection.createEl("div", { cls: "annotation-note-text", text: annotation.note });
     }
 
     // 颜色选择
     const colorSection = this.menuEl.createDiv({ cls: "annotation-menu-section" });
-    colorSection.createEl("label", { text: "标注颜色" });
+    colorSection.createEl("label", { text: loc.sidebarAnnotationColor });
     const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
 
     const colors: AnnotationColor[] = [...ALL_COLORS];
@@ -67,7 +69,7 @@ export class AnnotationMenu {
         cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,
       });
       if (c === annotation.color) btn.addClass("active");
-      btn.title = c === "none" ? "无色" : (settings as any)[`colorLabel${c}`] ?? `颜色${c}`;
+      btn.title = c === "none" ? loc.none : (settings as any)[`colorLabel${c}`] ?? loc.colorLabel(c);
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (c !== annotation.color) {
@@ -85,7 +87,7 @@ export class AnnotationMenu {
           }
           this.hide();
           onUpdate();
-          new Notice("标注颜色已修改");
+          new Notice(loc.noticeColorChanged);
         }
       });
     }
@@ -94,7 +96,7 @@ export class AnnotationMenu {
 
     const editBtn = actions.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary",
-      text: "编辑批注",
+      text: loc.menuEditNote,
     });
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -103,23 +105,23 @@ export class AnnotationMenu {
 
     const copyBtn = actions.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary",
-      text: "复制原文",
+      text: loc.menuCopyOriginal,
     });
     copyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(annotation.text);
-      new Notice("已复制原文到剪贴板");
+      new Notice(loc.noticeOriginalCopied);
     });
 
     const deleteBtn = actions.createEl("button", {
       cls: "annotation-btn annotation-btn-danger",
-      text: "删除",
+      text: loc.delete,
     });
     deleteBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const msg = (annotation.isFullText || annotation.positions.length > 1) && annotation.positions.length > 1
-        ? `确定删除全部 ${annotation.positions.length} 处标注？`
-        : "确定删除此标注？";
+        ? loc.confirmDeleteMulti(annotation.positions.length)
+        : loc.confirmDelete;
       if (!confirm(msg)) return;
       // 编辑模式：用 replaceRange 局部替换
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -129,7 +131,7 @@ export class AnnotationMenu {
       }
       this.hide();
       onUpdate();
-      new Notice("标注已删除");
+      new Notice(loc.noticeDeleted);
     });
 
     document.body.appendChild(this.menuEl);
@@ -168,6 +170,7 @@ export class AnnotationMenu {
     onUpdate: () => void
   ): void {
     this.hide();
+    const loc = t();
     const modal = new EditNoteModal(
       (this.fileManager as any).app,
       this.getSettings,
@@ -195,7 +198,7 @@ export class AnnotationMenu {
           });
         }
         onUpdate();
-        new Notice("批注已更新");
+        new Notice(loc.noticeNoteUpdated);
       }
     );
     modal.open();

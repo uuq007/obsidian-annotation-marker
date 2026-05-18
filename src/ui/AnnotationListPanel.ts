@@ -4,6 +4,7 @@ import { COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
 import { scrollToAnnotation } from "../utils/scrollToAnnotation";
+import { t } from "../i18n";
 
 // 标注列表浮动面板（右侧按钮打开）
 export class AnnotationListPanel {
@@ -57,7 +58,7 @@ export class AnnotationListPanel {
     this.listBtn = document.createElement("div");
     this.listBtn.className = "annotation-list-btn";
     this.listBtn.innerHTML = "<span>📝</span>";
-    this.listBtn.title = "查看标注";
+    this.listBtn.title = t().panelViewAnnotation;
 
     this.listBtn.style.position = "absolute";
     this.listBtn.style.right = "20px";
@@ -142,31 +143,35 @@ export class AnnotationListPanel {
   private async showPanel(): Promise<void> {
     if (!this.currentNotePath) return;
     this.hidePanel();
+    const loc = t();
 
     this.panelEl = document.createElement("div");
     this.panelEl.className = "annotation-list-panel";
 
     // 标题栏
     const header = this.panelEl.createDiv({ cls: "annotation-list-header" });
-    header.createEl("span", { text: "标注列表", cls: "annotation-list-title" });
+    header.createEl("span", { text: loc.panelTitle, cls: "annotation-list-title" });
 
     // 排序选择
     const sortContainer = header.createDiv({ cls: "annotation-list-sort-container" });
     const sortSelect = sortContainer.createEl("select", { cls: "annotation-list-sort-select" });
-    sortSelect.innerHTML = `
-      <option value="position-asc" ${this.sortOption === "position-asc" ? "selected" : ""}>按内容顺序（从上到下）</option>
-      <option value="position-desc" ${this.sortOption === "position-desc" ? "selected" : ""}>按内容倒序（从下到上）</option>
-      <option value="time-asc" ${this.sortOption === "time-asc" ? "selected" : ""}>按时间正序（从旧到新）</option>
-      <option value="time-desc" ${this.sortOption === "time-desc" ? "selected" : ""}>按时间倒序（从新到旧）</option>
-      <option value="color-asc" ${this.sortOption === "color-asc" ? "selected" : ""}>按颜色排序（正序）</option>
-      <option value="color-desc" ${this.sortOption === "color-desc" ? "selected" : ""}>按颜色排序（倒序）</option>
-    `;
+    const opts = [
+      { v: "position-asc", t: loc.panelSortContentAsc },
+      { v: "position-desc", t: loc.panelSortContentDesc },
+      { v: "time-asc", t: loc.panelSortTimeAsc },
+      { v: "time-desc", t: loc.panelSortTimeDesc },
+      { v: "color-asc", t: loc.panelSortColorAsc },
+      { v: "color-desc", t: loc.panelSortColorDesc },
+    ];
+    sortSelect.innerHTML = opts
+      .map((o) => `<option value="${o.v}" ${this.sortOption === o.v ? "selected" : ""}>${o.t}</option>`)
+      .join("");
     sortSelect.addEventListener("change", () => {
       this.sortOption = sortSelect.value as typeof this.sortOption;
       this.refreshContent();
     });
 
-    const closeBtn = header.createEl("button", { cls: "annotation-list-close", text: "×" });
+    const closeBtn = header.createEl("button", { cls: "annotation-list-close", text: loc.close });
     closeBtn.addEventListener("click", () => this.hidePanel());
 
     const content = this.panelEl.createDiv({ cls: "annotation-list-content" });
@@ -246,9 +251,10 @@ export class AnnotationListPanel {
 
   private async renderContent(content: HTMLElement): Promise<void> {
     content.empty();
+    const loc = t();
 
     if (!this.currentNotePath) {
-      content.createDiv({ cls: "annotation-list-empty", text: "暂无标注" });
+      content.createDiv({ cls: "annotation-list-empty", text: loc.noData });
       return;
     }
 
@@ -256,12 +262,12 @@ export class AnnotationListPanel {
     try {
       annotations = await this.fileManager.getAnnotations(this.currentNotePath);
     } catch {
-      content.createDiv({ cls: "annotation-list-empty", text: "暂无标注" });
+      content.createDiv({ cls: "annotation-list-empty", text: loc.noData });
       return;
     }
 
     if (annotations.length === 0) {
-      content.createDiv({ cls: "annotation-list-empty", text: "暂无标注" });
+      content.createDiv({ cls: "annotation-list-empty", text: loc.noData });
       return;
     }
 
@@ -296,11 +302,11 @@ export class AnnotationListPanel {
       // 全文标注标记
       if (annotation.isFullText && annotation.positions.length > 1) {
         const badge = item.createSpan({ cls: "annotation-list-badge" });
-        badge.textContent = `全文(${annotation.positions.length})`;
+        badge.textContent = loc.fullTextBadge(annotation.positions.length);
       } else if (annotation.isCrossBlock) {
         // 跨段标注标记
         const badge = item.createSpan({ cls: "annotation-list-badge" });
-        badge.textContent = `跨段(${annotation.positions.length})`;
+        badge.textContent = loc.crossBlockBadge(annotation.positions.length);
       }
 
       const textPreview = item.createDiv({ cls: "annotation-list-text" });
@@ -339,12 +345,13 @@ export class AnnotationListPanel {
 
   private showContextMenu(annotation: ParsedAnnotation, x: number, y: number): void {
     document.querySelectorAll(".annotation-context-menu").forEach((el) => el.remove());
+    const loc = t();
 
     const menu = document.createElement("div");
     menu.className = "annotation-context-menu";
 
     const deleteBtn = menu.createEl("button", {
-      text: "删除标注",
+      text: loc.panelDeleteAnnotation,
       cls: "annotation-context-menu-item annotation-context-menu-danger",
     });
     deleteBtn.addEventListener("click", async () => {
@@ -356,7 +363,7 @@ export class AnnotationListPanel {
         await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
       }
       menu.remove();
-      new Notice("标注已删除");
+      new Notice(loc.noticeDeleted);
       this.hidePanel();
       this.onUpdate?.();
     });

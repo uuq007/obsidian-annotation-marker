@@ -21,6 +21,7 @@ import { createAnnotationViewExtension } from "./view/annotationViewPlugin";
 import { AnnotationSidebarView, ANNOTATION_SIDEBAR_VIEW_TYPE } from "./sidebar/AnnotationSidebarView";
 import { preScanOldAnnotations } from "./importer/oldAnnotationImporter";
 import { ImportConfirmModal } from "./importer/ImportConfirmModal";
+import { initLocale, t } from "./i18n";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -47,6 +48,7 @@ export default class AnnotationPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    initLocale();
 
     const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
@@ -63,7 +65,7 @@ export default class AnnotationPlugin extends Plugin {
     this.registerAnnotationInteraction();
     this.registerSectionLineCapture();
 
-    this.addRibbonIcon("lucide-highlighter", "标注模式", () => {
+    this.addRibbonIcon("lucide-highlighter", t().ribbonTooltip, () => {
       this.toggleAnnotationView();
     });
 
@@ -322,7 +324,7 @@ export default class AnnotationPlugin extends Plugin {
 
     const currentFile = (leaf.view as any)?.file;
     if (!currentFile) {
-      new Notice("请先打开一个 Markdown 文件");
+      new Notice(t().noticeNoFile);
       return;
     }
 
@@ -339,7 +341,7 @@ export default class AnnotationPlugin extends Plugin {
 
     const ok = await this.fileManager.ensureAnnotationFile(notePath);
     if (!ok) {
-      new Notice("标注文件创建失败");
+      new Notice(t().noticeFileCreateFailed);
       return;
     }
 
@@ -363,7 +365,7 @@ export default class AnnotationPlugin extends Plugin {
       this.setupAnnotationListPanel(notePath);
     } catch (e) {
       console.error("[标注] openFile 失败:", e);
-      new Notice("打开标注文件失败: " + e);
+      new Notice(t().noticeOpenFailed + e);
     }
   }
 
@@ -373,7 +375,7 @@ export default class AnnotationPlugin extends Plugin {
 
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
     if (!(originalFile instanceof TFile)) {
-      new Notice("原始文件不存在");
+      new Notice(t().noticeOriginalMissing);
       if (annotationPath) {
         this.removeFakeTFile(annotationPath);
         this.removeMetadataCache(annotationPath);
@@ -453,7 +455,7 @@ export default class AnnotationPlugin extends Plugin {
           const startCallout = startEl?.closest('.callout');
           const endCallout = endEl?.closest('.callout');
           if (startCallout !== endCallout) {
-            new Notice("不能跨 Callout 边界添加标注");
+            new Notice(t().noticeNoCrossCallout);
             return;
           }
         }
@@ -871,7 +873,7 @@ export default class AnnotationPlugin extends Plugin {
   registerCommands() {
     this.addCommand({
       id: "toggle-annotation-view",
-      name: "切换标注视图",
+      name: t().commandToggleView,
       checkCallback: (checking) => {
         const leaf = this.app.workspace.activeLeaf;
         if (!leaf) return false;
@@ -887,18 +889,18 @@ export default class AnnotationPlugin extends Plugin {
 
     this.addCommand({
       id: "toggle-annotation-sidebar",
-      name: "打开/关闭标注管理侧边栏",
+      name: t().commandSidebar,
       callback: () => this.toggleSidebarView(),
     });
 
     this.addCommand({
       id: "import-old-annotations",
-      name: "导入旧标注插件数据",
+      name: t().commandImport,
       callback: async () => {
         const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
         const scan = await preScanOldAnnotations(this.app, pluginDir);
         if (scan.fileCount === 0) {
-          new Notice("未发现可导入的旧版标注数据");
+          new Notice(t().noticeNoLegacyData);
           return;
         }
         new ImportConfirmModal(this.app, this.fileManager, pluginDir, scan).open();

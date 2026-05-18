@@ -5,6 +5,7 @@ import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement, generateId } from "../utils/helpers";
 import { buildMarkTag } from "../annotationFile/annotationSerializer";
+import { t } from "../i18n";
 
 // 添加标注的浮动菜单
 export class SelectionMenu {
@@ -70,6 +71,7 @@ export class SelectionMenu {
     this.blockSegments = params.blockSegments ?? null;
     this.editorRange = params.editorRange ?? null;
     const maxLen = this.getSettings().maxNoteLength;
+    const loc = t();
 
     this.menuEl = document.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
@@ -81,8 +83,8 @@ export class SelectionMenu {
 
     // 标题栏
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
-    header.createEl("span", { text: "添加标注", cls: "annotation-menu-title" });
-    const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: "×" });
+    header.createEl("span", { text: loc.menuAddAnnotation, cls: "annotation-menu-title" });
+    const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: loc.close });
     closeBtn.addEventListener("click", () => this.hide());
 
     const scrollableContent = this.menuEl.createDiv({ cls: "annotation-menu-scrollable-content" });
@@ -96,7 +98,7 @@ export class SelectionMenu {
 
     // 颜色选择
     const colorSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
-    colorSection.createEl("label", { text: "选择颜色立即标注" });
+    colorSection.createEl("label", { text: loc.menuSelectColor });
     this.colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
 
     const colors: AnnotationColor[] = [...ALL_COLORS];
@@ -106,7 +108,7 @@ export class SelectionMenu {
         cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,
       });
       if (c === this.selectedColor) btn.addClass("active");
-      btn.title = c === "none" ? "无色" : (settings as any)[`colorLabel${c}`] ?? `颜色${c}`;
+      btn.title = c === "none" ? loc.none : (settings as any)[`colorLabel${c}`] ?? loc.colorLabel(c);
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.selectedColor = c;
@@ -125,18 +127,18 @@ export class SelectionMenu {
     // 批注输入
     const noteSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
     const noteLabel = noteSection.createDiv({ cls: "annotation-note-label-row" });
-    noteLabel.createEl("label", { text: "或添加批注" });
-    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: `(0/${maxLen})` });
+    noteLabel.createEl("label", { text: loc.menuOrAddNote });
+    const charCount = noteLabel.createSpan({ cls: "annotation-char-count", text: loc.charCount(0, maxLen) });
 
     this.noteInput = noteSection.createEl("textarea", {
       cls: "annotation-note-input-small",
-      placeholder: `输入批注内容（可选，最多${maxLen}字）...`,
+      placeholder: loc.notePlaceholder(maxLen),
     });
     this.noteInput.setAttribute("maxlength", String(maxLen));
     this.noteInput.addEventListener("input", () => {
       const len = this.noteInput!.value.length;
       this.pendingNote = this.noteInput!.value;
-      charCount.textContent = `(${len}/${maxLen})`;
+      charCount.textContent = loc.charCount(len, maxLen);
       charCount.toggleClass("annotation-char-count-error", len > maxLen);
     });
 
@@ -148,23 +150,23 @@ export class SelectionMenu {
 
     const copyBtn = actionRow.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary annotation-btn-small",
-      text: "复制",
+      text: loc.copy,
     });
     copyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(this.selectedText);
-      new Notice("已复制到剪贴板");
+      new Notice(loc.noticeCopied);
     });
 
     const saveBtn = actionRow.createEl("button", {
       cls: "annotation-btn annotation-btn-primary annotation-btn-small",
-      text: "保存",
+      text: loc.save,
     });
     saveBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const note = this.noteInput!.value.trim();
       if (note.length > maxLen) {
-        new Notice(`批注内容不能超过${maxLen}字`);
+        new Notice(loc.noteTooLong(maxLen));
         return;
       }
       await this.createAnnotation(note);
@@ -172,13 +174,13 @@ export class SelectionMenu {
 
     const fullTextBtn = actionRow.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary annotation-btn-small",
-      text: "全文标注",
+      text: loc.menuFullText,
     });
     fullTextBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const note = this.noteInput!.value.trim();
       if (note.length > maxLen) {
-        new Notice(`批注内容不能超过${maxLen}字`);
+        new Notice(loc.noteTooLong(maxLen));
         return;
       }
       await this.createAnnotation(note, true);
@@ -222,6 +224,7 @@ export class SelectionMenu {
   }
 
   private buildRubySection(parent: HTMLElement): void {
+    const loc = t();
     const rubySection = parent.createDiv({ cls: "annotation-ruby-section" });
     const rubyRow = rubySection.createDiv({ cls: "annotation-ruby-row" });
     const rubyCheckbox = rubyRow.createEl("input", {
@@ -241,7 +244,7 @@ export class SelectionMenu {
         this.updateRubyList?.();
       }
     });
-    rubyRow.createEl("label", { text: "注音" });
+    rubyRow.createEl("label", { text: loc.menuRuby });
 
     this.rubyTextContainer = rubySection.createDiv({ cls: "annotation-ruby-input-container" });
     if (!this.rubyTextEnabled) {
@@ -250,7 +253,7 @@ export class SelectionMenu {
 
     // 注音预览
     const rubyPreview = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-preview" });
-    rubyPreview.createEl("label", { text: "划选需要注音的文字：" });
+    rubyPreview.createEl("label", { text: loc.menuRubySelectText });
     this.rubyTextPreview = rubyPreview.createDiv({
       cls: "annotation-ruby-text-preview",
       text: this.selectedText,
@@ -274,11 +277,11 @@ export class SelectionMenu {
 
     // 注音输入
     const rubyInputRow = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-input-row" });
-    rubyInputRow.createEl("label", { text: "注音内容：" });
+    rubyInputRow.createEl("label", { text: loc.menuRubyContent });
     this.rubyTextInput = rubyInputRow.createEl("input", {
       type: "text",
       cls: "annotation-ruby-input",
-      placeholder: "输入注音内容...",
+      placeholder: loc.menuRubyPlaceholder,
     });
 
     // 聚焦时恢复选区
@@ -300,19 +303,19 @@ export class SelectionMenu {
 
     // 添加注音按钮
     const addRubyBtn = rubyInputRow.createEl("button", {
-      text: "添加",
+      text: loc.add,
       cls: "annotation-btn annotation-btn-small",
     });
     addRubyBtn.addEventListener("click", () => this.addRuby());
 
     // 已添加注音列表
     const rubyListContainer = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-list-container" });
-    rubyListContainer.createEl("label", { text: "已添加的注音：" });
+    rubyListContainer.createEl("label", { text: loc.menuRubyAdded });
     const rubyList = rubyListContainer.createDiv({ cls: "annotation-ruby-list" });
     this.updateRubyList = () => {
       rubyList.empty();
       if (this.rubyTexts.length === 0) {
-        rubyList.createDiv({ text: "暂无注音", cls: "annotation-ruby-empty" });
+        rubyList.createDiv({ text: loc.noRuby, cls: "annotation-ruby-empty" });
       } else {
         this.rubyTexts.forEach((ruby, index) => {
           const item = rubyList.createDiv({ cls: "annotation-ruby-item" });
@@ -321,7 +324,7 @@ export class SelectionMenu {
             cls: "annotation-ruby-item-text",
           });
           const deleteBtn = item.createEl("button", {
-            text: "×",
+            text: loc.close,
             cls: "annotation-ruby-item-delete",
           });
           deleteBtn.addEventListener("click", (e) => {
@@ -336,6 +339,7 @@ export class SelectionMenu {
   }
 
   private addRuby(): void {
+    const loc = t();
     const sel = window.getSelection();
     let selectedRubyText = "";
     let rubyStart = 0;
@@ -368,14 +372,15 @@ export class SelectionMenu {
       this.selectedRubyRange = null;
       this.updateRubyList?.();
     } else if (!selectedRubyText) {
-      new Notice("请先划选需要注音的文字");
+      new Notice(loc.noticeRubySelect);
     } else {
-      new Notice("请输入注音内容");
+      new Notice(loc.noticeRubyInput);
     }
   }
 
   private async createAnnotation(note: string, isFullText = false): Promise<void> {
     if (!this.currentNotePath) return;
+    const loc = t();
 
     try {
       // 全文标注不支持注音
@@ -398,7 +403,7 @@ export class SelectionMenu {
 
           window.getSelection()?.removeAllRanges();
           this.hide();
-          new Notice(note || rubyTexts ? "标注和批注已添加" : "标注已添加");
+          new Notice(note || rubyTexts ? loc.noticeAnnotationAndNoteAdded : loc.noticeAnnotationAdded);
           return;
         }
       }
@@ -444,16 +449,16 @@ export class SelectionMenu {
           this.onAddCallback();
         }
         if (isFullText) {
-          new Notice(`全文标注已添加（共 ${result.positions.length} 处）`);
+          new Notice(loc.fullTextAnnotation(result.positions.length));
         } else {
-          new Notice(note || rubyTexts ? "标注和批注已添加" : "标注已添加");
+          new Notice(note || rubyTexts ? loc.noticeAnnotationAndNoteAdded : loc.noticeAnnotationAdded);
         }
       } else {
-        new Notice("未能在文件中找到选中的文字");
+        new Notice(loc.noticeTextNotFound);
       }
     } catch (e) {
       console.error("添加标注失败:", e);
-      new Notice("添加标注失败");
+      new Notice(loc.noticeAddFailed);
     }
   }
 

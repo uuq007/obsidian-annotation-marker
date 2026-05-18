@@ -7,6 +7,7 @@ import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
 import { scrollToAnnotation } from "../utils/scrollToAnnotation";
 import { createAnnotationCard, type AnnotationCardData } from "./AnnotationCard";
 import type AnnotationPlugin from "../main";
+import { t } from "../i18n";
 
 export const ANNOTATION_SIDEBAR_VIEW_TYPE = "annotation-sidebar-view";
 
@@ -57,7 +58,7 @@ export class AnnotationSidebarView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "标注管理";
+    return t().sidebarTitle;
   }
 
   getIcon(): string {
@@ -122,7 +123,7 @@ export class AnnotationSidebarView extends ItemView {
 
   private renderToolbar(container: HTMLElement): void {
     const toolbar = container.createDiv({ cls: "annotation-sidebar-toolbar" });
-    toolbar.createSpan({ cls: "annotation-sidebar-title", text: "标注管理" });
+    toolbar.createSpan({ cls: "annotation-sidebar-title", text: t().sidebarTitle });
 
     this.sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
     this.sortSelect.addEventListener("change", () => {
@@ -136,27 +137,34 @@ export class AnnotationSidebarView extends ItemView {
     if (!this.sortSelect) return;
     const currentValue = this.sortOption;
     this.sortSelect.innerHTML = "";
+    const loc = t();
 
     if (this.mode === "current") {
-      this.sortSelect.innerHTML = `
-        <option value="position-asc">按内容顺序</option>
-        <option value="position-desc">按内容倒序</option>
-        <option value="time-asc">按时间正序</option>
-        <option value="time-desc">按时间倒序</option>
-        <option value="color-asc">按颜色排序</option>
-        <option value="color-desc">按颜色倒序</option>
-      `;
+      const opts = [
+        { v: "position-asc", t: loc.sidebarSortContent },
+        { v: "position-desc", t: loc.sidebarSortContentDesc },
+        { v: "time-asc", t: loc.sidebarSortTimeAsc },
+        { v: "time-desc", t: loc.sidebarSortTimeDesc },
+        { v: "color-asc", t: loc.sidebarSortColor },
+        { v: "color-desc", t: loc.sidebarSortColorDesc },
+      ];
+      this.sortSelect.innerHTML = opts
+        .map((o) => `<option value="${o.v}">${o.t}</option>`)
+        .join("");
       // 如果当前选项不适用于当前笔记模式，回退
       if (!["position-asc", "position-desc", "time-asc", "time-desc", "color-asc", "color-desc"].includes(currentValue)) {
         this.sortOption = "position-asc";
       }
     } else {
-      this.sortSelect.innerHTML = `
-        <option value="by-note">按笔记排序</option>
-        <option value="time-asc">按时间正序</option>
-        <option value="time-desc">按时间倒序</option>
-        <option value="color-asc">按颜色排序</option>
-      `;
+      const opts = [
+        { v: "by-note", t: loc.sidebarSortByNote },
+        { v: "time-asc", t: loc.sidebarSortTimeAsc },
+        { v: "time-desc", t: loc.sidebarSortTimeDesc },
+        { v: "color-asc", t: loc.sidebarSortColor },
+      ];
+      this.sortSelect.innerHTML = opts
+        .map((o) => `<option value="${o.v}">${o.t}</option>`)
+        .join("");
       // 如果当前选项不适用于全部笔记模式，回退
       if (!["by-note", "time-asc", "time-desc", "color-asc"].includes(currentValue)) {
         this.sortOption = "by-note";
@@ -170,11 +178,11 @@ export class AnnotationSidebarView extends ItemView {
 
     this.tabs.current = tabsEl.createEl("button", {
       cls: "annotation-sidebar-tab active",
-      text: "当前笔记",
+      text: t().sidebarCurrentNote,
     });
     this.tabs.all = tabsEl.createEl("button", {
       cls: "annotation-sidebar-tab",
-      text: "全部笔记",
+      text: t().sidebarAllNotes,
     });
 
     this.tabs.current.addEventListener("click", () => this.switchMode("current"));
@@ -197,7 +205,7 @@ export class AnnotationSidebarView extends ItemView {
     this.searchInput = searchBar.createEl("input", {
       type: "text",
       cls: "annotation-sidebar-search-input",
-      placeholder: "搜索标注文本、批注或笔记名...",
+      placeholder: t().sidebarSearchPlaceholder,
     });
     this.searchInput.addEventListener("input", () => {
       if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
@@ -212,7 +220,7 @@ export class AnnotationSidebarView extends ItemView {
 
     const allBtn = colorFilters.createEl("button", {
       cls: "annotation-sidebar-color-btn annotation-sidebar-color-all active",
-      text: "全部",
+      text: t().all,
     });
     allBtn.addEventListener("click", () => {
       this.colorFilter = "all";
@@ -263,7 +271,7 @@ export class AnnotationSidebarView extends ItemView {
         cards = await this.loadAllAnnotations();
       }
     } catch {
-      this.renderEmpty(this.cardListEl, "加载失败");
+      this.renderEmpty(this.cardListEl, t().sidebarLoadFailed);
       return;
     }
 
@@ -271,11 +279,12 @@ export class AnnotationSidebarView extends ItemView {
     const sorted = this.applySort(filtered);
 
     if (sorted.length === 0) {
+      const loc = t();
       this.renderEmpty(
         this.cardListEl,
         this.searchQuery || this.colorFilter !== "all"
-          ? "没有匹配的标注"
-          : "暂无标注"
+          ? loc.sidebarNoMatch
+          : loc.sidebarNoAnnotations
       );
       return;
     }
@@ -431,27 +440,28 @@ export class AnnotationSidebarView extends ItemView {
     this.cardListEl.empty();
 
     const { annotation, notePath } = this.detailCardData;
+    const loc = t();
 
     const panel = this.cardListEl.createDiv({ cls: "annotation-sidebar-detail" });
 
     // 头部
     const header = panel.createDiv({ cls: "annotation-sidebar-detail-header" });
-    header.createSpan({ cls: "annotation-sidebar-detail-title", text: "标注详情" });
+    header.createSpan({ cls: "annotation-sidebar-detail-title", text: loc.sidebarDetailTitle });
     const closeBtn = header.createEl("button", {
       cls: "annotation-sidebar-detail-close",
-      text: "×",
+      text: loc.close,
     });
     closeBtn.addEventListener("click", () => this.closeDetailPanel());
 
     // 标注文字（可选中）
     const textSection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
     const textHeader = textSection.createDiv({ cls: "annotation-sidebar-detail-label-row" });
-    textHeader.createEl("label", { text: "标注文字" });
-    const textCopyBtn = textHeader.createEl("button", { cls: "annotation-copy-btn", text: "复制" });
+    textHeader.createEl("label", { text: loc.sidebarAnnotationText });
+    const textCopyBtn = textHeader.createEl("button", { cls: "annotation-copy-btn", text: loc.copy });
     textCopyBtn.addEventListener("click", () => {
       navigator.clipboard.writeText(annotation.text).then(() => {
-        textCopyBtn.textContent = "已复制";
-        setTimeout(() => { textCopyBtn.textContent = "复制"; }, 1500);
+        textCopyBtn.textContent = loc.copied;
+        setTimeout(() => { textCopyBtn.textContent = loc.copy; }, 1500);
       });
     });
     textSection.createDiv({ cls: "annotation-sidebar-detail-text", text: annotation.text });
@@ -460,18 +470,18 @@ export class AnnotationSidebarView extends ItemView {
     if (annotation.isFullText && annotation.positions.length > 1) {
       textSection.createDiv({
         cls: "annotation-list-badge",
-        text: `全文标注（共 ${annotation.positions.length} 处）`,
+        text: loc.fullTextAnnotation(annotation.positions.length),
       });
     } else if (annotation.isCrossBlock) {
       textSection.createDiv({
         cls: "annotation-list-badge",
-        text: `跨段标注（共 ${annotation.positions.length} 处）`,
+        text: loc.crossBlockAnnotation(annotation.positions.length),
       });
     }
 
     // 标注颜色
     const colorSection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
-    colorSection.createEl("label", { text: "标注颜色" });
+    colorSection.createEl("label", { text: loc.sidebarAnnotationColor });
 
     if (this.detailIsEditing) {
       const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
@@ -496,7 +506,7 @@ export class AnnotationSidebarView extends ItemView {
     // 批注内容
     const noteSection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
     const noteHeader = noteSection.createDiv({ cls: "annotation-sidebar-detail-label-row" });
-    noteHeader.createEl("label", { text: "批注内容" });
+    noteHeader.createEl("label", { text: loc.sidebarNoteSection });
 
     const maxLen = this.plugin.settings.maxNoteLength;
 
@@ -506,45 +516,45 @@ export class AnnotationSidebarView extends ItemView {
       });
       noteInput.setAttribute("maxlength", String(maxLen));
       noteInput.setAttribute("rows", "3");
-      noteInput.setAttribute("placeholder", "请输入批注内容...");
+      noteInput.setAttribute("placeholder", loc.sidebarNoteEditPlaceholder);
       noteInput.value = this.editNote;
 
       const charCount = noteSection.createDiv({
         cls: "annotation-char-count",
-        text: `${this.editNote.length}/${maxLen}`,
+        text: loc.charCount(this.editNote.length, maxLen),
       });
       noteInput.addEventListener("input", () => {
         this.editNote = noteInput.value;
-        charCount.textContent = `${noteInput.value.length}/${maxLen}`;
+        charCount.textContent = loc.charCount(noteInput.value.length, maxLen);
         charCount.toggleClass("annotation-char-count-error", noteInput.value.length > maxLen);
       });
     } else {
       if (annotation.note) {
-        const noteCopyBtn = noteHeader.createEl("button", { cls: "annotation-copy-btn", text: "复制" });
+        const noteCopyBtn = noteHeader.createEl("button", { cls: "annotation-copy-btn", text: loc.sidebarNoteCopy });
         noteCopyBtn.addEventListener("click", () => {
           navigator.clipboard.writeText(annotation.note).then(() => {
-            noteCopyBtn.textContent = "已复制";
-            setTimeout(() => { noteCopyBtn.textContent = "复制"; }, 1500);
+            noteCopyBtn.textContent = loc.sidebarNoteCopied;
+            setTimeout(() => { noteCopyBtn.textContent = loc.sidebarNoteCopyRestore; }, 1500);
           });
         });
       }
       noteSection.createDiv({
         cls: "annotation-sidebar-detail-note",
-        text: annotation.note || "（无批注）",
+        text: annotation.note || loc.sidebarNoteEmpty,
       });
     }
 
     // 注音
     if (annotation.rubyTexts.length > 0 || this.detailIsEditing) {
       const rubySection = panel.createDiv({ cls: "annotation-sidebar-detail-section" });
-      rubySection.createEl("label", { text: "注音" });
+      rubySection.createEl("label", { text: loc.sidebarRubySection });
 
       if (this.detailIsEditing) {
         const rubyList = rubySection.createDiv({ cls: "annotation-sidebar-detail-ruby-list" });
         const updateRubyList = () => {
           rubyList.empty();
           if (this.editRubyTexts.length === 0) {
-            rubyList.createDiv({ text: "暂无注音", cls: "annotation-ruby-empty" });
+            rubyList.createDiv({ text: loc.noRuby, cls: "annotation-ruby-empty" });
           } else {
             for (let i = 0; i < this.editRubyTexts.length; i++) {
               const ruby = this.editRubyTexts[i]!;
@@ -554,7 +564,7 @@ export class AnnotationSidebarView extends ItemView {
                 text: `${annotation.text.substring(ruby.startIndex, ruby.startIndex + ruby.length)} → ${ruby.ruby}`,
               });
               const delBtn = item.createEl("button", {
-                text: "×",
+                text: loc.close,
                 cls: "annotation-ruby-item-delete",
               });
               delBtn.addEventListener("click", () => {
@@ -581,13 +591,13 @@ export class AnnotationSidebarView extends ItemView {
 
     if (this.detailIsEditing) {
       const saveBtn = actions.createEl("button", {
-        text: "保存",
+        text: loc.save,
         cls: "annotation-btn annotation-btn-primary",
       });
       saveBtn.addEventListener("click", () => this.handleDetailSave());
 
       const cancelBtn = actions.createEl("button", {
-        text: "取消",
+        text: loc.cancel,
         cls: "annotation-btn annotation-btn-secondary",
       });
       cancelBtn.addEventListener("click", () => {
@@ -599,7 +609,7 @@ export class AnnotationSidebarView extends ItemView {
       });
     } else {
       const editBtn = actions.createEl("button", {
-        text: "编辑",
+        text: loc.edit,
         cls: "annotation-btn annotation-btn-secondary",
       });
       editBtn.addEventListener("click", () => {
@@ -608,7 +618,7 @@ export class AnnotationSidebarView extends ItemView {
       });
 
       const openBtn = actions.createEl("button", {
-        text: "打开",
+        text: loc.sidebarOpenNote,
         cls: "annotation-btn annotation-btn-secondary",
       });
       openBtn.addEventListener("click", () => {
@@ -616,7 +626,7 @@ export class AnnotationSidebarView extends ItemView {
       });
 
       const deleteBtn = actions.createEl("button", {
-        text: "删除",
+        text: loc.sidebarDeleteAnnotation,
         cls: "annotation-btn annotation-btn-danger",
       });
       deleteBtn.addEventListener("click", () => {
@@ -656,7 +666,7 @@ export class AnnotationSidebarView extends ItemView {
     // 刷新标注视图
     this.plugin.refreshAnnotationView(notePath);
     this.closeDetailPanel();
-    new Notice("标注已更新");
+    new Notice(t().noticeAnnotationUpdated);
   }
 
   // ========== 查找标注视图 ==========
@@ -695,7 +705,7 @@ export class AnnotationSidebarView extends ItemView {
     if (!targetLeaf) {
       const file = this.app.vault.getAbstractFileByPath(notePath);
       if (!(file instanceof TFile)) {
-        new Notice("找不到对应笔记文件");
+        new Notice(t().noticeNoteFileNotFound);
         return;
       }
       targetLeaf = this.app.workspace.getLeaf(false);
@@ -737,9 +747,10 @@ export class AnnotationSidebarView extends ItemView {
     const { annotation, notePath } = cardData;
 
     // 确认删除
+    const loc = t();
     const msg = (annotation.isFullText || annotation.positions.length > 1) && annotation.positions.length > 1
-      ? `确定删除全部 ${annotation.positions.length} 处标注？`
-      : "确定删除此标注？";
+      ? loc.confirmDeleteMulti(annotation.positions.length)
+      : loc.confirmDelete;
     if (!confirm(msg)) return;
 
     // 查找标注视图，尝试 replaceRange
@@ -755,6 +766,6 @@ export class AnnotationSidebarView extends ItemView {
     // 刷新标注视图
     this.plugin.refreshAnnotationView(notePath);
     this.closeDetailPanel();
-    new Notice("标注已删除");
+    new Notice(loc.noticeDeleted);
   }
 }

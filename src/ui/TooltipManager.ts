@@ -1,4 +1,5 @@
 import type AnnotationPlugin from "../main";
+import { t } from "../i18n";
 
 // 悬停显示批注内容的工具提示管理器
 export class TooltipManager {
@@ -48,7 +49,7 @@ export class TooltipManager {
       document.body.appendChild(this.tooltipEl);
     }
 
-    this.tooltipEl.innerHTML = `<div class="annotation-tooltip-label">批注内容</div><div class="annotation-tooltip-content">${this.escapeHtml(note)}</div>`;
+    this.tooltipEl.innerHTML = `<div class="annotation-tooltip-label">${t().tooltipLabel}</div><div class="annotation-tooltip-content">${this.escapeHtml(note)}</div>`;
 
     this.positionTooltip(markEl);
   }

@@ -1,6 +1,7 @@
 import { App, Modal } from "obsidian";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { importOldAnnotations, type ImportResult } from "./oldAnnotationImporter";
+import { t } from "../i18n";
 
 type ScanResult = { fileCount: number; annotationCount: number };
 
@@ -25,32 +26,33 @@ export class ImportConfirmModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("annotation-import-modal");
+    const loc = t();
 
-    contentEl.createEl("h3", { text: "导入旧版标注数据" });
+    contentEl.createEl("h3", { text: loc.importTitle });
 
     const info = contentEl.createDiv({ cls: "annotation-import-info" });
-    info.createEl("p", { text: `发现 ${this.scan.fileCount} 个标注文件` });
-    info.createEl("p", { text: `共 ${this.scan.annotationCount} 条有效标注` });
+    info.createEl("p", { text: loc.importScanFiles(this.scan.fileCount) });
+    info.createEl("p", { text: loc.importScanAnnotations(this.scan.annotationCount) });
 
     const warning = contentEl.createDiv({ cls: "annotation-import-warning" });
-    warning.createEl("p", { text: "⚠ 导入不会删除原有数据" });
-    warning.createEl("p", { text: "⚠ 重复标注将被自动跳过" });
+    warning.createEl("p", { text: loc.importWarningNoDelete });
+    warning.createEl("p", { text: loc.importWarningSkipDup });
 
     const buttons = contentEl.createDiv({ cls: "annotation-modal-buttons" });
 
     buttons.createEl("button", {
-      text: "取消",
+      text: loc.cancel,
       cls: "annotation-btn annotation-btn-secondary",
     }).addEventListener("click", () => this.close());
 
     const confirmBtn = buttons.createEl("button", {
-      text: "确认导入",
+      text: loc.importConfirm,
       cls: "annotation-btn annotation-btn-primary",
     });
 
     confirmBtn.addEventListener("click", async () => {
       confirmBtn.disabled = true;
-      confirmBtn.textContent = "正在导入...";
+      confirmBtn.textContent = loc.importImporting;
       buttons.querySelector(".annotation-btn-secondary")?.setAttribute("disabled", "true");
 
       try {
@@ -59,7 +61,7 @@ export class ImportConfirmModal extends Modal {
       } catch (e) {
         contentEl.empty();
         contentEl.addClass("annotation-import-modal");
-        contentEl.createEl("h3", { text: "导入失败" });
+        contentEl.createEl("h3", { text: loc.importFailed });
         contentEl.createEl("p", { text: e instanceof Error ? e.message : String(e) });
         this.createCloseButton(contentEl);
       }
@@ -69,29 +71,30 @@ export class ImportConfirmModal extends Modal {
   private showResult(contentEl: HTMLElement, result: ImportResult): void {
     contentEl.empty();
     contentEl.addClass("annotation-import-modal");
+    const loc = t();
 
-    contentEl.createEl("h3", { text: "导入完成" });
+    contentEl.createEl("h3", { text: loc.importComplete });
 
     const stats = contentEl.createDiv({ cls: "annotation-import-stats" });
-    stats.createEl("p", { text: `成功导入：${result.imported} 条` });
+    stats.createEl("p", { text: loc.importResultImported(result.imported) });
     if (result.skippedInvalid > 0) {
-      stats.createEl("p", { text: `无效跳过：${result.skippedInvalid} 条` });
+      stats.createEl("p", { text: loc.importResultSkippedInvalid(result.skippedInvalid) });
     }
     if (result.skippedNotFound > 0) {
-      stats.createEl("p", { text: `文件不存在：${result.skippedNotFound} 条` });
+      stats.createEl("p", { text: loc.importResultSkippedNotFound(result.skippedNotFound) });
     }
     if (result.failed > 0) {
-      stats.createEl("p", { text: `匹配失败：${result.failed} 条` });
+      stats.createEl("p", { text: loc.importResultFailed(result.failed) });
     }
 
     if (result.errors.length > 0) {
       const errorSection = contentEl.createDiv({ cls: "annotation-import-errors" });
-      errorSection.createEl("p", { text: "错误详情：", cls: "annotation-import-error-title" });
+      errorSection.createEl("p", { text: loc.importErrorDetails, cls: "annotation-import-error-title" });
       for (const err of result.errors.slice(0, 10)) {
         errorSection.createEl("p", { text: err });
       }
       if (result.errors.length > 10) {
-        errorSection.createEl("p", { text: `...还有 ${result.errors.length - 10} 条错误` });
+        errorSection.createEl("p", { text: loc.importMoreErrors(result.errors.length - 10) });
       }
     }
 
@@ -101,7 +104,7 @@ export class ImportConfirmModal extends Modal {
   private createCloseButton(contentEl: HTMLElement): void {
     const buttons = contentEl.createDiv({ cls: "annotation-modal-buttons" });
     buttons.createEl("button", {
-      text: "确定",
+      text: t().importOk,
       cls: "annotation-btn annotation-btn-primary",
     }).addEventListener("click", () => this.close());
   }

@@ -1,6 +1,7 @@
 import { Modal, Notice } from "obsidian";
 import type { AnnotationColor, AnnotationPluginSettings, AnnotationRuby } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
+import { t } from "../i18n";
 
 // 编辑批注的模态框
 export class EditNoteModal extends Modal {
@@ -46,25 +47,26 @@ export class EditNoteModal extends Modal {
     const { contentEl } = this;
     const settings = this.getSettings();
     const maxLen = settings.maxNoteLength;
+    const loc = t();
     contentEl.addClass("annotation-note-modal");
 
     this.containerEl.addEventListener("mousedown", (e) => e.stopPropagation());
     this.containerEl.addEventListener("mouseup", (e) => e.stopPropagation());
     this.containerEl.addEventListener("focusin", (e) => e.stopPropagation());
 
-    contentEl.createEl("h3", { text: this.currentNote ? "编辑批注" : "添加批注" });
+    contentEl.createEl("h3", { text: this.currentNote ? loc.modalEditNote : loc.modalAddNote });
 
     const previewEl = contentEl.createDiv({ cls: "annotation-modal-preview" });
     const previewHeader = previewEl.createDiv({ cls: "annotation-modal-preview-header" });
-    previewHeader.createEl("strong", { text: "标注文字：" });
+    previewHeader.createEl("strong", { text: loc.modalAnnotationText });
     const copyBtn = previewHeader.createEl("button", {
       cls: "annotation-copy-btn",
-      text: "复制",
+      text: loc.copy,
     });
     copyBtn.addEventListener("click", () => {
       navigator.clipboard.writeText(this.annotationText).then(() => {
-        copyBtn.textContent = "已复制";
-        setTimeout(() => { copyBtn.textContent = "复制"; }, 1500);
+        copyBtn.textContent = loc.copied;
+        setTimeout(() => { copyBtn.textContent = loc.copy; }, 1500);
       });
     });
     const previewText = this.annotationText.length > 200
@@ -75,12 +77,12 @@ export class EditNoteModal extends Modal {
 
     // 颜色选择
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });
-    colorContainer.createEl("label", { text: "标注颜色：" });
+    colorContainer.createEl("label", { text: loc.modalAnnotationColor });
 
     const colors: AnnotationColor[] = [...ALL_COLORS];
     for (const c of colors) {
       const btn = colorContainer.createEl("button", { cls: `annotation-color-dot ${COLOR_CLASSES[c]}` });
-      btn.title = c === "none" ? "无色" : (settings as any)[`colorLabel${c}`] ?? `颜色${c}`;
+      btn.title = c === "none" ? loc.none : (settings as any)[`colorLabel${c}`] ?? loc.colorLabel(c);
       if (c === this.currentColor) btn.addClass("active");
       btn.addEventListener("click", () => {
         colorContainer.querySelectorAll(".annotation-color-dot")
@@ -91,20 +93,20 @@ export class EditNoteModal extends Modal {
     }
 
     const noteContainer = contentEl.createDiv({ cls: "annotation-note-container" });
-    noteContainer.createEl("label", { text: `批注内容（最多${maxLen}字）：` });
+    noteContainer.createEl("label", { text: loc.modalNoteLabel(maxLen) });
     this.noteInput = noteContainer.createEl("textarea", { cls: "annotation-note-input" });
     this.noteInput.setAttribute("maxlength", String(maxLen));
     this.noteInput.setAttribute("rows", "4");
-    this.noteInput.setAttribute("placeholder", "请输入批注内容...");
+    this.noteInput.setAttribute("placeholder", loc.modalNotePlaceholder);
     this.noteInput.value = this.currentNote;
 
     const charCount = noteContainer.createDiv({
       cls: "annotation-char-count",
-      text: `${this.currentNote.length}/${maxLen}`,
+      text: loc.charCount(this.currentNote.length, maxLen),
     });
     this.noteInput.addEventListener("input", () => {
       const len = this.noteInput?.value.length ?? 0;
-      charCount.textContent = `${len}/${maxLen}`;
+      charCount.textContent = loc.charCount(len, maxLen);
       charCount.toggleClass("annotation-char-count-error", len > maxLen);
     });
 
@@ -112,12 +114,12 @@ export class EditNoteModal extends Modal {
 
     const buttonContainer = contentEl.createDiv({ cls: "annotation-modal-buttons" });
     buttonContainer.createEl("button", {
-      text: "取消",
+      text: loc.cancel,
       cls: "annotation-btn annotation-btn-secondary",
     }).addEventListener("click", () => this.close());
 
     buttonContainer.createEl("button", {
-      text: "保存",
+      text: loc.save,
       cls: "annotation-btn annotation-btn-primary",
     }).addEventListener("click", () => {
       const note = this.noteInput?.value ?? "";
@@ -130,6 +132,7 @@ export class EditNoteModal extends Modal {
   }
 
   private buildRubySection(parent: HTMLElement): void {
+    const loc = t();
     const rubySection = parent.createDiv({ cls: "annotation-ruby-section" });
     const rubyRow = rubySection.createDiv({ cls: "annotation-ruby-row" });
     const rubyCheckbox = rubyRow.createEl("input", {
@@ -148,13 +151,13 @@ export class EditNoteModal extends Modal {
         this.updateRubyList?.();
       }
     });
-    rubyRow.createEl("label", { text: "注音" });
+    rubyRow.createEl("label", { text: loc.menuRuby });
 
     this.rubyTextContainer = rubySection.createDiv({ cls: "annotation-ruby-input-container" });
     this.rubyTextContainer.style.display = this.rubyTextEnabled ? "block" : "none";
 
     const rubyPreview = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-preview" });
-    rubyPreview.createEl("label", { text: "划选需要注音的文字：" });
+    rubyPreview.createEl("label", { text: loc.menuRubySelectText });
     this.rubyTextPreview = rubyPreview.createDiv({
       cls: "annotation-ruby-text-preview",
       text: this.annotationText,
@@ -180,15 +183,15 @@ export class EditNoteModal extends Modal {
     });
 
     const rubyInputRow = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-input-row" });
-    rubyInputRow.createEl("label", { text: "注音内容：" });
+    rubyInputRow.createEl("label", { text: loc.menuRubyContent });
     this.rubyTextInput = rubyInputRow.createEl("input", {
       type: "text",
       cls: "annotation-ruby-input",
-      placeholder: "输入注音内容...",
+      placeholder: loc.menuRubyPlaceholder,
     });
 
     const addRubyBtn = rubyInputRow.createEl("button", {
-      text: "添加",
+      text: loc.add,
       cls: "annotation-btn annotation-btn-small",
     });
     addRubyBtn.addEventListener("click", () => {
@@ -223,17 +226,17 @@ export class EditNoteModal extends Modal {
         this.rubyTextInput!.value = "";
         this.updateRubyList?.();
       } else {
-        new Notice("请先划选需要注音的文字并输入注音内容");
+        new Notice(loc.noticeRubySelectAndInput);
       }
     });
 
     const rubyListContainer = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-list-container" });
-    rubyListContainer.createEl("label", { text: "已添加的注音：" });
+    rubyListContainer.createEl("label", { text: loc.menuRubyAdded });
     const rubyList = rubyListContainer.createDiv({ cls: "annotation-ruby-list" });
     this.updateRubyList = () => {
       rubyList.empty();
       if (this.rubyTexts.length === 0) {
-        rubyList.createDiv({ text: "暂无注音", cls: "annotation-ruby-empty" });
+        rubyList.createDiv({ text: loc.noRuby, cls: "annotation-ruby-empty" });
       } else {
         this.rubyTexts.forEach((ruby, index) => {
           const item = rubyList.createDiv({ cls: "annotation-ruby-item" });
@@ -241,7 +244,7 @@ export class EditNoteModal extends Modal {
             text: `${this.annotationText.substring(ruby.startIndex, ruby.startIndex + ruby.length)} → ${ruby.ruby}`,
             cls: "annotation-ruby-item-text",
           });
-          const deleteBtn = item.createEl("button", { text: "×", cls: "annotation-ruby-item-delete" });
+          const deleteBtn = item.createEl("button", { text: loc.close, cls: "annotation-ruby-item-delete" });
           deleteBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             this.rubyTexts.splice(index, 1);

@@ -4,7 +4,7 @@ import { COLOR_NUMBERS, DEFAULT_SETTINGS } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement, generateId } from "../utils/helpers";
-import { buildMarkTag } from "../annotationFile/annotationSerializer";
+import { buildMarkTag, PartialWikiLinkError } from "../annotationFile/annotationSerializer";
 import { t } from "../i18n";
 
 // 添加标注的浮动菜单
@@ -457,6 +457,10 @@ export class SelectionMenu {
         new Notice(loc.noticeTextNotFound);
       }
     } catch (e) {
+      if (e instanceof PartialWikiLinkError) {
+        new Notice(loc.noticePartialWikiLink);
+        return;
+      }
       console.error("添加标注失败:", e);
       new Notice(loc.noticeAddFailed);
     }

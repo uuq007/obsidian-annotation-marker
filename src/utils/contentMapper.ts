@@ -65,7 +65,7 @@ export function findTextInSource(
   searchStartLine?: number,
   searchEndLine?: number,
   occurrence?: number
-): { start: number; end: number } | null {
+): { start: number; end: number; isPartialWikiLink: boolean } | null {
   if (!searchText) return null;
 
   // 如果有行号范围，截取对应区域搜索
@@ -106,9 +106,14 @@ export function findTextInSource(
 
   if (cleanedEnd > cleanedToSource.length) return null;
 
+  const rawStart = (cleanedToSource[cleanedStart] ?? 0) + lineOffset;
+  const rawEnd = (cleanedToSource[cleanedEnd - 1] ?? 0) + 1 + lineOffset;
+  const expanded = expandToWikiLinks(sourceContent, rawStart, rawEnd);
+
   return {
-    start: (cleanedToSource[cleanedStart] ?? 0) + lineOffset,
-    end: (cleanedToSource[cleanedEnd - 1] ?? 0) + 1 + lineOffset,
+    start: expanded.start,
+    end: expanded.end,
+    isPartialWikiLink: expanded.isPartialWikiLink,
   };
 }
 
@@ -241,6 +246,42 @@ export function buildCleanedMap(source: string): CleanedMap {
     cleaned: cleanedChars.join(""),
     cleanedToSource,
   };
+}
+
+// 检查标注范围是否与 wiki-link 重叠，扩展到完整 wiki-link 并检测部分选中
+export function expandToWikiLinks(
+  source: string,
+  start: number,
+  end: number
+): { start: number; end: number; isPartialWikiLink: boolean } {
+  const wikiLinkRegex = /\[\[(?:[^\[\]\|]*\|)?([^\[\]]+)\]\]/g;
+  let resultStart = start;
+  let resultEnd = end;
+  let isPartialWikiLink = false;
+  let match: RegExpExecArray | null;
+
+  while ((match = wikiLinkRegex.exec(source)) !== null) {
+    const displayText = match[1]!;
+    const fullMatch = match[0];
+    const displayOffset = fullMatch.indexOf(displayText);
+    const wStart = match.index;
+    const displayStart = wStart + displayOffset;
+    const displayEnd = displayStart + displayText.length;
+    const wEnd = wStart + fullMatch.length;
+
+    // 选中范围与 wiki-link 显示文本有重叠
+    if ((displayStart <= resultStart && resultStart < displayEnd) ||
+        (displayStart < resultEnd && resultEnd <= displayEnd) ||
+        (resultStart <= displayStart && resultEnd >= displayEnd)) {
+      // 选中范围没有覆盖完整显示文本 → 部分选中
+      if (resultStart > displayStart || resultEnd < displayEnd) {
+        isPartialWikiLink = true;
+      }
+      resultStart = Math.min(resultStart, wStart);
+      resultEnd = Math.max(resultEnd, wEnd);
+    }
+  }
+  return { start: resultStart, end: resultEnd, isPartialWikiLink };
 }
 
 // 用 TreeWalker 计算选区起点在元素内的精确字符偏移（跳过 <rt> 节点）

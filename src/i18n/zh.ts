@@ -77,6 +77,7 @@ export const zhCN: LocaleDict = {
   noticeAnnotationAndNoteAdded: "标注和批注已添加",
   noticeTextNotFound: "未能在文件中找到选中的文字",
   noticeAddFailed: "添加标注失败",
+  noticePartialWikiLink: "无法标注双链内的部分文字，请选中完整的双链文本",
 
   // 编辑批注模态框
   modalEditNote: "编辑批注",

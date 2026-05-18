@@ -77,6 +77,7 @@ export const en: LocaleDict = {
   noticeAnnotationAndNoteAdded: "Annotation and note added",
   noticeTextNotFound: "Could not find the selected text in the file",
   noticeAddFailed: "Failed to add annotation",
+  noticePartialWikiLink: "Cannot annotate partial text within a wiki-link. Please select the complete link text",
 
   // Edit note modal
   modalEditNote: "Edit Note",

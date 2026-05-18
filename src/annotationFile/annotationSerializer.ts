@@ -1,8 +1,13 @@
 import type { AnnotationColor, AnnotationRuby, NewAnnotation } from "../types";
 import { COLOR_BG_VARS, COLOR_ACCENT_VARS } from "../constants";
 import { generateId, encodeAttr } from "../utils/helpers";
-import { findTextInSource, buildCleanedMap } from "../utils/contentMapper";
+import { findTextInSource, buildCleanedMap, expandToWikiLinks } from "../utils/contentMapper";
 import { computeSegments, buildSegmentHtml } from "../utils/overlapUtils";
+
+// 选中了 wiki-link 内部分文字时抛出
+export class PartialWikiLinkError extends Error {
+  constructor() { super("partialWikiLink"); }
+}
 import type { Interval } from "../utils/overlapUtils";
 import { parseAnnotations, stripAnnotationTags } from "./annotationParser";
 
@@ -75,6 +80,9 @@ export function insertAnnotation(content: string, annotation: NewAnnotation, cus
       annotation.occurrence
     );
     if (found) {
+      if (found.isPartialWikiLink) {
+        throw new PartialWikiLinkError();
+      }
       start = found.start;
       end = found.end;
     }
@@ -415,8 +423,17 @@ export function insertFullTextAnnotation(
   for (let i = occurrences.length - 1; i >= 0; i--) {
     const cleanStart = occurrences[i]!;
     const cleanEnd = cleanStart + annotation.text.length;
-    const srcStart = map.cleanedToSource[cleanStart] ?? 0;
-    const srcEnd = (map.cleanedToSource[cleanEnd - 1] ?? srcStart) + 1;
+    let srcStart = map.cleanedToSource[cleanStart] ?? 0;
+    let srcEnd = (map.cleanedToSource[cleanEnd - 1] ?? srcStart) + 1;
+
+    // 扩展到完整 wiki-link，跳过部分选中
+    const expanded = expandToWikiLinks(newContent, srcStart, srcEnd);
+    if (expanded.isPartialWikiLink) {
+      continue;
+    }
+    srcStart = expanded.start;
+    srcEnd = expanded.end;
+
     const sourceSlice = newContent.substring(srcStart, srcEnd);
 
     const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, undefined, undefined, true);

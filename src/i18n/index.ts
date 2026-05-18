@@ -78,6 +78,7 @@ export interface LocaleDict {
   noticeAnnotationAndNoteAdded: string;
   noticeTextNotFound: string;
   noticeAddFailed: string;
+  noticePartialWikiLink: string;
 
   // 编辑批注模态框 (EditNoteModal)
   modalEditNote: string;

@@ -51,6 +51,13 @@ export const zhCN: LocaleDict = {
   settingsRubyFontSize: "注音字体大小",
   settingsRubyFontSizeDesc: "例如 0.7em、0.6em",
   settingsRubyColor: "注音文字颜色",
+  settingsAnnotationMode: "标注模式",
+  settingsDefaultViewMode: "默认视图模式",
+  settingsDefaultViewModeDesc: "打开标注模式时默认使用的视图",
+  settingsViewModePreview: "阅读视图",
+  settingsViewModeSource: "实时预览编辑视图",
+  settingsAutoOpenAnnotation: "自动进入标注模式",
+  settingsAutoOpenAnnotationDesc: "打开已有标注的笔记时，自动切换到标注模式",
 
   // 选择菜单
   menuAddAnnotation: "添加标注",

@@ -84,6 +84,9 @@ export interface AnnotationPluginSettings {
   // 注音样式
   rubyFontSize: string;
   rubyColor: string;
+  // 标注模式
+  defaultViewMode: "preview" | "source";
+  autoOpenAnnotation: boolean;
 }
 
 export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
@@ -102,6 +105,8 @@ export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
   noteEffect: "none",
   rubyFontSize: "0.7em",
   rubyColor: "#999999",
+  defaultViewMode: "preview",
+  autoOpenAnnotation: false,
 };
 
 // 所有颜色序号（不含 none）

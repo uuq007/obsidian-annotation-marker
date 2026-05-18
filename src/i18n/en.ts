@@ -51,6 +51,13 @@ export const en: LocaleDict = {
   settingsRubyFontSize: "Ruby font size",
   settingsRubyFontSizeDesc: "e.g. 0.7em, 0.6em",
   settingsRubyColor: "Ruby text color",
+  settingsAnnotationMode: "Annotation Mode",
+  settingsDefaultViewMode: "Default view mode",
+  settingsDefaultViewModeDesc: "Default view when opening annotation mode",
+  settingsViewModePreview: "Reading view",
+  settingsViewModeSource: "Live preview",
+  settingsAutoOpenAnnotation: "Auto-enter annotation mode",
+  settingsAutoOpenAnnotationDesc: "Automatically switch to annotation mode when opening a note with annotations",
 
   // Selection menu
   menuAddAnnotation: "Add Annotation",

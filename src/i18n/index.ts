@@ -52,6 +52,13 @@ export interface LocaleDict {
   settingsRubyFontSize: string;
   settingsRubyFontSizeDesc: string;
   settingsRubyColor: string;
+  settingsAnnotationMode: string;
+  settingsDefaultViewMode: string;
+  settingsDefaultViewModeDesc: string;
+  settingsViewModePreview: string;
+  settingsViewModeSource: string;
+  settingsAutoOpenAnnotation: string;
+  settingsAutoOpenAnnotationDesc: string;
 
   // 选择菜单 (SelectionMenu)
   menuAddAnnotation: string;

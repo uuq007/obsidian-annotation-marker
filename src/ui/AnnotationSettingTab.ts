@@ -112,5 +112,31 @@ export class AnnotationSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+
+    containerEl.createEl("h3", { text: loc.settingsAnnotationMode });
+
+    new Setting(containerEl)
+      .setName(loc.settingsDefaultViewMode)
+      .setDesc(loc.settingsDefaultViewModeDesc)
+      .addDropdown((dd) => {
+        dd.addOption("preview", loc.settingsViewModePreview);
+        dd.addOption("source", loc.settingsViewModeSource);
+        dd.setValue(this.plugin.settings.defaultViewMode);
+        dd.onChange(async (v) => {
+          this.plugin.settings.defaultViewMode = v as "preview" | "source";
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName(loc.settingsAutoOpenAnnotation)
+      .setDesc(loc.settingsAutoOpenAnnotationDesc)
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.autoOpenAnnotation);
+        toggle.onChange(async (v) => {
+          this.plugin.settings.autoOpenAnnotation = v;
+          await this.plugin.saveSettings();
+        });
+      });
   }
 }

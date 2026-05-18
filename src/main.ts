@@ -46,6 +46,9 @@ export default class AnnotationPlugin extends Plugin {
   annotationChangeCallbacks: Array<() => void> = [];
   private notifyDebounceTimer: number | null = null;
 
+  // 抑制自动进入标注模式（关闭标注视图时使用）
+  private suppressAutoOpen: boolean = false;
+
   async onload() {
     await this.loadSettings();
     initLocale();
@@ -354,7 +357,7 @@ export default class AnnotationPlugin extends Plugin {
     try {
       this.injectMetadataCache(annotationPath, notePath, fakeTFile);
 
-      await leaf.openFile(fakeTFile, { state: { mode: "preview" } });
+      await leaf.openFile(fakeTFile, { state: { mode: this.settings.defaultViewMode } });
 
       if (savedScroll) {
         requestAnimationFrame(() => {
@@ -370,6 +373,7 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   async closeAnnotationView(leaf: any, originalPath: string) {
+    this.suppressAutoOpen = true;
     const savedScroll = this.getSavedScroll(leaf);
     const annotationPath = this.activeAnnotationSessions.get(originalPath);
 
@@ -415,6 +419,9 @@ export default class AnnotationPlugin extends Plugin {
         requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
       });
     }
+
+    // 延迟重置，确保 file-open 事件已触发并被抑制
+    setTimeout(() => { this.suppressAutoOpen = false; }, 500);
   }
 
   // ========== 标注交互事件 ==========
@@ -768,6 +775,32 @@ export default class AnnotationPlugin extends Plugin {
 
   registerEvents() {
     this.registerEvent(
+      this.app.workspace.on("file-open", async (file) => {
+        if (!this.settings.autoOpenAnnotation) return;
+        if (this.suppressAutoOpen) return;
+        if (!file || file.extension !== "md") return;
+
+        // 如果当前文件已在标注视图中则跳过
+        if (this.getOriginalPathByAnnotationPath(file.path)) return;
+        // 如果该文件已有活跃标注会话也跳过
+        if (this.activeAnnotationSessions.has(file.path)) return;
+
+        // 检查是否存在标注文件
+        const hasFile = await this.fileManager.hasAnnotationFile(file.path);
+        if (!hasFile) return;
+
+        // 检查是否有实际标注内容
+        const annotations = await this.fileManager.getAnnotations(file.path);
+        if (annotations.length === 0) return;
+
+        const leaf = this.app.workspace.activeLeaf;
+        if (leaf && (leaf.view as any)?.file?.path === file.path) {
+          await this.openAnnotationView(leaf, file.path);
+        }
+      })
+    );
+
+    this.registerEvent(
       this.app.vault.on("rename", async (file, oldPath) => {
         if (file instanceof TFile && file.extension === "md") {
           // 迁移标注文件
@@ -800,7 +833,7 @@ export default class AnnotationPlugin extends Plugin {
             // 更新打开的 leaf
             this.app.workspace.iterateAllLeaves((leaf) => {
               if ((leaf.view as any)?.file?.path === annotationPath) {
-                leaf.openFile(newFakeTFile, { state: { mode: "preview" } });
+                leaf.openFile(newFakeTFile, { state: { mode: this.settings.defaultViewMode } });
               }
             });
 

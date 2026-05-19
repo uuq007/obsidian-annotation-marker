@@ -179,6 +179,27 @@ export default class AnnotationPlugin extends Plugin {
     document.body.dataset.noteEffect = s.noteEffect;
   }
 
+  // ========== 标签页标题 ==========
+
+  private updateAnnotationTabTitle(leaf: any, originalPath: string) {
+    const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
+    const displayName = originalFile instanceof TFile
+      ? originalFile.basename
+      : originalPath.replace(/\.md$/, "").split("/").pop() ?? originalPath;
+    const tabTitle = `【标注视图】${displayName}`;
+
+    requestAnimationFrame(() => {
+      const tabHeaderEl = (leaf as any).tabHeaderEl;
+      if (tabHeaderEl) {
+        const titleEl = tabHeaderEl.querySelector('.workspace-tab-header-inner-title');
+        if (titleEl) {
+          titleEl.textContent = tabTitle;
+        }
+        tabHeaderEl.setAttribute('aria-label', tabTitle);
+      }
+    });
+  }
+
   // ========== 实时同步 ==========
 
   private debouncedSyncToOriginal(originalPath: string) {
@@ -261,6 +282,7 @@ export default class AnnotationPlugin extends Plugin {
           this.app.workspace.iterateAllLeaves((l) => {
             if ((l.view as any)?.file?.path === annotationPath) {
               isStillOpen = true;
+              this.updateAnnotationTabTitle(l, originalPath);
             }
           });
 
@@ -360,6 +382,8 @@ export default class AnnotationPlugin extends Plugin {
       this.injectMetadataCache(annotationPath, notePath, fakeTFile);
 
       await leaf.openFile(fakeTFile, { state: { mode: this.settings.defaultViewMode } });
+
+      this.updateAnnotationTabTitle(leaf, notePath);
 
       if (savedScroll) {
         requestAnimationFrame(() => {
@@ -836,6 +860,7 @@ export default class AnnotationPlugin extends Plugin {
             this.app.workspace.iterateAllLeaves((leaf) => {
               if ((leaf.view as any)?.file?.path === annotationPath) {
                 leaf.openFile(newFakeTFile, { state: { mode: this.settings.defaultViewMode } });
+                this.updateAnnotationTabTitle(leaf, file.path);
               }
             });
 

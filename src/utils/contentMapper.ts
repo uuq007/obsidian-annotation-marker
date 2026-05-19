@@ -572,3 +572,42 @@ function countOccurrenceIndexLocal(text: string, searchText: string, offset: num
   }
   return bestIdx;
 }
+
+// 扫描源码中不可标注的区域（围栏代码块和内联代码）
+export function findExcludedRanges(source: string): Array<{start: number, end: number}> {
+  const ranges: Array<{start: number, end: number}> = [];
+  const lines = source.split('\n');
+  let pos = 0;
+  let inFenced = false;
+  let fenceStart = 0;
+
+  // 逐行扫描围栏代码块
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!inFenced && /^```/.test(line)) {
+      inFenced = true;
+      fenceStart = pos;
+    } else if (inFenced && /^```/.test(line)) {
+      ranges.push({ start: fenceStart, end: pos + line.length });
+      inFenced = false;
+    }
+    pos += line.length + 1;
+  }
+  // 未闭合的代码块
+  if (inFenced) {
+    ranges.push({ start: fenceStart, end: source.length });
+  }
+
+  // 内联代码（跳过已在围栏代码块内的）
+  const inlineRe = /`([^`\n]+)`/g;
+  let m: RegExpExecArray | null;
+  while ((m = inlineRe.exec(source)) !== null) {
+    const inFencedBlock = ranges.some(r => m!.index >= r.start && m!.index < r.end);
+    if (!inFencedBlock) {
+      ranges.push({ start: m.index, end: m.index + m[0].length });
+    }
+  }
+
+  ranges.sort((a, b) => a.start - b.start);
+  return ranges;
+}

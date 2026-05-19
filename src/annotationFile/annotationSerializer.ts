@@ -1,7 +1,7 @@
 import type { AnnotationColor, AnnotationRuby, NewAnnotation } from "../types";
 import { COLOR_BG_VARS, COLOR_ACCENT_VARS } from "../constants";
 import { generateId, encodeAttr } from "../utils/helpers";
-import { findTextInSource, buildCleanedMap, expandToWikiLinks } from "../utils/contentMapper";
+import { findTextInSource, buildCleanedMap, expandToWikiLinks, findExcludedRanges } from "../utils/contentMapper";
 import { computeSegments, buildSegmentHtml } from "../utils/overlapUtils";
 
 // 选中了 wiki-link 内部分文字时抛出
@@ -407,6 +407,7 @@ export function insertFullTextAnnotation(
 ): { content: string; id: string; count: number } {
   const id = generateId();
   const map = buildCleanedMap(content);
+  const excludedRanges = findExcludedRanges(content);
 
   const occurrences: number[] = [];
   let searchFrom = 0;
@@ -420,9 +421,16 @@ export function insertFullTextAnnotation(
   if (occurrences.length === 0) return { content, id, count: 0 };
 
   let newContent = content;
+  let actualCount = 0;
   for (let i = occurrences.length - 1; i >= 0; i--) {
     const cleanStart = occurrences[i]!;
     const cleanEnd = cleanStart + annotation.text.length;
+
+    // 跳过代码块和内联代码区域
+    const srcPos = map.cleanedToSource[cleanStart] ?? 0;
+    const isInExcluded = excludedRanges.some(r => srcPos >= r.start && srcPos < r.end);
+    if (isInExcluded) continue;
+
     let srcStart = map.cleanedToSource[cleanStart] ?? 0;
     let srcEnd = (map.cleanedToSource[cleanEnd - 1] ?? srcStart) + 1;
 
@@ -438,9 +446,10 @@ export function insertFullTextAnnotation(
 
     const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, undefined, undefined, true);
     newContent = newContent.substring(0, srcStart) + tag + newContent.substring(srcEnd);
+    actualCount++;
   }
 
-  return { content: newContent, id, count: occurrences.length };
+  return { content: newContent, id, count: actualCount };
 }
 
 // 跨段标注插入

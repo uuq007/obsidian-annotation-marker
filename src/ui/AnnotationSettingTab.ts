@@ -138,5 +138,19 @@ export class AnnotationSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+
+    containerEl.createEl("h3", { text: loc.settingsExportFolder });
+
+    new Setting(containerEl)
+      .setName(loc.settingsExportFolder)
+      .setDesc(loc.settingsExportFolderDesc)
+      .addText((txt) => {
+        txt.setPlaceholder(loc.settingsExportFolder)
+          .setValue(this.plugin.settings.exportFolder)
+          .onChange(async (v) => {
+            this.plugin.settings.exportFolder = v;
+            await this.plugin.saveSettings();
+          });
+      });
   }
 }

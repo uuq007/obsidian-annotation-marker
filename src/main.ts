@@ -22,6 +22,8 @@ import { AnnotationSidebarView, ANNOTATION_SIDEBAR_VIEW_TYPE } from "./sidebar/A
 import { preScanOldAnnotations } from "./importer/oldAnnotationImporter";
 import { ImportConfirmModal } from "./importer/ImportConfirmModal";
 import { initLocale, t } from "./i18n";
+import { FolderSuggestModal, FileNameModal, ConfirmOverwriteModal } from "./ui/ExportModal";
+import { sortAnnotations, buildExportContent } from "./utils/exporter";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -939,5 +941,75 @@ export default class AnnotationPlugin extends Plugin {
         new ImportConfirmModal(this.app, this.fileManager, pluginDir, scan).open();
       },
     });
+
+    this.addCommand({
+      id: "export-current-annotations",
+      name: t().commandExport,
+      checkCallback: (checking) => {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile || activeFile.extension !== "md") return false;
+
+        if (!checking) {
+          this.exportCurrentAnnotations(activeFile.path);
+        }
+        return true;
+      },
+    });
+  }
+
+  // ========== 导出标注 ==========
+
+  async exportCurrentAnnotations(notePath: string): Promise<void> {
+    const loc = t();
+    const hasFile = await this.fileManager.hasAnnotationFile(notePath);
+    if (!hasFile) {
+      new Notice(loc.noData);
+      return;
+    }
+
+    const annotations = await this.fileManager.getAnnotations(notePath);
+    if (annotations.length === 0) {
+      new Notice(loc.noData);
+      return;
+    }
+
+    const sorted = sortAnnotations(annotations, "position-asc");
+    const content = buildExportContent(sorted);
+    const exportFolder = this.settings.exportFolder?.trim();
+
+    const doExport = (folderPath: string) => {
+      const originalFile = this.app.vault.getAbstractFileByPath(notePath);
+      const noteName = originalFile instanceof TFile ? originalFile.name.replace(/\.md$/, "") : "";
+
+      new FileNameModal(this.app, noteName, async (fileName: string) => {
+        const filePath = normalizePath(folderPath && folderPath !== "/" ? `${folderPath}/${fileName}` : fileName);
+        const existing = this.app.vault.getAbstractFileByPath(filePath);
+
+        const doWrite = async () => {
+          if (existing instanceof TFile) {
+            await this.app.vault.modify(existing, content);
+          } else {
+            await this.app.vault.create(filePath, content);
+          }
+          new Notice(loc.noticeExportSuccess(sorted.length));
+        };
+
+        if (existing instanceof TFile) {
+          new ConfirmOverwriteModal(
+            this.app,
+            `${loc.exportConfirmOverwrite}\n${filePath}\n\n${loc.exportConfirmOverwriteDesc}`,
+            doWrite
+          ).open();
+        } else {
+          await doWrite();
+        }
+      }).open();
+    };
+
+    if (exportFolder) {
+      doExport(exportFolder);
+    } else {
+      new FolderSuggestModal(this.app, doExport).open();
+    }
   }
 }

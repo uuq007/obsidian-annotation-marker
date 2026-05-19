@@ -163,6 +163,25 @@ export interface LocaleDict {
   importMoreErrors: (n: number) => string;
   importOk: string;
 
+  // 导出
+  commandExport: string;
+  sidebarExportBtn: string;
+  exportModalTitle: string;
+  exportModalPlaceholder: string;
+  noticeExportSuccess: (n: number) => string;
+  noticeExportFailed: string;
+  noticeExportNoFile: string;
+  exportConfirmOverwrite: string;
+  exportConfirmOverwriteDesc: string;
+  exportFolderPlaceholder: string;
+  exportFolderSuggestTitle: string;
+  exportFileNameTitle: string;
+  exportFileNamePlaceholder: string;
+  exportFileNameInvalid: string;
+  exportAutoName: string;
+  settingsExportFolder: string;
+  settingsExportFolderDesc: string;
+
   // 带参数
   colorLabel: (n: string) => string;
   fullTextAnnotation: (n: number) => string;

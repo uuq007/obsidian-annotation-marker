@@ -162,6 +162,25 @@ export const en: LocaleDict = {
   importMoreErrors: (n: number) => `...${n} more errors`,
   importOk: "OK",
 
+  // Export
+  commandExport: "Export current note annotations",
+  sidebarExportBtn: "Export",
+  exportModalTitle: "Export annotations to file",
+  exportModalPlaceholder: "Enter file path or select an existing file...",
+  noticeExportSuccess: (n: number) => `Exported ${n} annotations`,
+  noticeExportFailed: "Export failed",
+  noticeExportNoFile: "Please open a note with annotations first",
+  exportConfirmOverwrite: "File already exists",
+  exportConfirmOverwriteDesc: "This file already exists. Overwrite?",
+  exportFolderPlaceholder: "Select or enter a folder path...",
+  exportFolderSuggestTitle: "Select export folder",
+  exportFileNameTitle: "Enter export file name",
+  exportFileNamePlaceholder: "File name (.md suffix added automatically)",
+  exportFileNameInvalid: "Filename cannot contain: \\ / : * ? \" < > |",
+  exportAutoName: "Auto name",
+  settingsExportFolder: "Export annotation folder",
+  settingsExportFolderDesc: "When set, exports will use this folder automatically. Leave empty to choose manually each time.",
+
   // Parameterized
   colorLabel: (n: string) => `Color ${n}`,
   fullTextAnnotation: (n: number) => `Full-text annotation (${n} occurrences)`,

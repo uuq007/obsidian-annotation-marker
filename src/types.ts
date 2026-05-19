@@ -87,6 +87,8 @@ export interface AnnotationPluginSettings {
   // 标注模式
   defaultViewMode: "preview" | "source";
   autoOpenAnnotation: boolean;
+  // 导出
+  exportFolder: string;
 }
 
 export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
@@ -107,6 +109,7 @@ export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
   rubyColor: "#999999",
   defaultViewMode: "preview",
   autoOpenAnnotation: false,
+  exportFolder: "",
 };
 
 // 所有颜色序号（不含 none）

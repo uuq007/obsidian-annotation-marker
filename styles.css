@@ -1380,3 +1380,51 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   margin-left: auto;
   flex-shrink: 0;
 }
+
+/* ========== 导出按钮 ========== */
+.annotation-sidebar-export-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: auto;
+  margin-right: 6px;
+  transition: all 0.15s ease;
+}
+
+.annotation-sidebar-export-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+/* ========== 导出 callout 颜色 ========== */
+.callout[data-callout^="annotation-"] {
+  --callout-color: 153, 153, 153;
+}
+
+.callout[data-callout="annotation-1"] {
+  --callout-color: 255, 107, 107;
+}
+
+.callout[data-callout="annotation-2"] {
+  --callout-color: 84, 160, 255;
+}
+
+.callout[data-callout="annotation-3"] {
+  --callout-color: 255, 212, 59;
+}
+
+.callout[data-callout="annotation-4"] {
+  --callout-color: 38, 194, 129;
+}
+
+.callout[data-callout="annotation-5"] {
+  --callout-color: 155, 89, 182;
+}
+
+.callout[data-callout="annotation-none"] {
+  --callout-color: 153, 153, 153;
+}

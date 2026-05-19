@@ -8,6 +8,8 @@ import { scrollToAnnotation } from "../utils/scrollToAnnotation";
 import { createAnnotationCard, type AnnotationCardData } from "./AnnotationCard";
 import type AnnotationPlugin from "../main";
 import { t } from "../i18n";
+import { FolderSuggestModal, FileNameModal, ConfirmOverwriteModal } from "../ui/ExportModal";
+import { sortAnnotations, buildExportContent } from "../utils/exporter";
 
 export const ANNOTATION_SIDEBAR_VIEW_TYPE = "annotation-sidebar-view";
 
@@ -28,6 +30,7 @@ export class AnnotationSidebarView extends ItemView {
   private cardListEl: HTMLElement | null = null;
   private searchInput: HTMLInputElement | null = null;
   private sortSelect: HTMLSelectElement | null = null;
+  private exportBtn: HTMLElement | null = null;
   private tabs: Record<SidebarMode, HTMLElement> = { current: null!, all: null! };
   private colorBtns: Map<string, HTMLElement> = new Map();
 
@@ -125,6 +128,14 @@ export class AnnotationSidebarView extends ItemView {
     const toolbar = container.createDiv({ cls: "annotation-sidebar-toolbar" });
     toolbar.createSpan({ cls: "annotation-sidebar-title", text: t().sidebarTitle });
 
+    // 导出按钮（仅在当前笔记模式下显示）
+    this.exportBtn = toolbar.createEl("button", {
+      cls: "annotation-sidebar-export-btn",
+      text: t().sidebarExportBtn,
+    });
+    this.exportBtn.addEventListener("click", () => this.exportCurrentAnnotations());
+    this.exportBtn.style.display = this.mode === "current" ? "" : "none";
+
     this.sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
     this.sortSelect.addEventListener("change", () => {
       this.sortOption = this.sortSelect!.value as SortOption;
@@ -194,6 +205,9 @@ export class AnnotationSidebarView extends ItemView {
     this.mode = newMode;
     this.tabs.current.toggleClass("active", newMode === "current");
     this.tabs.all.toggleClass("active", newMode === "all");
+    if (this.exportBtn) {
+      this.exportBtn.style.display = newMode === "current" ? "" : "none";
+    }
     this.updateSortOptions();
     this.closeDetailPanel();
     this.refresh();
@@ -767,5 +781,63 @@ export class AnnotationSidebarView extends ItemView {
     this.plugin.refreshAnnotationView(notePath);
     this.closeDetailPanel();
     new Notice(loc.noticeDeleted);
+  }
+
+  // ========== 导出标注 ==========
+
+  private async exportCurrentAnnotations(): Promise<void> {
+    const loc = t();
+    const cards = await this.loadCurrentFileAnnotations();
+    if (cards.length === 0) {
+      new Notice(loc.noData);
+      return;
+    }
+
+    const annotations = sortAnnotations(
+      cards.map((c) => c.annotation),
+      this.sortOption
+    );
+    const content = buildExportContent(annotations);
+    const exportFolder = this.plugin.settings.exportFolder?.trim();
+
+    const doExport = (folderPath: string) => {
+      const activeFile = this.app.workspace.getActiveFile();
+      const noteName = activeFile?.name?.replace(/\.md$/, "") ?? "";
+
+      new FileNameModal(this.app, noteName, async (fileName: string) => {
+        const filePath = normalizePath(folderPath && folderPath !== "/" ? `${folderPath}/${fileName}` : fileName);
+        const existing = this.app.vault.getAbstractFileByPath(filePath);
+
+        const doWrite = async () => {
+          try {
+            if (existing instanceof TFile) {
+              await this.app.vault.modify(existing, content);
+            } else {
+              await this.app.vault.create(filePath, content);
+            }
+            new Notice(loc.noticeExportSuccess(annotations.length));
+          } catch (e) {
+            console.error("导出失败:", e);
+            new Notice(loc.noticeExportFailed);
+          }
+        };
+
+        if (existing instanceof TFile) {
+          new ConfirmOverwriteModal(
+            this.app,
+            `${loc.exportConfirmOverwrite}\n${filePath}\n\n${loc.exportConfirmOverwriteDesc}`,
+            doWrite
+          ).open();
+        } else {
+          await doWrite();
+        }
+      }).open();
+    };
+
+    if (exportFolder) {
+      doExport(exportFolder);
+    } else {
+      new FolderSuggestModal(this.app, doExport).open();
+    }
   }
 }

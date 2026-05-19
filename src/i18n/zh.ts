@@ -162,6 +162,25 @@ export const zhCN: LocaleDict = {
   importMoreErrors: (n: number) => `...还有 ${n} 条错误`,
   importOk: "确定",
 
+  // 导出
+  commandExport: "导出当前笔记标注",
+  sidebarExportBtn: "导出",
+  exportModalTitle: "导出标注到文件",
+  exportModalPlaceholder: "输入文件路径或选择已有文件...",
+  noticeExportSuccess: (n: number) => `已导出 ${n} 条标注`,
+  noticeExportFailed: "导出失败",
+  noticeExportNoFile: "请先打开一个有标注的笔记",
+  exportConfirmOverwrite: "文件已存在",
+  exportConfirmOverwriteDesc: "该文件已存在，是否覆盖？",
+  exportFolderPlaceholder: "选择或输入文件夹路径...",
+  exportFolderSuggestTitle: "选择导出文件夹",
+  exportFileNameTitle: "输入导出文件名",
+  exportFileNamePlaceholder: "文件名（自动添加 .md 后缀）",
+  exportFileNameInvalid: "文件名不能包含以下字符：\\ / : * ? \" < > |",
+  exportAutoName: "自动命名",
+  settingsExportFolder: "导出标注文件夹",
+  settingsExportFolderDesc: "设置后，导出时将直接使用该文件夹，无需每次选择。留空则每次手动选择。",
+
   // 带参数
   colorLabel: (n: string) => `颜色${n}`,
   fullTextAnnotation: (n: number) => `全文标注（共 ${n} 处）`,

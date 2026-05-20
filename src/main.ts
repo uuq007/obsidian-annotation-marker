@@ -548,6 +548,14 @@ export default class AnnotationPlugin extends Plugin {
       const markEl = target.closest("mark[data-annotation-id]") as HTMLElement;
       if (!markEl) return;
 
+      // 编辑模式下不拦截 click，避免干扰 CM6 焦点管理
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (view?.getMode() === "source") return;
+
+      // 检查点击是否在预览容器内
+      const previewContainer = view?.previewMode?.containerEl;
+      if (previewContainer && !previewContainer.contains(markEl)) return;
+
       e.preventDefault();
       e.stopPropagation();
 
@@ -638,9 +646,18 @@ export default class AnnotationPlugin extends Plugin {
         const editorView: EditorView = view.editor.cm;
         if (editorView && content !== editorView.state.doc.toString()) {
           const scrollTop = editorView.scrollDOM.scrollTop;
+
+          // 保存光标位置，clamp 到新文档长度内
+          const savedPos = Math.min(
+            editorView.state.selection.main.head,
+            content.length
+          );
+
           editorView.dispatch({
-            changes: { from: 0, to: editorView.state.doc.length, insert: content }
+            changes: { from: 0, to: editorView.state.doc.length, insert: content },
+            selection: { anchor: savedPos },
           });
+
           requestAnimationFrame(() => {
             editorView.scrollDOM.scrollTop = scrollTop;
           });

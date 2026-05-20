@@ -53,15 +53,17 @@ export class FolderSuggestModal extends FuzzySuggestModal<string> {
   }
 }
 
-// 覆盖确认对话框
+// 通用确认对话框（覆盖导出、删除确认等场景）
 export class ConfirmOverwriteModal extends Modal {
   private message: string;
   private onConfirm: () => void;
+  private confirmText: string;
 
-  constructor(app: App, message: string, onConfirm: () => void) {
+  constructor(app: App, message: string, onConfirm: () => void, confirmText?: string) {
     super(app);
     this.message = message;
     this.onConfirm = onConfirm;
+    this.confirmText = confirmText ?? t().exportConfirmOverwrite;
   }
 
   onOpen(): void {
@@ -77,7 +79,7 @@ export class ConfirmOverwriteModal extends Modal {
 
     btnContainer.createEl("button", { text: loc.cancel }).addEventListener("click", () => this.close());
     btnContainer.createEl("button", {
-      text: loc.exportConfirmOverwrite,
+      text: this.confirmText,
       cls: "mod-cta",
     }).addEventListener("click", () => {
       this.close();

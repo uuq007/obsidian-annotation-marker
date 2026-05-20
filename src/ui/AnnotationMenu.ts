@@ -3,7 +3,9 @@ import type { AnnotationColor, AnnotationPluginSettings, ParsedAnnotation } from
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { EditNoteModal } from "./EditNoteModal";
+import { ConfirmOverwriteModal } from "./ExportModal";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
+import { restoreEditorFocus } from "../utils/focusManager";
 import { t } from "../i18n";
 
 // 标注详情的浮动菜单（点击已有标注时弹出）
@@ -117,21 +119,27 @@ export class AnnotationMenu {
       cls: "annotation-btn annotation-btn-danger",
       text: loc.delete,
     });
-    deleteBtn.addEventListener("click", async (e) => {
+    deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const msg = (annotation.isFullText || annotation.positions.length > 1) && annotation.positions.length > 1
         ? loc.confirmDeleteMulti(annotation.positions.length)
         : loc.confirmDelete;
-      if (!confirm(msg)) return;
-      // 编辑模式：用 replaceRange 局部替换
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      const deleted = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, 'delete') : false;
-      if (!deleted) {
-        await this.fileManager.removeAnnotation(notePath, annotation.id);
-      }
-      this.hide();
-      onUpdate();
-      new Notice(loc.noticeDeleted);
+      // 使用 Obsidian Modal 替代浏览器 confirm()，避免焦点丢失
+      new ConfirmOverwriteModal(
+        (this.fileManager as any).app,
+        msg,
+        async () => {
+          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+          const deleted = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, 'delete') : false;
+          if (!deleted) {
+            await this.fileManager.removeAnnotation(notePath, annotation.id);
+          }
+          this.hide();
+          onUpdate();
+          new Notice(loc.noticeDeleted);
+        },
+        loc.delete
+      ).open();
     });
 
     document.body.appendChild(this.menuEl);
@@ -209,5 +217,8 @@ export class AnnotationMenu {
       this.menuEl.remove();
       this.menuEl = null;
     }
+    // 菜单关闭后恢复编辑器焦点
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view) restoreEditorFocus(view);
   }
 }

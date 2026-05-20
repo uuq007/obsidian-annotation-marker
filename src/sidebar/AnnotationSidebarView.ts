@@ -757,30 +757,34 @@ export class AnnotationSidebarView extends ItemView {
     return this.plugin.getOriginalPathByAnnotationPath(filePath) ?? filePath;
   }
 
-  private async handleCardDelete(cardData: AnnotationCardData): Promise<void> {
+  private handleCardDelete(cardData: AnnotationCardData): void {
     const { annotation, notePath } = cardData;
 
-    // 确认删除
     const loc = t();
     const msg = (annotation.isFullText || annotation.positions.length > 1) && annotation.positions.length > 1
       ? loc.confirmDeleteMulti(annotation.positions.length)
       : loc.confirmDelete;
-    if (!confirm(msg)) return;
 
-    // 查找标注视图，尝试 replaceRange
-    const view = this.findAnnotationView(notePath);
-    const deleted = view && view.getMode() === "source"
-      ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, "delete")
-      : false;
+    // 使用 Obsidian Modal 替代浏览器 confirm()，避免焦点丢失
+    new ConfirmOverwriteModal(
+      this.app,
+      msg,
+      async () => {
+        const view = this.findAnnotationView(notePath);
+        const deleted = view && view.getMode() === "source"
+          ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, "delete")
+          : false;
 
-    if (!deleted) {
-      await this.fileManager.removeAnnotation(notePath, annotation.id);
-    }
+        if (!deleted) {
+          await this.fileManager.removeAnnotation(notePath, annotation.id);
+        }
 
-    // 刷新标注视图
-    this.plugin.refreshAnnotationView(notePath);
-    this.closeDetailPanel();
-    new Notice(loc.noticeDeleted);
+        this.plugin.refreshAnnotationView(notePath);
+        this.closeDetailPanel();
+        new Notice(loc.noticeDeleted);
+      },
+      loc.delete
+    ).open();
   }
 
   // ========== 导出标注 ==========

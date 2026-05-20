@@ -104,8 +104,22 @@ const annotationGuard = Prec.highest(EditorView.domEventHandlers({
     if (!embed) return false;
     if (!embed.querySelector("[data-annotation-id]")) return false;
     log("mousedown: blocked click on annotation embed");
+
+    // 保存当前光标位置
+    const savedAnchor = view.state.selection.main.anchor;
+
     event.preventDefault();
     event.stopPropagation();
+
+    // 拦截后主动恢复编辑器焦点，防止光标消失
+    requestAnimationFrame(() => {
+      if (!view.dom?.isConnected) return;
+      view.dispatch({
+        selection: { anchor: savedAnchor },
+      });
+      view.contentDOM.focus({ preventScroll: true });
+    });
+
     return true;
   }
 }));
@@ -140,6 +154,10 @@ class CursorGuardPlugin implements PluginValue {
         selection: { anchor: target },
         userEvent: "annotation.cursorGuard"
       });
+      // dispatch 后确保编辑器有焦点
+      if (!view.hasFocus) {
+        view.contentDOM.focus({ preventScroll: true });
+      }
     }, 0);
   }
 

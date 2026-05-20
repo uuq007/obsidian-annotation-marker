@@ -5,6 +5,7 @@ import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement, generateId } from "../utils/helpers";
 import { buildMarkTag, PartialWikiLinkError } from "../annotationFile/annotationSerializer";
+import { restoreEditorFocus } from "../utils/focusManager";
 import { t } from "../i18n";
 
 // 添加标注的浮动菜单
@@ -471,6 +472,9 @@ export class SelectionMenu {
       this.menuEl.remove();
       this.menuEl = null;
     }
+    // 菜单关闭后恢复编辑器焦点
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view) restoreEditorFocus(view);
   }
 
   private adjustMenuPosition(): void {

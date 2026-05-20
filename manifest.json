@@ -1,7 +1,7 @@
 {
   "id": "annotation-marker",
   "name": "Annotation Marker",
-  "version": "3.0.5",
+  "version": "3.0.6",
   "minAppVersion": "1.12.7",
   "description": "为 Markdown 笔记添加标注、高亮和批注，使用自定义视图渲染.| Add colored highlights, inline comments and ruby (phonetic) annotations to notes while keeping original Markdown untouched.",
   "author": "uuq007",

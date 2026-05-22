@@ -433,7 +433,10 @@ export class AnnotationListPanel {
     }
   }
 
-  // 更新内部 notePath（供文件重命名时使用）
+  getNotePath(): string | null {
+    return this.currentNotePath;
+  }
+
   updateNotePath(newPath: string): void {
     this.currentNotePath = newPath;
   }

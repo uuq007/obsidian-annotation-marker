@@ -231,8 +231,7 @@ export default class AnnotationPlugin extends Plugin {
       if (matchedPath) {
         const session = annotationPathToSession.get(matchedPath)!;
         candidatesBySession.get(session.originalPath)!.push(leaf);
-      } else if (!currentFile) {
-        // 完全空的标签页，作为兜底
+      } else if (!currentFile && !intendedFile) {
         freeLeaves.push(leaf);
       }
     });
@@ -332,12 +331,16 @@ export default class AnnotationPlugin extends Plugin {
         }
         tabHeaderEl.setAttribute('aria-label', tabTitle);
       }
-      // 同步更新视图区域顶部标题（inline-title）
-      const viewEl = (leaf as any).view?.contentEl;
-      if (viewEl) {
-        const inlineTitleEl = viewEl.querySelector('.inline-title');
+      // 同步更新视图区域标题
+      const viewContainerEl = (leaf as any).view?.containerEl;
+      if (viewContainerEl) {
+        const inlineTitleEl = viewContainerEl.querySelector('.inline-title');
         if (inlineTitleEl) {
           inlineTitleEl.textContent = tabTitle;
+        }
+        const headerTitleEl = viewContainerEl.querySelector('.view-header-title');
+        if (headerTitleEl) {
+          headerTitleEl.textContent = tabTitle;
         }
       }
     });
@@ -425,22 +428,19 @@ export default class AnnotationPlugin extends Plugin {
 
         for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
           let isStillOpen = false;
+          // 单次遍历：同时检查 view.file 和 viewState（标签页激活时 view.file 可能暂时为 null）
           this.app.workspace.iterateAllLeaves((l) => {
-            if ((l.view as any)?.file?.path === annotationPath) {
+            const filePath = (l.view as any)?.file?.path;
+            if (filePath === annotationPath) {
               isStillOpen = true;
               this.updateAnnotationTabTitle(l, originalPath);
-            }
-          });
-
-          // viewState 兜底：标签页激活时 view.file 可能暂时为 null
-          if (!isStillOpen) {
-            this.app.workspace.iterateAllLeaves((l) => {
+            } else if (!isStillOpen) {
               const vs = l.getViewState();
               if ((vs?.state as any)?.file === annotationPath) {
                 isStillOpen = true;
               }
-            });
-          }
+            }
+          });
 
           if (!isStillOpen) {
             // 同步标注文件编辑回原文件
@@ -457,6 +457,14 @@ export default class AnnotationPlugin extends Plugin {
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
             this.saveSettings();
+
+            // 清理残留的面板
+            for (const [leaf, panel] of this.annotationPanels) {
+              if (panel.getNotePath() === originalPath) {
+                panel.hide();
+                this.annotationPanels.delete(leaf);
+              }
+            }
           }
         }
       })
@@ -491,6 +499,16 @@ export default class AnnotationPlugin extends Plugin {
     if (view?.setEphemeralState) {
       view.setEphemeralState({ scroll });
     }
+  }
+
+  private hasOtherLeafWithFile(excludedLeaf: WorkspaceLeaf, filePath: string): boolean {
+    let found = false;
+    this.app.workspace.iterateAllLeaves((l) => {
+      if (l !== excludedLeaf && (l.view as any)?.file?.path === filePath) {
+        found = true;
+      }
+    });
+    return found;
   }
 
   getOriginalPathByAnnotationPath(annotationPath: string): string | null {
@@ -576,18 +594,9 @@ export default class AnnotationPlugin extends Plugin {
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
     if (!(originalFile instanceof TFile)) {
       new Notice(t().noticeOriginalMissing);
-      if (annotationPath) {
-        // 检查是否还有其他 leaf 在使用该标注文件
-        let otherLeafExists = false;
-        this.app.workspace.iterateAllLeaves((l) => {
-          if (l !== leaf && (l.view as any)?.file?.path === annotationPath) {
-            otherLeafExists = true;
-          }
-        });
-        if (!otherLeafExists) {
-          this.removeFakeTFile(annotationPath);
-          this.removeMetadataCache(annotationPath);
-        }
+      if (annotationPath && !this.hasOtherLeafWithFile(leaf, annotationPath)) {
+        this.removeFakeTFile(annotationPath);
+        this.removeMetadataCache(annotationPath);
       }
       this.activeAnnotationSessions.delete(originalPath);
       this.saveSettings();
@@ -613,14 +622,9 @@ export default class AnnotationPlugin extends Plugin {
     await leaf.openFile(originalFile);
 
     // 检查是否还有其他 leaf 在使用该标注文件
-    let otherLeafHasAnnotation = false;
-    if (annotationPath) {
-      this.app.workspace.iterateAllLeaves((l) => {
-        if (l !== leaf && (l.view as any)?.file?.path === annotationPath) {
-          otherLeafHasAnnotation = true;
-        }
-      });
-    }
+    const otherLeafHasAnnotation = annotationPath
+      ? this.hasOtherLeafWithFile(leaf, annotationPath)
+      : false;
 
     if (!otherLeafHasAnnotation) {
       if (annotationPath) {
@@ -865,10 +869,8 @@ export default class AnnotationPlugin extends Plugin {
 
         // 同步更新 MarkdownView 内部数据
         (view as any).data = content;
-      }
 
-      // 刷新所有相关 leaf 的面板
-      for (const leaf of leaves) {
+        // 刷新该 leaf 的面板
         this.annotationPanels.get(leaf)?.refresh();
       }
 
@@ -1029,8 +1031,6 @@ export default class AnnotationPlugin extends Plugin {
 
         // 如果当前文件已在标注视图中则跳过
         if (this.getOriginalPathByAnnotationPath(file.path)) return;
-        // 如果该文件已有活跃标注会话也跳过
-        if (this.activeAnnotationSessions.has(file.path)) return;
 
         // 检查是否存在标注文件
         const hasFile = await this.fileManager.hasAnnotationFile(file.path);

@@ -1,4 +1,5 @@
 import { App, MarkdownView, Notice, type EditorPosition } from "obsidian";
+import { EditorView } from "@codemirror/view";
 import type { AnnotationColor, AnnotationRuby, BlockSegment, AnnotationPluginSettings } from "../types";
 import { COLOR_NUMBERS, DEFAULT_SETTINGS } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
@@ -397,6 +398,16 @@ export class SelectionMenu {
           const markTag = buildMarkTag(id, this.selectedText, this.selectedColor, note || undefined, rubyTexts);
 
           view.editor.replaceRange(markTag, this.editorRange.from, this.editorRange.to);
+
+          // 将光标移到标注范围外，防止实时预览展开 HTML 源码
+          // @ts-expect-error — Obsidian 官方文档推荐的 CM6 访问方式
+          const cm: EditorView = view.editor.cm;
+          const cursorPos = cm.state.selection.main.head;
+          if (cursorPos < cm.state.doc.length) {
+            cm.dispatch({ selection: { anchor: cursorPos + 1 } });
+          } else if (cursorPos > 0) {
+            cm.dispatch({ selection: { anchor: cursorPos - 1 } });
+          }
 
           // 将编辑器新内容写回标注文件
           const newContent = view.editor.getValue();

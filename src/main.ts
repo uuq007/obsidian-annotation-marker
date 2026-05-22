@@ -3,6 +3,7 @@ import {
   Notice,
   Plugin,
   TFile,
+  type WorkspaceLeaf,
   normalizePath,
   type EditorPosition,
 } from "obsidian";
@@ -15,7 +16,7 @@ import { AnnotationListPanel } from "./ui/AnnotationListPanel";
 import { AnnotationSettingTab } from "./ui/AnnotationSettingTab";
 import { TooltipManager } from "./ui/TooltipManager";
 import { extractSelectionContext, calculateOffsetInBlock, extractCrossBlockSegments } from "./utils/contentMapper";
-import { countOccurrenceIndex } from "./utils/helpers";
+import { countOccurrenceIndex, annotationPathToNotePath } from "./utils/helpers";
 import type { BlockSegment } from "./types";
 import { createAnnotationViewExtension } from "./view/annotationViewPlugin";
 import { AnnotationSidebarView, ANNOTATION_SIDEBAR_VIEW_TYPE } from "./sidebar/AnnotationSidebarView";
@@ -87,6 +88,12 @@ export default class AnnotationPlugin extends Plugin {
 
     // 注册 CM6 编辑模式装饰
     this.registerEditorExtension(createAnnotationViewExtension());
+
+    // 启动时修复因标注模式残留的空标签页
+    // 延迟执行，确保 Obsidian 完成所有标签页的恢复
+    this.app.workspace.onLayoutReady(() => {
+      setTimeout(() => this.recoverOrphanedAnnotationTabs(), 1000);
+    });
   }
 
   onunload() {
@@ -126,10 +133,77 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = await this.loadData();
+    // 过滤掉内部使用的 _activeSessions，避免污染 settings 对象
+    const { _activeSessions, ...settings } = (data as any) ?? {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
   }
 
   async saveSettings() {
+    const data: any = { ...this.settings };
+    if (this.activeAnnotationSessions.size > 0) {
+      const sessionData: Record<string, string> = {};
+      for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
+        sessionData[originalPath] = annotationPath;
+      }
+      data._activeSessions = sessionData;
+    }
+    await this.saveData(data);
+  }
+
+  // ========== 启动时修复孤立标签页 ==========
+
+  private async recoverOrphanedAnnotationTabs() {
+    // 加载持久化的 session 数据
+    const savedData = await this.loadData();
+    const savedSessions = (savedData as any)?._activeSessions as Record<string, string> | undefined;
+    if (!savedSessions || Object.keys(savedSessions).length === 0) return;
+
+    // 逐个恢复标注视图
+    for (const [originalPath, annotationPath] of Object.entries(savedSessions)) {
+      const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
+
+      // 标注文件和原始文件都必须存在
+      const annotationExists = await this.app.vault.adapter.exists(annotationPath);
+      if (!annotationExists || !(originalFile instanceof TFile)) continue;
+
+      // 检查是否已有 leaf 在显示这个标注文件
+      let alreadyOpen = false;
+      this.app.workspace.iterateAllLeaves((leaf) => {
+        if ((leaf.view as any)?.file?.path === annotationPath) alreadyOpen = true;
+      });
+      if (alreadyOpen) continue;
+
+      // 创建 fakeTFile 并注入元数据缓存
+      const fakeTFile = this.createFakeTFile(annotationPath);
+      this.injectMetadataCache(annotationPath, originalPath, fakeTFile);
+      this.activeAnnotationSessions.set(originalPath, annotationPath);
+
+      // 找到一个需要修复的空 leaf，或者用原始文件的 leaf
+      let targetLeaf: WorkspaceLeaf | undefined;
+      this.app.workspace.iterateAllLeaves((leaf) => {
+        if (targetLeaf) return;
+        const filePath = (leaf.view as any)?.file?.path as string | undefined;
+        // 优先找显示原始文件的 leaf
+        if (filePath === originalPath) targetLeaf = leaf;
+      });
+
+      if (!targetLeaf) {
+        // 找一个空 leaf
+        this.app.workspace.iterateAllLeaves((leaf) => {
+          if (targetLeaf) return;
+          const filePath = (leaf.view as any)?.file?.path as string | undefined;
+          if (!filePath) targetLeaf = leaf;
+        });
+      }
+
+      if (targetLeaf) {
+        await targetLeaf.openFile(fakeTFile, { state: { mode: this.settings.defaultViewMode } });
+        this.updateAnnotationTabTitle(targetLeaf, originalPath);
+      }
+    }
+
+    // 清除持久化的 session 数据
     await this.saveData(this.settings);
   }
 
@@ -301,6 +375,7 @@ export default class AnnotationPlugin extends Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
+            this.saveSettings();
             const panel = this.annotationPanels.get(originalPath);
             if (panel) {
               panel.hide();
@@ -378,6 +453,7 @@ export default class AnnotationPlugin extends Plugin {
     const fakeTFile = this.createFakeTFile(annotationPath);
 
     this.activeAnnotationSessions.set(notePath, annotationPath);
+    this.saveSettings();
 
     try {
       this.injectMetadataCache(annotationPath, notePath, fakeTFile);
@@ -412,6 +488,7 @@ export default class AnnotationPlugin extends Plugin {
         this.removeMetadataCache(annotationPath);
       }
       this.activeAnnotationSessions.delete(originalPath);
+      this.saveSettings();
       return;
     }
 
@@ -432,6 +509,7 @@ export default class AnnotationPlugin extends Plugin {
       this.removeMetadataCache(annotationPath);
     }
     this.activeAnnotationSessions.delete(originalPath);
+    this.saveSettings();
 
     this.selectionMenu.hide();
     this.annotationMenu.hide();
@@ -867,6 +945,7 @@ export default class AnnotationPlugin extends Plugin {
             // 更新会话映射
             this.activeAnnotationSessions.delete(oldPath);
             this.activeAnnotationSessions.set(file.path, newAnnotationPath);
+            this.saveSettings();
 
             // 注入新元数据缓存
             this.injectMetadataCache(newAnnotationPath, file.path, newFakeTFile);
@@ -923,8 +1002,7 @@ export default class AnnotationPlugin extends Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(file.path);
-
-            // 隐藏 UI
+            this.saveSettings();
             const panel = this.annotationPanels.get(file.path);
             if (panel) {
               panel.hide();

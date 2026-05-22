@@ -124,7 +124,7 @@ export class AnnotationMenu {
       const msg = (annotation.isFullText || annotation.positions.length > 1) && annotation.positions.length > 1
         ? loc.confirmDeleteMulti(annotation.positions.length)
         : loc.confirmDelete;
-      // 使用 Obsidian Modal 替代浏览器 confirm()，避免焦点丢失
+      this.hide();
       new ConfirmOverwriteModal(
         (this.fileManager as any).app,
         msg,

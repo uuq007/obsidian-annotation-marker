@@ -24,6 +24,7 @@ import { ImportConfirmModal } from "./importer/ImportConfirmModal";
 import { initLocale, t } from "./i18n";
 import { FolderSuggestModal, FileNameModal, ConfirmOverwriteModal } from "./ui/ExportModal";
 import { sortAnnotations, buildExportContent } from "./utils/exporter";
+import { restoreEditorFocus } from "./utils/focusManager";
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -548,16 +549,20 @@ export default class AnnotationPlugin extends Plugin {
       const markEl = target.closest("mark[data-annotation-id]") as HTMLElement;
       if (!markEl) return;
 
-      // 编辑模式下不拦截 click，避免干扰 CM6 焦点管理
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (view?.getMode() === "source") return;
+      const isSourceMode = view?.getMode() === "source";
 
-      // 检查点击是否在预览容器内
-      const previewContainer = view?.previewMode?.containerEl;
-      if (previewContainer && !previewContainer.contains(markEl)) return;
+      // 阅读模式下检查点击是否在预览容器内；source 模式下标记在 CM6 编辑器中，跳过此检查
+      if (!isSourceMode) {
+        const previewContainer = view?.previewMode?.containerEl;
+        if (previewContainer && !previewContainer.contains(markEl)) return;
+      }
 
-      e.preventDefault();
-      e.stopPropagation();
+      // 阅读模式下阻止默认行为；source 模式下不拦截，避免干扰 CM6 焦点
+      if (!isSourceMode) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
 
       const annotationIds: string[] = [];
       let currentEl: HTMLElement | null = markEl;
@@ -572,7 +577,7 @@ export default class AnnotationPlugin extends Plugin {
       this.fileManager.getAnnotations(notePath).then((annotations) => {
         this.selectionMenu.hide();
 
-        if (annotationIds.length === 1) {
+        if (annotationIds.length >= 1) {
           const annotation = annotations.find((a) => a.id === annotationIds[0]);
           if (!annotation) return;
           this.annotationMenu.show({
@@ -580,17 +585,10 @@ export default class AnnotationPlugin extends Plugin {
             y: e.clientY,
             annotation,
             notePath,
-            onUpdate: () => this.refreshAnnotationView(notePath),
-          });
-        } else {
-          const annotation = annotations.find((a) => a.id === annotationIds[0]);
-          if (!annotation) return;
-          this.annotationMenu.show({
-            x: e.clientX,
-            y: e.clientY,
-            annotation,
-            notePath,
-            onUpdate: () => this.refreshAnnotationView(notePath),
+            onUpdate: () => {
+              this.refreshAnnotationView(notePath);
+              if (isSourceMode && view) restoreEditorFocus(view);
+            },
           });
         }
       });

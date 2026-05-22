@@ -192,4 +192,5 @@ export const en: LocaleDict = {
   charCount: (current: number, max: number) => `(${current}/${max})`,
   confirmDeleteMulti: (n: number) => `Delete all ${n} annotation occurrences?`,
   confirmDelete: "Delete this annotation?",
+  annotationViewTitle: (name: string) => `【Anno Mode】${name}`,
 };

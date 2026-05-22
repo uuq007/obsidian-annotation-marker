@@ -193,6 +193,7 @@ export interface LocaleDict {
   charCount: (current: number, max: number) => string;
   confirmDeleteMulti: (n: number) => string;
   confirmDelete: string;
+  annotationViewTitle: (name: string) => string;
 }
 
 let currentLocale: LocaleDict | null = null;

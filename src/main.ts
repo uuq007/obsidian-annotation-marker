@@ -41,7 +41,7 @@ export default class AnnotationPlugin extends Plugin {
   selectionMenu!: SelectionMenu;
   annotationMenu!: AnnotationMenu;
   tooltipManager!: TooltipManager;
-  annotationPanels: Map<string, AnnotationListPanel> = new Map();
+  annotationPanels: Map<WorkspaceLeaf, AnnotationListPanel> = new Map();
 
   // 实时同步防抖定时器
   private syncToOriginalTimers: Map<string, number> = new Map();
@@ -52,6 +52,10 @@ export default class AnnotationPlugin extends Plugin {
 
   // 抑制自动进入标注模式（关闭标注视图时使用）
   private suppressAutoOpen: boolean = false;
+  // 插件卸载中标志，防止 layout-change 清除 session 数据
+  private isUnloading: boolean = false;
+  // 标注视图恢复中标志，防止 layout-change 干扰恢复过程
+  private isRecovering: boolean = false;
 
   async onload() {
     await this.loadSettings();
@@ -97,6 +101,7 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   onunload() {
+    this.isUnloading = true;
     // 同步所有活跃会话
     for (const [originalPath] of this.activeAnnotationSessions) {
       const timer = this.syncToOriginalTimers.get(originalPath);
@@ -134,8 +139,8 @@ export default class AnnotationPlugin extends Plugin {
 
   async loadSettings() {
     const data = await this.loadData();
-    // 过滤掉内部使用的 _activeSessions，避免污染 settings 对象
-    const { _activeSessions, ...settings } = (data as any) ?? {};
+    // 过滤掉内部使用的字段，避免污染 settings 对象
+    const { _activeSessions, _sessionCounts, ...settings } = (data as any) ?? {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
   }
 
@@ -143,10 +148,18 @@ export default class AnnotationPlugin extends Plugin {
     const data: any = { ...this.settings };
     if (this.activeAnnotationSessions.size > 0) {
       const sessionData: Record<string, string> = {};
+      const countData: Record<string, number> = {};
       for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
         sessionData[originalPath] = annotationPath;
+        // 统计当前有多少 leaf 在显示该标注文件
+        let tabCount = 0;
+        this.app.workspace.iterateAllLeaves((leaf) => {
+          if ((leaf.view as any)?.file?.path === annotationPath) tabCount++;
+        });
+        countData[originalPath] = tabCount;
       }
       data._activeSessions = sessionData;
+      data._sessionCounts = countData;
     }
     await this.saveData(data);
   }
@@ -154,57 +167,104 @@ export default class AnnotationPlugin extends Plugin {
   // ========== 启动时修复孤立标签页 ==========
 
   private async recoverOrphanedAnnotationTabs() {
-    // 加载持久化的 session 数据
+    this.isRecovering = true;
+    try {
+    await this._doRecoverOrphanedTabs();
+    } finally {
+    this.isRecovering = false;
+    }
+  }
+
+  private async _doRecoverOrphanedTabs() {
     const savedData = await this.loadData();
     const savedSessions = (savedData as any)?._activeSessions as Record<string, string> | undefined;
+    const savedCounts = (savedData as any)?._sessionCounts as Record<string, number> | undefined;
     if (!savedSessions || Object.keys(savedSessions).length === 0) return;
 
-    // 逐个恢复标注视图
-    for (const [originalPath, annotationPath] of Object.entries(savedSessions)) {
+    // 收集有效的 session 并创建 fakeTFile
+    const validSessions: { originalPath: string; annotationPath: string; tabCount: number; fakeTFile: TFile }[] = [];
+    for (const key of Object.keys(savedSessions)) {
+      const originalPath: string = key;
+      const annotationPath: string = (savedSessions as any)[key];
       const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
-
-      // 标注文件和原始文件都必须存在
       const annotationExists = await this.app.vault.adapter.exists(annotationPath);
       if (!annotationExists || !(originalFile instanceof TFile)) continue;
 
-      // 检查是否已有 leaf 在显示这个标注文件
-      let alreadyOpen = false;
-      this.app.workspace.iterateAllLeaves((leaf) => {
-        if ((leaf.view as any)?.file?.path === annotationPath) alreadyOpen = true;
-      });
-      if (alreadyOpen) continue;
-
-      // 创建 fakeTFile 并注入元数据缓存
       const fakeTFile = this.createFakeTFile(annotationPath);
       this.injectMetadataCache(annotationPath, originalPath, fakeTFile);
       this.activeAnnotationSessions.set(originalPath, annotationPath);
 
-      // 找到一个需要修复的空 leaf，或者用原始文件的 leaf
-      let targetLeaf: WorkspaceLeaf | undefined;
-      this.app.workspace.iterateAllLeaves((leaf) => {
-        if (targetLeaf) return;
-        const filePath = (leaf.view as any)?.file?.path as string | undefined;
-        // 优先找显示原始文件的 leaf
-        if (filePath === originalPath) targetLeaf = leaf;
-      });
+      const tabCount = (savedCounts as any)?.[key] ?? 1;
+      validSessions.push({ originalPath, annotationPath, tabCount, fakeTFile });
+    }
 
-      if (!targetLeaf) {
-        // 找一个空 leaf
-        this.app.workspace.iterateAllLeaves((leaf) => {
-          if (targetLeaf) return;
-          const filePath = (leaf.view as any)?.file?.path as string | undefined;
-          if (!filePath) targetLeaf = leaf;
-        });
+    if (validSessions.length === 0) return;
+
+    // 构建 annotationPath → session 的映射
+    const annotationPathToSession = new Map<string, typeof validSessions[0]>();
+    for (const session of validSessions) {
+      annotationPathToSession.set(session.annotationPath, session);
+    }
+
+    // 收集所有需要恢复的 leaf：
+    // 1. 文件路径指向标注文件的（Obsidian 可能从磁盘打开了真实标注文件）
+    // 2. viewState 记录了标注文件路径的（空标签页的历史路径）
+    // 3. 完全空的标签页
+    const candidatesBySession = new Map<string, WorkspaceLeaf[]>();
+    for (const session of validSessions) {
+      candidatesBySession.set(session.originalPath, []);
+    }
+    const freeLeaves: WorkspaceLeaf[] = [];
+
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const currentFile = (leaf.view as any)?.file?.path as string | undefined;
+      const viewState = leaf.getViewState();
+      const intendedFile: string | undefined = (viewState?.state as any)?.file;
+
+      // 当前文件或 viewState 指向某个标注文件
+      const matchedPath = currentFile && annotationPathToSession.has(currentFile)
+        ? currentFile
+        : intendedFile && annotationPathToSession.has(intendedFile)
+          ? intendedFile
+          : null;
+
+      if (matchedPath) {
+        const session = annotationPathToSession.get(matchedPath)!;
+        candidatesBySession.get(session.originalPath)!.push(leaf);
+      } else if (!currentFile) {
+        // 完全空的标签页，作为兜底
+        freeLeaves.push(leaf);
+      }
+    });
+
+    // 恢复每个 session 的标签页
+    for (const session of validSessions) {
+      let restored = 0;
+      const candidates = candidatesBySession.get(session.originalPath) ?? [];
+
+      // 先恢复明确匹配的 leaf
+      for (const leaf of candidates) {
+        if (restored >= session.tabCount) break;
+        await this.restoreLeafToAnnotation(leaf, session);
+        restored++;
       }
 
-      if (targetLeaf) {
-        await targetLeaf.openFile(fakeTFile, { state: { mode: this.settings.defaultViewMode } });
-        this.updateAnnotationTabTitle(targetLeaf, originalPath);
+      // 不足的用空闲标签页补充
+      while (restored < session.tabCount && freeLeaves.length > 0) {
+        const leaf = freeLeaves.shift()!;
+        await this.restoreLeafToAnnotation(leaf, session);
+        restored++;
       }
     }
 
-    // 清除持久化的 session 数据
-    await this.saveData(this.settings);
+    // 持久化 session 数据（含 tabCount），确保下次重启也能恢复
+    await this.saveSettings();
+  }
+
+  private async restoreLeafToAnnotation(leaf: WorkspaceLeaf, session: { originalPath: string; annotationPath: string; fakeTFile: TFile }) {
+    await leaf.openFile(session.fakeTFile, { state: { mode: this.settings.defaultViewMode } });
+    this.updateAnnotationTabTitle(leaf, session.originalPath);
+    this.setupAnnotationListPanel(session.originalPath, leaf);
   }
 
   // ========== 动态 CSS ==========
@@ -261,7 +321,7 @@ export default class AnnotationPlugin extends Plugin {
     const displayName = originalFile instanceof TFile
       ? originalFile.basename
       : originalPath.replace(/\.md$/, "").split("/").pop() ?? originalPath;
-    const tabTitle = `【标注视图】${displayName}`;
+    const tabTitle = t().annotationViewTitle(displayName);
 
     requestAnimationFrame(() => {
       const tabHeaderEl = (leaf as any).tabHeaderEl;
@@ -271,6 +331,14 @@ export default class AnnotationPlugin extends Plugin {
           titleEl.textContent = tabTitle;
         }
         tabHeaderEl.setAttribute('aria-label', tabTitle);
+      }
+      // 同步更新视图区域顶部标题（inline-title）
+      const viewEl = (leaf as any).view?.contentEl;
+      if (viewEl) {
+        const inlineTitleEl = viewEl.querySelector('.inline-title');
+        if (inlineTitleEl) {
+          inlineTitleEl.textContent = tabTitle;
+        }
       }
     });
   }
@@ -352,6 +420,9 @@ export default class AnnotationPlugin extends Plugin {
 
     this.registerEvent(
       this.app.workspace.on("layout-change", async () => {
+        // 插件卸载期间不处理，避免清除持久化的 session 数据
+        if (this.isUnloading || this.isRecovering) return;
+
         for (const [originalPath, annotationPath] of this.activeAnnotationSessions) {
           let isStillOpen = false;
           this.app.workspace.iterateAllLeaves((l) => {
@@ -360,6 +431,16 @@ export default class AnnotationPlugin extends Plugin {
               this.updateAnnotationTabTitle(l, originalPath);
             }
           });
+
+          // viewState 兜底：标签页激活时 view.file 可能暂时为 null
+          if (!isStillOpen) {
+            this.app.workspace.iterateAllLeaves((l) => {
+              const vs = l.getViewState();
+              if ((vs?.state as any)?.file === annotationPath) {
+                isStillOpen = true;
+              }
+            });
+          }
 
           if (!isStillOpen) {
             // 同步标注文件编辑回原文件
@@ -376,18 +457,24 @@ export default class AnnotationPlugin extends Plugin {
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
             this.saveSettings();
-            const panel = this.annotationPanels.get(originalPath);
-            if (panel) {
-              panel.hide();
-              this.annotationPanels.delete(originalPath);
-            }
           }
         }
       })
     );
-  }
 
-  // ========== 视图切换 ==========
+    // 标签页激活时更新 inline-title（未激活标签页的 DOM 可能未渲染）
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (!leaf) return;
+        const filePath = (leaf.view as any)?.file?.path as string | undefined;
+        if (!filePath) return;
+        const originalPath = this.getOriginalPathByAnnotationPath(filePath);
+        if (originalPath) {
+          this.updateAnnotationTabTitle(leaf, originalPath);
+        }
+      })
+    );
+  }
 
   private getSavedScroll(leaf: any): number {
     const view = leaf?.view;
@@ -439,7 +526,7 @@ export default class AnnotationPlugin extends Plugin {
     }
   }
 
-  async openAnnotationView(leaf: any, notePath: string) {
+  async openAnnotationView(leaf: WorkspaceLeaf, notePath: string) {
     const savedScroll = this.getSavedScroll(leaf);
 
     const ok = await this.fileManager.ensureAnnotationFile(notePath);
@@ -450,13 +537,17 @@ export default class AnnotationPlugin extends Plugin {
 
     const annotationPath = normalizePath(this.fileManager.getAnnotationFilePath(notePath));
 
-    const fakeTFile = this.createFakeTFile(annotationPath);
+    // 复用已有 session 的 fakeTFile，避免多标签页覆盖
+    const existingFake = (this.app.vault as any).fileMap[annotationPath] as TFile | undefined;
+    const fakeTFile = existingFake ?? this.createFakeTFile(annotationPath);
 
+    const isNewSession = !this.activeAnnotationSessions.has(notePath);
     this.activeAnnotationSessions.set(notePath, annotationPath);
-    this.saveSettings();
 
     try {
-      this.injectMetadataCache(annotationPath, notePath, fakeTFile);
+      if (isNewSession) {
+        this.injectMetadataCache(annotationPath, notePath, fakeTFile);
+      }
 
       await leaf.openFile(fakeTFile, { state: { mode: this.settings.defaultViewMode } });
 
@@ -468,14 +559,16 @@ export default class AnnotationPlugin extends Plugin {
         });
       }
 
-      this.setupAnnotationListPanel(notePath);
+      this.setupAnnotationListPanel(notePath, leaf);
+      // openFile 完成后再保存，确保 tabCount 统计准确
+      this.saveSettings();
     } catch (e) {
       console.error("[标注] openFile 失败:", e);
       new Notice(t().noticeOpenFailed + e);
     }
   }
 
-  async closeAnnotationView(leaf: any, originalPath: string) {
+  async closeAnnotationView(leaf: WorkspaceLeaf, originalPath: string) {
     this.suppressAutoOpen = true;
     const savedScroll = this.getSavedScroll(leaf);
     const annotationPath = this.activeAnnotationSessions.get(originalPath);
@@ -484,11 +577,26 @@ export default class AnnotationPlugin extends Plugin {
     if (!(originalFile instanceof TFile)) {
       new Notice(t().noticeOriginalMissing);
       if (annotationPath) {
-        this.removeFakeTFile(annotationPath);
-        this.removeMetadataCache(annotationPath);
+        // 检查是否还有其他 leaf 在使用该标注文件
+        let otherLeafExists = false;
+        this.app.workspace.iterateAllLeaves((l) => {
+          if (l !== leaf && (l.view as any)?.file?.path === annotationPath) {
+            otherLeafExists = true;
+          }
+        });
+        if (!otherLeafExists) {
+          this.removeFakeTFile(annotationPath);
+          this.removeMetadataCache(annotationPath);
+        }
       }
       this.activeAnnotationSessions.delete(originalPath);
       this.saveSettings();
+      // 清理该 leaf 的面板
+      const panel = this.annotationPanels.get(leaf);
+      if (panel) {
+        panel.hide();
+        this.annotationPanels.delete(leaf);
+      }
       return;
     }
 
@@ -504,19 +612,31 @@ export default class AnnotationPlugin extends Plugin {
 
     await leaf.openFile(originalFile);
 
+    // 检查是否还有其他 leaf 在使用该标注文件
+    let otherLeafHasAnnotation = false;
     if (annotationPath) {
-      this.removeFakeTFile(annotationPath);
-      this.removeMetadataCache(annotationPath);
+      this.app.workspace.iterateAllLeaves((l) => {
+        if (l !== leaf && (l.view as any)?.file?.path === annotationPath) {
+          otherLeafHasAnnotation = true;
+        }
+      });
     }
-    this.activeAnnotationSessions.delete(originalPath);
-    this.saveSettings();
+
+    if (!otherLeafHasAnnotation) {
+      if (annotationPath) {
+        this.removeFakeTFile(annotationPath);
+        this.removeMetadataCache(annotationPath);
+      }
+      this.activeAnnotationSessions.delete(originalPath);
+      this.saveSettings();
+    }
 
     this.selectionMenu.hide();
     this.annotationMenu.hide();
-    const panel = this.annotationPanels.get(originalPath);
+    const panel = this.annotationPanels.get(leaf);
     if (panel) {
       panel.hide();
-      this.annotationPanels.delete(originalPath);
+      this.annotationPanels.delete(leaf);
     }
 
     if (savedScroll) {
@@ -673,18 +793,18 @@ export default class AnnotationPlugin extends Plugin {
     });
   }
 
-  private setupAnnotationListPanel(notePath: string) {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+  private setupAnnotationListPanel(notePath: string, leaf: WorkspaceLeaf) {
+    const view = leaf.view instanceof MarkdownView ? leaf.view : null;
     if (!view) return;
 
-    // 清理旧实例
-    const oldPanel = this.annotationPanels.get(notePath);
+    // 清理该 leaf 的旧面板
+    const oldPanel = this.annotationPanels.get(leaf);
     if (oldPanel) {
       oldPanel.hide();
     }
 
     const panel = new AnnotationListPanel(this.app, this.fileManager);
-    this.annotationPanels.set(notePath, panel);
+    this.annotationPanels.set(leaf, panel);
     panel.show({
       notePath,
       onUpdate: () => this.refreshAnnotationView(notePath),
@@ -694,56 +814,64 @@ export default class AnnotationPlugin extends Plugin {
 
   async refreshAnnotationView(notePath: string) {
     try {
-      // 查找持有该标注文件的 MarkdownView（而非用 activeLeaf）
+      // 查找持有该标注文件的 MarkdownView
       const annotationPath = this.activeAnnotationSessions.get(notePath);
       if (!annotationPath) return;
 
-      const views: MarkdownView[] = [];
+      const leaves: WorkspaceLeaf[] = [];
       this.app.workspace.iterateAllLeaves((leaf) => {
         const v = leaf.view;
         if (v instanceof MarkdownView && (v as any)?.file?.path === annotationPath) {
-          views.push(v);
+          leaves.push(leaf);
         }
       });
 
-      if (views.length === 0) return;
-      const view = views[0]!;
+      if (leaves.length === 0) return;
 
       const content = await this.fileManager.readAnnotationFile(notePath);
 
-      if (view.getMode() === "preview") {
-        const renderer = (view.previewMode as any).renderer;
-        if (renderer && typeof renderer.set === "function") {
-          renderer.set(content);
+      // 刷新所有显示该标注文件的 leaf
+      for (const leaf of leaves) {
+        const view = leaf.view as MarkdownView;
+
+        if (view.getMode() === "preview") {
+          const renderer = (view.previewMode as any).renderer;
+          if (renderer && typeof renderer.set === "function") {
+            renderer.set(content);
+          }
+        } else {
+          // 编辑模式：通过 CM6 dispatch 更新编辑器内容
+          // @ts-expect-error — Obsidian 官方文档推荐的方式
+          const editorView: EditorView = view.editor.cm;
+          if (editorView && content !== editorView.state.doc.toString()) {
+            const scrollTop = editorView.scrollDOM.scrollTop;
+
+            // 保存光标位置，clamp 到新文档长度内
+            const savedPos = Math.min(
+              editorView.state.selection.main.head,
+              content.length
+            );
+
+            editorView.dispatch({
+              changes: { from: 0, to: editorView.state.doc.length, insert: content },
+              selection: { anchor: savedPos },
+            });
+
+            requestAnimationFrame(() => {
+              editorView.scrollDOM.scrollTop = scrollTop;
+            });
+          }
         }
-      } else {
-        // 编辑模式：通过 CM6 dispatch 更新编辑器内容
-        // @ts-expect-error — Obsidian 官方文档推荐的方式
-        const editorView: EditorView = view.editor.cm;
-        if (editorView && content !== editorView.state.doc.toString()) {
-          const scrollTop = editorView.scrollDOM.scrollTop;
 
-          // 保存光标位置，clamp 到新文档长度内
-          const savedPos = Math.min(
-            editorView.state.selection.main.head,
-            content.length
-          );
-
-          editorView.dispatch({
-            changes: { from: 0, to: editorView.state.doc.length, insert: content },
-            selection: { anchor: savedPos },
-          });
-
-          requestAnimationFrame(() => {
-            editorView.scrollDOM.scrollTop = scrollTop;
-          });
-        }
+        // 同步更新 MarkdownView 内部数据
+        (view as any).data = content;
       }
 
-      // 同步更新 MarkdownView 内部数据
-      (view as any).data = content;
+      // 刷新所有相关 leaf 的面板
+      for (const leaf of leaves) {
+        this.annotationPanels.get(leaf)?.refresh();
+      }
 
-      this.annotationPanels.get(notePath)?.refresh();
 
       // 通知侧边栏刷新
       this.notifyAnnotationChange();
@@ -966,12 +1094,12 @@ export default class AnnotationPlugin extends Plugin {
               this.debouncedSyncToOriginal(file.path);
             }
 
-            // 迁移面板
-            const panel = this.annotationPanels.get(oldPath);
-            if (panel) {
-              this.annotationPanels.delete(oldPath);
-              this.annotationPanels.set(file.path, panel);
-              panel.updateNotePath(file.path);
+            // 迁移面板：更新所有关联 leaf 的面板 notePath
+            for (const [leaf, panel] of this.annotationPanels) {
+              const leafAnnotationPath = (leaf.view as any)?.file?.path;
+              if (leafAnnotationPath === annotationPath || leafAnnotationPath === newAnnotationPath) {
+                panel.updateNotePath(file.path);
+              }
             }
           }
         }
@@ -1003,10 +1131,13 @@ export default class AnnotationPlugin extends Plugin {
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(file.path);
             this.saveSettings();
-            const panel = this.annotationPanels.get(file.path);
-            if (panel) {
-              panel.hide();
-              this.annotationPanels.delete(file.path);
+            // 清理所有显示该标注文件的 leaf 的面板
+            for (const [leaf, panel] of this.annotationPanels) {
+              const leafFilePath = (leaf.view as any)?.file?.path;
+              if (leafFilePath === annotationPath) {
+                panel.hide();
+                this.annotationPanels.delete(leaf);
+              }
             }
             this.selectionMenu.hide();
             this.annotationMenu.hide();

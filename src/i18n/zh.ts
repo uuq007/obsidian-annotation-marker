@@ -192,4 +192,5 @@ export const zhCN: LocaleDict = {
   charCount: (current: number, max: number) => `(${current}/${max})`,
   confirmDeleteMulti: (n: number) => `确定删除全部 ${n} 处标注？`,
   confirmDelete: "确定删除此标注？",
+  annotationViewTitle: (name: string) => `【标注视图】${name}`,
 };

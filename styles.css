@@ -891,24 +891,33 @@
 /* ========== 标注视图样式 ========== */
 
 /* 标注视图中的 <mark> 标签基础样式 */
-mark[data-annotation-id] {
+.markdown-rendered mark[data-annotation-id],
+.markdown-preview-view mark[data-annotation-id] {
+  color: inherit;
   cursor: pointer;
   border-radius: 2px;
   padding: 0 2px;
   transition: box-shadow 0.15s ease;
 }
 
-mark[data-annotation-id]:hover {
+.markdown-rendered mark[data-annotation-id]:hover,
+.markdown-preview-view mark[data-annotation-id]:hover {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   outline: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 /* 嵌套标注的视觉反馈 */
-mark[data-annotation-id] mark[data-annotation-id] {
+.markdown-rendered mark[data-annotation-id] mark[data-annotation-id],
+.markdown-preview-view mark[data-annotation-id] mark[data-annotation-id] {
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12);
 }
 
 /* 标注颜色由内联 style="background:var(--annotation-bg-colorN)" 驱动 */
+
+/* CM6 实时预览/编辑模式下的 mark 标签字体颜色继承 */
+.cm-line mark[data-annotation-id] {
+  color: inherit;
+}
 
 /* ========== 批注效果 ========== */
 /* 每个 mark 通过 style 设置了 --annotation-accent 变量，批注效果直接引用 */
@@ -971,6 +980,7 @@ ruby[data-annotation-id] rt[data-annotation-id] {
 
 /* 高亮背景 */
 .cm-annotation-highlight {
+  color: inherit;
   border-radius: 2px;
   padding: 0 1px;
 }

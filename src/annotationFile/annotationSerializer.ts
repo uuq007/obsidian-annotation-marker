@@ -59,7 +59,7 @@ export function buildMarkTag(
 
   const annotatedText = buildAnnotatedText(text, id, rubyTexts);
 
-  return `<mark style="background:${bgVar};--annotation-accent:${accentVar}" data-annotation-id="${id}"${noteAttr}${fullTextAttr}${crossBlockAttr}>${annotatedText}</mark>`;
+  return `<mark style="background:${bgVar};color:inherit;--annotation-accent:${accentVar}" data-annotation-id="${id}"${noteAttr}${fullTextAttr}${crossBlockAttr}>${annotatedText}</mark>`;
 }
 
 // 在标注文件内容中插入新标注
@@ -368,10 +368,10 @@ export function updateAnnotationTag(
       if (newAttrs.includes("style=")) {
         newAttrs = newAttrs.replace(
           /style="background:[^"]*"/,
-          `style="background:${bgVar};--annotation-accent:${accentVar}"`
+          `style="background:${bgVar};color:inherit;--annotation-accent:${accentVar}"`
         );
       } else {
-        newAttrs += ` style="background:${bgVar};--annotation-accent:${accentVar}"`;
+        newAttrs += ` style="background:${bgVar};color:inherit;--annotation-accent:${accentVar}"`;
       }
     }
 

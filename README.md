@@ -193,9 +193,19 @@ v3.0.0 and later are complete rewrites. Key changes:
 
   Legacy data import command for smooth migration from older versions
 
+## Limitations / 插件限制
+
+- 暂不支持对嵌入内容添加标注
+
+  Embeds are not yet supported for annotation
+
+- 暂不支持对代码块内容添加标注
+
+  Code blocks are not yet supported for annotation
+
 ## Roadmap / 后续功能
 
-- 导出标注到仓库笔记中
+- [x] 导出标注到仓库笔记中
 
   Export annotations into vault notes
 

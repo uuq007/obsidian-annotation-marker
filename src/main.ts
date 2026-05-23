@@ -337,10 +337,12 @@ export default class AnnotationPlugin extends Plugin {
         const inlineTitleEl = viewContainerEl.querySelector('.inline-title');
         if (inlineTitleEl) {
           inlineTitleEl.textContent = tabTitle;
+          inlineTitleEl.setAttribute("contenteditable", "false");
         }
         const headerTitleEl = viewContainerEl.querySelector('.view-header-title');
         if (headerTitleEl) {
           headerTitleEl.textContent = tabTitle;
+          headerTitleEl.setAttribute("contenteditable", "false");
         }
       }
     });
@@ -666,6 +668,8 @@ export default class AnnotationPlugin extends Plugin {
       if (target.closest("pre, .el-pre")) return;
       if (target.closest(".internal-embed")) return;
       if (target.closest(".callout") && !target.closest(".callout-content")) return;
+      if (target.closest(".frontmatter, .cm-hmd-frontmatter, .metadata-container")) return;
+      if (target.closest(".inline-title, .view-header-title")) return;
 
       setTimeout(() => {
         const selection = window.getSelection();

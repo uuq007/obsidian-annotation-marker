@@ -175,7 +175,7 @@ export default class AnnotationPlugin extends Plugin {
 
   private async _doRecoverOrphanedTabs() {
     const savedData = await this.loadData() as Record<string, unknown> | null;
-    const stored = (savedData ?? {}) as Record<string, unknown>;
+    const stored: Record<string, unknown> = savedData ?? {};
     const savedSessions = stored._activeSessions as Record<string, string> | undefined;
     const savedCounts = stored._sessionCounts as Record<string, number> | undefined;
     if (!savedSessions || Object.keys(savedSessions).length === 0) return;

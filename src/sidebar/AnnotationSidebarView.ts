@@ -726,8 +726,18 @@ export class AnnotationSidebarView extends ItemView {
 
     if (annotationPath) {
       this.app.workspace.iterateAllLeaves((leaf) => {
-        if ((leaf.view as any)?.file?.path === annotationPath) {
+        // 只匹配主区 leaf，排除左右 side dock，避免误激活 side view 导致侧边栏跳走
+        const root = (leaf as any).getRoot?.();
+        if (root !== this.app.workspace.rootSplit) return;
+        const filePath = (leaf.view as any)?.file?.path;
+        if (filePath === annotationPath) {
           targetLeaf = leaf;
+        } else if (!targetLeaf) {
+          // 标签页未激活时 view.file 可能暂时为 null，用 viewState 兜底（与 main.ts layout-change 一致）
+          const vs = leaf.getViewState();
+          if ((vs?.state as any)?.file === annotationPath) {
+            targetLeaf = leaf;
+          }
         }
       });
     }
@@ -738,7 +748,14 @@ export class AnnotationSidebarView extends ItemView {
         new Notice(t().noticeNoteFileNotFound);
         return;
       }
-      targetLeaf = this.app.workspace.getLeaf(false);
+      // getLeaf(false) 复用活动 leaf；从侧边栏点击时活动 leaf 可能就是侧边栏 leaf，
+      // 在其上 openFile 会把侧边栏视图替换成笔记，故检测到 side dock 时改在主区打开
+      let leaf = this.app.workspace.getLeaf(false);
+      const root = (leaf as any).getRoot?.();
+      if (root === this.app.workspace.leftSplit || root === this.app.workspace.rightSplit) {
+        leaf = this.app.workspace.getLeaf("tab");
+      }
+      targetLeaf = leaf;
       await targetLeaf.openFile(file);
       await this.plugin.openAnnotationView(targetLeaf, notePath);
     }

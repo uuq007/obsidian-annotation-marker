@@ -156,19 +156,6 @@ export function buildCleanedMap(source: string): CleanedMap {
     '|^\\*{3,}$',                                          // *** 水平线整体去除
   ].join(''), 'gm');
 
-  // 各捕获组对应的语法前缀长度（用于计算内文本的源码起始位置）
-  // 组号: 1=***  2=**  3=*  4=``  5=`  6=_  7===  8=~~  9=[[  10=[]
-  const prefixLengths: Record<number, number> = {
-    1: 3,  // ***
-    2: 2,  // **
-    3: 1,  // *
-    4: 2,  // ``
-    5: 1,  // `
-    6: 1,  // _
-    7: 2,  // ==
-    8: 2,  // ~~
-  };
-
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -254,7 +241,7 @@ export function expandToWikiLinks(
   start: number,
   end: number
 ): { start: number; end: number; isPartialWikiLink: boolean } {
-  const wikiLinkRegex = /\[\[(?:[^\[\]\|]*\|)?([^\[\]]+)\]\]/g;
+  const wikiLinkRegex = /\[\[(?:[^[\]|]*\|)?([^[\]]+)\]\]/g;
   let resultStart = start;
   let resultEnd = end;
   let isPartialWikiLink = false;
@@ -286,7 +273,7 @@ export function expandToWikiLinks(
 
 // 用 TreeWalker 计算选区起点在元素内的精确字符偏移（跳过 <rt> 节点）
 export function calculateOffsetInBlock(range: Range, block: HTMLElement): number {
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+  const walker = activeDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
   let offset = 0;
   let node;
   while ((node = walker.nextNode())) {
@@ -312,12 +299,12 @@ export function extractSelectionContext(selection: Selection): {
 
   // 找到最近的块级容器
   const container = range.commonAncestorContainer;
-  const block = (container instanceof HTMLElement ? container : container.parentElement);
+  const block = (container.instanceOf(HTMLElement) ? container : container.parentElement);
   if (!block) return null;
 
   // 用 TreeWalker 收集块内非 <rt> 文本节点，同时记录选区起止位置
   const cleanParts: string[] = [];
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+  const walker = activeDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
   let node: Node | null;
   let selStart = -1;
   let selEnd = -1;
@@ -383,7 +370,7 @@ export function extractCrossBlockSegments(
   const blocks: import("../types").BlockSegment[] = [];
 
   const ancestor = range.commonAncestorContainer;
-  const container = ancestor instanceof HTMLElement ? ancestor : ancestor.parentElement;
+  const container = ancestor.instanceOf(HTMLElement) ? ancestor : ancestor.parentElement;
   if (!container) return blocks;
 
   interface BlockDraft {
@@ -396,7 +383,7 @@ export function extractCrossBlockSegments(
   }
   const drafts: BlockDraft[] = [];
 
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const walker = activeDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   let inRange = false;
 
   // 当前 block 构建状态
@@ -541,7 +528,7 @@ export function extractCrossBlockSegments(
 // 获取 section 元素的干净文本（遍历所有文本节点，跳过 RT）
 function getSectionCleanText(sectionEl: HTMLElement): string {
   const parts: string[] = [];
-  const walker = document.createTreeWalker(sectionEl, NodeFilter.SHOW_TEXT);
+  const walker = activeDocument.createTreeWalker(sectionEl, NodeFilter.SHOW_TEXT);
   let n: Node | null;
   while ((n = walker.nextNode())) {
     if ((n as Text).parentElement?.tagName === "RT") continue;

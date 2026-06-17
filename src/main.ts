@@ -16,7 +16,7 @@ import { AnnotationListPanel } from "./ui/AnnotationListPanel";
 import { AnnotationSettingTab } from "./ui/AnnotationSettingTab";
 import { TooltipManager } from "./ui/TooltipManager";
 import { extractSelectionContext, calculateOffsetInBlock, extractCrossBlockSegments } from "./utils/contentMapper";
-import { countOccurrenceIndex, annotationPathToNotePath } from "./utils/helpers";
+import { countOccurrenceIndex, getViewFilePath } from "./utils/helpers";
 import type { BlockSegment } from "./types";
 import { createAnnotationViewExtension } from "./view/annotationViewPlugin";
 import { AnnotationSidebarView, ANNOTATION_SIDEBAR_VIEW_TYPE } from "./sidebar/AnnotationSidebarView";
@@ -61,7 +61,7 @@ export default class AnnotationPlugin extends Plugin {
     await this.loadSettings();
     initLocale();
 
-    const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
+    const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/obsidian-annotation-marker`;
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
 
     this.selectionMenu = new SelectionMenu(this.app, this.fileManager, () => this.settings);
@@ -77,7 +77,7 @@ export default class AnnotationPlugin extends Plugin {
     this.registerSectionLineCapture();
 
     this.addRibbonIcon("lucide-highlighter", t().ribbonTooltip, () => {
-      this.toggleAnnotationView();
+      void this.toggleAnnotationView();
     });
 
     this.addSettingTab(new AnnotationSettingTab(this));
@@ -96,7 +96,7 @@ export default class AnnotationPlugin extends Plugin {
     // 启动时修复因标注模式残留的空标签页
     // 延迟执行，确保 Obsidian 完成所有标签页的恢复
     this.app.workspace.onLayoutReady(() => {
-      setTimeout(() => this.recoverOrphanedAnnotationTabs(), 1000);
+      window.setTimeout(() => void this.recoverOrphanedAnnotationTabs(), 1000);
     });
   }
 
@@ -105,12 +105,11 @@ export default class AnnotationPlugin extends Plugin {
     // 同步所有活跃会话
     for (const [originalPath] of this.activeAnnotationSessions) {
       const timer = this.syncToOriginalTimers.get(originalPath);
-      if (timer) clearTimeout(timer);
-      try {
-        this.fileManager.syncToOriginal(originalPath);
-      } catch (e) {
+      if (timer) window.clearTimeout(timer);
+      // syncToOriginal 为异步，try/catch 无法捕获 rejection，改用 .catch
+      void this.fileManager.syncToOriginal(originalPath).catch((e) => {
         console.error("同步失败:", e);
-      }
+      });
     }
     this.syncToOriginalTimers.clear();
 
@@ -129,23 +128,21 @@ export default class AnnotationPlugin extends Plugin {
     this.annotationMenu.hide();
     this.tooltipManager.destroy();
 
-    // 清理动态样式
-    const styleEl = document.getElementById("annotation-dynamic-styles");
-    if (styleEl) styleEl.remove();
-
     // 清理侧边栏回调
     this.annotationChangeCallbacks = [];
   }
 
   async loadSettings() {
     const data = await this.loadData();
-    // 过滤掉内部使用的字段，避免污染 settings 对象
-    const { _activeSessions, _sessionCounts, ...settings } = (data as any) ?? {};
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
+    // 过滤掉旧版持久化的内部字段，避免污染 settings 对象
+    const stored = (data ?? {}) as Partial<AnnotationPluginSettings> & Record<string, unknown>;
+    delete stored._activeSessions;
+    delete stored._sessionCounts;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, stored) as AnnotationPluginSettings;
   }
 
   async saveSettings() {
-    const data: any = { ...this.settings };
+    const data = { ...this.settings } as Record<string, unknown>;
     if (this.activeAnnotationSessions.size > 0) {
       const sessionData: Record<string, string> = {};
       const countData: Record<string, number> = {};
@@ -154,7 +151,8 @@ export default class AnnotationPlugin extends Plugin {
         // 统计当前有多少 leaf 在显示该标注文件
         let tabCount = 0;
         this.app.workspace.iterateAllLeaves((leaf) => {
-          if ((leaf.view as any)?.file?.path === annotationPath) tabCount++;
+          const view = leaf.view;
+          if (view instanceof MarkdownView && view.file?.path === annotationPath) tabCount++;
         });
         countData[originalPath] = tabCount;
       }
@@ -177,15 +175,17 @@ export default class AnnotationPlugin extends Plugin {
 
   private async _doRecoverOrphanedTabs() {
     const savedData = await this.loadData();
-    const savedSessions = (savedData as any)?._activeSessions as Record<string, string> | undefined;
-    const savedCounts = (savedData as any)?._sessionCounts as Record<string, number> | undefined;
+    const stored = (savedData ?? {}) as Record<string, unknown>;
+    const savedSessions = stored._activeSessions as Record<string, string> | undefined;
+    const savedCounts = stored._sessionCounts as Record<string, number> | undefined;
     if (!savedSessions || Object.keys(savedSessions).length === 0) return;
 
     // 收集有效的 session 并创建 fakeTFile
     const validSessions: { originalPath: string; annotationPath: string; tabCount: number; fakeTFile: TFile }[] = [];
     for (const key of Object.keys(savedSessions)) {
       const originalPath: string = key;
-      const annotationPath: string = (savedSessions as any)[key];
+      const annotationPath = savedSessions[key];
+      if (!annotationPath) continue;
       const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
       const annotationExists = await this.app.vault.adapter.exists(annotationPath);
       if (!annotationExists || !(originalFile instanceof TFile)) continue;
@@ -194,7 +194,7 @@ export default class AnnotationPlugin extends Plugin {
       this.injectMetadataCache(annotationPath, originalPath, fakeTFile);
       this.activeAnnotationSessions.set(originalPath, annotationPath);
 
-      const tabCount = (savedCounts as any)?.[key] ?? 1;
+      const tabCount = savedCounts?.[key] ?? 1;
       validSessions.push({ originalPath, annotationPath, tabCount, fakeTFile });
     }
 
@@ -217,9 +217,9 @@ export default class AnnotationPlugin extends Plugin {
     const freeLeaves: WorkspaceLeaf[] = [];
 
     this.app.workspace.iterateAllLeaves((leaf) => {
-      const currentFile = (leaf.view as any)?.file?.path as string | undefined;
+      const currentFile = getViewFilePath(leaf.view);
       const viewState = leaf.getViewState();
-      const intendedFile: string | undefined = (viewState?.state as any)?.file;
+      const intendedFile: string | undefined = (viewState.state as { file?: string } | undefined)?.file;
 
       // 当前文件或 viewState 指向某个标注文件
       const matchedPath = currentFile && annotationPathToSession.has(currentFile)
@@ -278,52 +278,47 @@ export default class AnnotationPlugin extends Plugin {
 
   // 根据设置注入/更新动态 CSS 变量
   updateDynamicStyles() {
-    let el = document.getElementById("annotation-dynamic-styles");
-    if (!el) {
-      el = document.createElement("style");
-      el.id = "annotation-dynamic-styles";
-      document.head.appendChild(el);
-    }
-
     const s = this.settings;
+    const root = activeDocument.documentElement;
 
-    el.textContent = `
-      :root {
-        --annotation-bg-color1: ${this.hexToRgba(s.color1, 0.35)};
-        --annotation-accent-color1: ${this.hexToRgba(s.color1, 0.8)};
-        --annotation-bg-color2: ${this.hexToRgba(s.color2, 0.35)};
-        --annotation-accent-color2: ${this.hexToRgba(s.color2, 0.8)};
-        --annotation-bg-color3: ${this.hexToRgba(s.color3, 0.45)};
-        --annotation-accent-color3: ${this.hexToRgba(s.color3, 0.8)};
-        --annotation-bg-color4: ${this.hexToRgba(s.color4, 0.35)};
-        --annotation-accent-color4: ${this.hexToRgba(s.color4, 0.8)};
-        --annotation-bg-color5: ${this.hexToRgba(s.color5, 0.35)};
-        --annotation-accent-color5: ${this.hexToRgba(s.color5, 0.8)};
-        --annotation-dot-color1: ${s.color1};
-        --annotation-dot-color2: ${s.color2};
-        --annotation-dot-color3: ${s.color3};
-        --annotation-dot-color4: ${s.color4};
-        --annotation-dot-color5: ${s.color5};
-        --annotation-ruby-font-size: ${s.rubyFontSize};
-        --annotation-ruby-color: ${s.rubyColor};
-      }
-    `;
+    // 颜色变量（背景 + 强调色）
+    root.style.setProperty("--annotation-bg-color1", this.hexToRgba(s.color1, 0.35));
+    root.style.setProperty("--annotation-accent-color1", this.hexToRgba(s.color1, 0.8));
+    root.style.setProperty("--annotation-bg-color2", this.hexToRgba(s.color2, 0.35));
+    root.style.setProperty("--annotation-accent-color2", this.hexToRgba(s.color2, 0.8));
+    root.style.setProperty("--annotation-bg-color3", this.hexToRgba(s.color3, 0.45));
+    root.style.setProperty("--annotation-accent-color3", this.hexToRgba(s.color3, 0.8));
+    root.style.setProperty("--annotation-bg-color4", this.hexToRgba(s.color4, 0.35));
+    root.style.setProperty("--annotation-accent-color4", this.hexToRgba(s.color4, 0.8));
+    root.style.setProperty("--annotation-bg-color5", this.hexToRgba(s.color5, 0.35));
+    root.style.setProperty("--annotation-accent-color5", this.hexToRgba(s.color5, 0.8));
+
+    // 圆点颜色
+    root.style.setProperty("--annotation-dot-color1", s.color1);
+    root.style.setProperty("--annotation-dot-color2", s.color2);
+    root.style.setProperty("--annotation-dot-color3", s.color3);
+    root.style.setProperty("--annotation-dot-color4", s.color4);
+    root.style.setProperty("--annotation-dot-color5", s.color5);
+
+    // 注音样式
+    root.style.setProperty("--annotation-ruby-font-size", s.rubyFontSize);
+    root.style.setProperty("--annotation-ruby-color", s.rubyColor);
 
     // 设置批注效果
-    document.body.dataset.noteEffect = s.noteEffect;
+    activeDocument.body.dataset.noteEffect = s.noteEffect;
   }
 
   // ========== 标签页标题 ==========
 
-  private updateAnnotationTabTitle(leaf: any, originalPath: string) {
+  private updateAnnotationTabTitle(leaf: WorkspaceLeaf, originalPath: string) {
     const originalFile = this.app.vault.getAbstractFileByPath(originalPath);
     const displayName = originalFile instanceof TFile
       ? originalFile.basename
       : originalPath.replace(/\.md$/, "").split("/").pop() ?? originalPath;
     const tabTitle = t().annotationViewTitle(displayName);
 
-    requestAnimationFrame(() => {
-      const tabHeaderEl = (leaf as any).tabHeaderEl;
+    window.requestAnimationFrame(() => {
+      const tabHeaderEl = (leaf as unknown as { tabHeaderEl?: HTMLElement }).tabHeaderEl;
       if (tabHeaderEl) {
         const titleEl = tabHeaderEl.querySelector('.workspace-tab-header-inner-title');
         if (titleEl) {
@@ -332,7 +327,7 @@ export default class AnnotationPlugin extends Plugin {
         tabHeaderEl.setAttribute('aria-label', tabTitle);
       }
       // 同步更新视图区域标题
-      const viewContainerEl = (leaf as any).view?.containerEl;
+      const viewContainerEl = leaf.view?.containerEl;
       if (viewContainerEl) {
         const inlineTitleEl = viewContainerEl.querySelector('.inline-title');
         if (inlineTitleEl) {
@@ -352,14 +347,12 @@ export default class AnnotationPlugin extends Plugin {
 
   private debouncedSyncToOriginal(originalPath: string) {
     const existing = this.syncToOriginalTimers.get(originalPath);
-    if (existing) clearTimeout(existing);
-    const timer = window.setTimeout(async () => {
+    if (existing) window.clearTimeout(existing);
+    const timer = window.setTimeout(() => {
       this.syncToOriginalTimers.delete(originalPath);
-      try {
-        await this.fileManager.syncToOriginal(originalPath);
-      } catch (e) {
+      void this.fileManager.syncToOriginal(originalPath).catch((e) => {
         console.error("实时同步失败:", e);
-      }
+      });
     }, 800);
     this.syncToOriginalTimers.set(originalPath, timer);
   }
@@ -374,20 +367,23 @@ export default class AnnotationPlugin extends Plugin {
     const TFileConstructor = Object.getPrototypeOf(anyFile).constructor;
     const fakeFile = new TFileConstructor(vault, path);
 
-    (fakeFile as any).deleted = false;
-    (vault as any).fileMap[path] = fakeFile;
+    (fakeFile as unknown as { deleted: boolean }).deleted = false;
+    (vault as unknown as { fileMap: Record<string, TFile> }).fileMap[path] = fakeFile;
 
     return fakeFile;
   }
 
   private removeFakeTFile(path: string) {
-    delete (this.app.vault as any).fileMap[path];
+    delete (this.app.vault as unknown as { fileMap: Record<string, TFile> }).fileMap[path];
   }
 
   // ========== 元数据缓存 ==========
 
   private injectMetadataCache(annotationPath: string, originalPath: string, fakeTFile: TFile) {
-    const cacheInternal = this.app.metadataCache as any;
+    const cacheInternal = this.app.metadataCache as unknown as {
+      metadataCache: Record<string, unknown>;
+      fileCache: Record<string, unknown>;
+    };
 
     const originalCache = cacheInternal.metadataCache[originalPath];
     if (originalCache) {
@@ -405,7 +401,10 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   private removeMetadataCache(annotationPath: string) {
-    const cacheInternal = this.app.metadataCache as any;
+    const cacheInternal = this.app.metadataCache as unknown as {
+      metadataCache: Record<string, unknown>;
+      fileCache: Record<string, unknown>;
+    };
     delete cacheInternal.metadataCache[annotationPath];
     delete cacheInternal.fileCache[annotationPath];
   }
@@ -413,11 +412,11 @@ export default class AnnotationPlugin extends Plugin {
   private registerCacheListeners() {
     this.registerEvent(
       this.app.workspace.on("editor-change", (editor, info) => {
-        const filePath = (info as any).file?.path;
-        if (!filePath) return;
-        const originalPath = this.getOriginalPathByAnnotationPath(filePath);
+        const file = (info as { file?: TFile }).file;
+        if (!file) return;
+        const originalPath = this.getOriginalPathByAnnotationPath(file.path);
         if (originalPath) {
-          this.injectMetadataCache(filePath, originalPath, (info as any).file);
+          this.injectMetadataCache(file.path, originalPath, file);
           this.debouncedSyncToOriginal(originalPath);
         }
       })
@@ -432,13 +431,13 @@ export default class AnnotationPlugin extends Plugin {
           let isStillOpen = false;
           // 单次遍历：同时检查 view.file 和 viewState（标签页激活时 view.file 可能暂时为 null）
           this.app.workspace.iterateAllLeaves((l) => {
-            const filePath = (l.view as any)?.file?.path;
+            const filePath = getViewFilePath(l.view);
             if (filePath === annotationPath) {
               isStillOpen = true;
               this.updateAnnotationTabTitle(l, originalPath);
             } else if (!isStillOpen) {
               const vs = l.getViewState();
-              if ((vs?.state as any)?.file === annotationPath) {
+              if ((vs.state as { file?: string } | undefined)?.file === annotationPath) {
                 isStillOpen = true;
               }
             }
@@ -447,7 +446,7 @@ export default class AnnotationPlugin extends Plugin {
           if (!isStillOpen) {
             // 同步标注文件编辑回原文件
             const timer = this.syncToOriginalTimers.get(originalPath);
-            if (timer) clearTimeout(timer);
+            if (timer) window.clearTimeout(timer);
             this.syncToOriginalTimers.delete(originalPath);
             try {
               await this.fileManager.syncToOriginal(originalPath);
@@ -458,7 +457,7 @@ export default class AnnotationPlugin extends Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(originalPath);
-            this.saveSettings();
+            await this.saveSettings();
 
             // 清理残留的面板
             for (const [leaf, panel] of this.annotationPanels) {
@@ -476,7 +475,7 @@ export default class AnnotationPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         if (!leaf) return;
-        const filePath = (leaf.view as any)?.file?.path as string | undefined;
+        const filePath = getViewFilePath(leaf.view);
         if (!filePath) return;
         const originalPath = this.getOriginalPathByAnnotationPath(filePath);
         if (originalPath) {
@@ -486,27 +485,27 @@ export default class AnnotationPlugin extends Plugin {
     );
   }
 
-  private getSavedScroll(leaf: any): number {
-    const view = leaf?.view;
-    if (view?.currentMode?.getScroll) {
-      const scroll = view.currentMode.getScroll();
-      return typeof scroll === "number" ? scroll : 0;
+  private getSavedScroll(leaf: WorkspaceLeaf): number {
+    const view = leaf.view;
+    if (view instanceof MarkdownView) {
+      const currentMode = (view as unknown as { currentMode?: { getScroll?: () => unknown } }).currentMode;
+      if (currentMode?.getScroll) {
+        const scroll = currentMode.getScroll();
+        return typeof scroll === "number" ? scroll : 0;
+      }
     }
     return 0;
   }
 
-  private restoreScroll(leaf: any, scroll: number) {
+  private restoreScroll(leaf: WorkspaceLeaf, scroll: number) {
     if (!scroll) return;
-    const view = leaf?.view;
-    if (view?.setEphemeralState) {
-      view.setEphemeralState({ scroll });
-    }
+    leaf.view.setEphemeralState({ scroll });
   }
 
   private hasOtherLeafWithFile(excludedLeaf: WorkspaceLeaf, filePath: string): boolean {
     let found = false;
     this.app.workspace.iterateAllLeaves((l) => {
-      if (l !== excludedLeaf && (l.view as any)?.file?.path === filePath) {
+      if (l !== excludedLeaf && getViewFilePath(l.view) === filePath) {
         found = true;
       }
     });
@@ -521,23 +520,21 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   getActiveAnnotationNotePath(): string | null {
-    const leaf = this.app.workspace.activeLeaf;
-    if (!leaf) return null;
-    const currentFile = (leaf.view as any)?.file;
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const currentFile = view?.file;
     if (!currentFile) return null;
     return this.getOriginalPathByAnnotationPath(currentFile.path);
   }
 
   async toggleAnnotationView() {
-    const leaf = this.app.workspace.activeLeaf;
-    if (!leaf) return;
-
-    const currentFile = (leaf.view as any)?.file;
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const currentFile = view?.file;
     if (!currentFile) {
       new Notice(t().noticeNoFile);
       return;
     }
 
+    const leaf = this.app.workspace.getLeaf(false);
     const originalPath = this.getOriginalPathByAnnotationPath(currentFile.path);
     if (originalPath) {
       await this.closeAnnotationView(leaf, originalPath);
@@ -558,7 +555,7 @@ export default class AnnotationPlugin extends Plugin {
     const annotationPath = normalizePath(this.fileManager.getAnnotationFilePath(notePath));
 
     // 复用已有 session 的 fakeTFile，避免多标签页覆盖
-    const existingFake = (this.app.vault as any).fileMap[annotationPath] as TFile | undefined;
+    const existingFake = (this.app.vault as unknown as { fileMap: Record<string, TFile> }).fileMap[annotationPath];
     const fakeTFile = existingFake ?? this.createFakeTFile(annotationPath);
 
     const isNewSession = !this.activeAnnotationSessions.has(notePath);
@@ -574,14 +571,14 @@ export default class AnnotationPlugin extends Plugin {
       this.updateAnnotationTabTitle(leaf, notePath);
 
       if (savedScroll) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
         });
       }
 
       this.setupAnnotationListPanel(notePath, leaf);
       // openFile 完成后再保存，确保 tabCount 统计准确
-      this.saveSettings();
+      await this.saveSettings();
     } catch (e) {
       console.error("[标注] openFile 失败:", e);
       new Notice(t().noticeOpenFailed + e);
@@ -601,7 +598,7 @@ export default class AnnotationPlugin extends Plugin {
         this.removeMetadataCache(annotationPath);
       }
       this.activeAnnotationSessions.delete(originalPath);
-      this.saveSettings();
+      await this.saveSettings();
       // 清理该 leaf 的面板
       const panel = this.annotationPanels.get(leaf);
       if (panel) {
@@ -613,7 +610,7 @@ export default class AnnotationPlugin extends Plugin {
 
     // 取消防抖，立即同步
     const timer = this.syncToOriginalTimers.get(originalPath);
-    if (timer) clearTimeout(timer);
+    if (timer) window.clearTimeout(timer);
     this.syncToOriginalTimers.delete(originalPath);
     try {
       await this.fileManager.syncToOriginal(originalPath);
@@ -634,7 +631,7 @@ export default class AnnotationPlugin extends Plugin {
         this.removeMetadataCache(annotationPath);
       }
       this.activeAnnotationSessions.delete(originalPath);
-      this.saveSettings();
+      await this.saveSettings();
     }
 
     this.selectionMenu.hide();
@@ -646,19 +643,19 @@ export default class AnnotationPlugin extends Plugin {
     }
 
     if (savedScroll) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => this.restoreScroll(leaf, savedScroll));
       });
     }
 
     // 延迟重置，确保 file-open 事件已触发并被抑制
-    setTimeout(() => { this.suppressAutoOpen = false; }, 500);
+    window.setTimeout(() => { this.suppressAutoOpen = false; }, 500);
   }
 
   // ========== 标注交互事件 ==========
 
   private registerAnnotationInteraction() {
-    this.registerDomEvent(document, "mouseup", (e: MouseEvent) => {
+    this.registerDomEvent(activeDocument, "mouseup", (e: MouseEvent) => {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
 
@@ -671,7 +668,7 @@ export default class AnnotationPlugin extends Plugin {
       if (target.closest(".frontmatter, .cm-hmd-frontmatter, .metadata-container")) return;
       if (target.closest(".inline-title, .view-header-title")) return;
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed) return;
 
@@ -679,9 +676,9 @@ export default class AnnotationPlugin extends Plugin {
         if (!context || !context.text) return;
 
         const range = selection.getRangeAt(0);
-        const startEl = range.startContainer instanceof HTMLElement
+        const startEl = range.startContainer.instanceOf(HTMLElement)
           ? range.startContainer : range.startContainer.parentElement;
-        const endEl = range.endContainer instanceof HTMLElement
+        const endEl = range.endContainer.instanceOf(HTMLElement)
           ? range.endContainer : range.endContainer.parentElement;
         const startLineInfo = startEl ? this.findSectionLineInfo(startEl) : undefined;
         const endLineInfo = endEl ? this.findSectionLineInfo(endEl) : undefined;
@@ -720,8 +717,7 @@ export default class AnnotationPlugin extends Plugin {
         this.annotationMenu.hide();
 
         // 编辑模式下保存编辑器选区位置
-        const activeLeaf = this.app.workspace.activeLeaf;
-        const view = activeLeaf?.view as MarkdownView;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         let editorRange: { from: EditorPosition; to: EditorPosition } | undefined;
         if (view?.getMode?.() === "source" && view.editor) {
           editorRange = {
@@ -742,12 +738,12 @@ export default class AnnotationPlugin extends Plugin {
           occurrence,
           blockSegments,
           editorRange,
-          onAdd: () => this.refreshAnnotationView(notePath),
+          onAdd: () => { void this.refreshAnnotationView(notePath); },
         });
       }, 10);
     });
 
-    this.registerDomEvent(document, "click", (e: MouseEvent) => {
+    this.registerDomEvent(activeDocument, "click", (e: MouseEvent) => {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
 
@@ -792,12 +788,12 @@ export default class AnnotationPlugin extends Plugin {
             annotation,
             notePath,
             onUpdate: () => {
-              this.refreshAnnotationView(notePath);
+              void this.refreshAnnotationView(notePath);
               if (isSourceMode && view) restoreEditorFocus(view);
             },
           });
         }
-      });
+      }).catch((err) => console.error("获取标注失败:", err));
     });
   }
 
@@ -815,7 +811,7 @@ export default class AnnotationPlugin extends Plugin {
     this.annotationPanels.set(leaf, panel);
     panel.show({
       notePath,
-      onUpdate: () => this.refreshAnnotationView(notePath),
+      onUpdate: () => { void this.refreshAnnotationView(notePath); },
       containerEl: view.containerEl,
     });
   }
@@ -829,7 +825,7 @@ export default class AnnotationPlugin extends Plugin {
       const leaves: WorkspaceLeaf[] = [];
       this.app.workspace.iterateAllLeaves((leaf) => {
         const v = leaf.view;
-        if (v instanceof MarkdownView && (v as any)?.file?.path === annotationPath) {
+        if (v instanceof MarkdownView && v.file?.path === annotationPath) {
           leaves.push(leaf);
         }
       });
@@ -843,7 +839,7 @@ export default class AnnotationPlugin extends Plugin {
         const view = leaf.view as MarkdownView;
 
         if (view.getMode() === "preview") {
-          const renderer = (view.previewMode as any).renderer;
+          const renderer = (view.previewMode as unknown as { renderer?: { set?: (c: string) => void } }).renderer;
           if (renderer && typeof renderer.set === "function") {
             renderer.set(content);
           }
@@ -865,17 +861,17 @@ export default class AnnotationPlugin extends Plugin {
               selection: { anchor: savedPos },
             });
 
-            requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
               editorView.scrollDOM.scrollTop = scrollTop;
             });
           }
         }
 
         // 同步更新 MarkdownView 内部数据
-        (view as any).data = content;
+        (view as unknown as { data: string }).data = content;
 
         // 刷新该 leaf 的面板
-        this.annotationPanels.get(leaf)?.refresh();
+        void this.annotationPanels.get(leaf)?.refresh();
       }
 
 
@@ -889,7 +885,7 @@ export default class AnnotationPlugin extends Plugin {
   // ========== 侧边栏 ==========
 
   notifyAnnotationChange(): void {
-    if (this.notifyDebounceTimer) clearTimeout(this.notifyDebounceTimer);
+    if (this.notifyDebounceTimer) window.clearTimeout(this.notifyDebounceTimer);
     this.notifyDebounceTimer = window.setTimeout(() => {
       for (const cb of this.annotationChangeCallbacks) {
         try {
@@ -916,7 +912,7 @@ export default class AnnotationPlugin extends Plugin {
           type: ANNOTATION_SIDEBAR_VIEW_TYPE,
           active: true,
         });
-        workspace.revealLeaf(rightLeaf);
+        await workspace.revealLeaf(rightLeaf);
       }
     }
   }
@@ -1044,9 +1040,9 @@ export default class AnnotationPlugin extends Plugin {
         const annotations = await this.fileManager.getAnnotations(file.path);
         if (annotations.length === 0) return;
 
-        const leaf = this.app.workspace.activeLeaf;
-        if (leaf && (leaf.view as any)?.file?.path === file.path) {
-          await this.openAnnotationView(leaf, file.path);
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view?.file?.path === file.path) {
+          await this.openAnnotationView(this.app.workspace.getLeaf(false), file.path);
         }
       })
     );
@@ -1077,15 +1073,15 @@ export default class AnnotationPlugin extends Plugin {
             // 更新会话映射
             this.activeAnnotationSessions.delete(oldPath);
             this.activeAnnotationSessions.set(file.path, newAnnotationPath);
-            this.saveSettings();
+            await this.saveSettings();
 
             // 注入新元数据缓存
             this.injectMetadataCache(newAnnotationPath, file.path, newFakeTFile);
 
             // 更新打开的 leaf
             this.app.workspace.iterateAllLeaves((leaf) => {
-              if ((leaf.view as any)?.file?.path === annotationPath) {
-                leaf.openFile(newFakeTFile, { state: { mode: this.settings.defaultViewMode } });
+              if (getViewFilePath(leaf.view) === annotationPath) {
+                void leaf.openFile(newFakeTFile, { state: { mode: this.settings.defaultViewMode } });
                 this.updateAnnotationTabTitle(leaf, file.path);
               }
             });
@@ -1093,14 +1089,14 @@ export default class AnnotationPlugin extends Plugin {
             // 迁移同步定时器
             const timer = this.syncToOriginalTimers.get(oldPath);
             if (timer !== undefined) {
-              clearTimeout(timer);
+              window.clearTimeout(timer);
               this.syncToOriginalTimers.delete(oldPath);
               this.debouncedSyncToOriginal(file.path);
             }
 
             // 迁移面板：更新所有关联 leaf 的面板 notePath
             for (const [leaf, panel] of this.annotationPanels) {
-              const leafAnnotationPath = (leaf.view as any)?.file?.path;
+              const leafAnnotationPath = getViewFilePath(leaf.view);
               if (leafAnnotationPath === annotationPath || leafAnnotationPath === newAnnotationPath) {
                 panel.updateNotePath(file.path);
               }
@@ -1126,7 +1122,7 @@ export default class AnnotationPlugin extends Plugin {
             // 取消同步定时器（不回写，原文件已删除）
             const timer = this.syncToOriginalTimers.get(file.path);
             if (timer !== undefined) {
-              clearTimeout(timer);
+              window.clearTimeout(timer);
               this.syncToOriginalTimers.delete(file.path);
             }
 
@@ -1134,10 +1130,10 @@ export default class AnnotationPlugin extends Plugin {
             this.removeFakeTFile(annotationPath);
             this.removeMetadataCache(annotationPath);
             this.activeAnnotationSessions.delete(file.path);
-            this.saveSettings();
+            await this.saveSettings();
             // 清理所有显示该标注文件的 leaf 的面板
             for (const [leaf, panel] of this.annotationPanels) {
-              const leafFilePath = (leaf.view as any)?.file?.path;
+              const leafFilePath = getViewFilePath(leaf.view);
               if (leafFilePath === annotationPath) {
                 panel.hide();
                 this.annotationPanels.delete(leaf);
@@ -1148,7 +1144,7 @@ export default class AnnotationPlugin extends Plugin {
 
             // 关闭显示该标注文件的 leaf
             this.app.workspace.iterateAllLeaves((leaf) => {
-              if ((leaf.view as any)?.file?.path === annotationPath) {
+              if (getViewFilePath(leaf.view) === annotationPath) {
                 leaf.detach();
               }
             });
@@ -1163,13 +1159,12 @@ export default class AnnotationPlugin extends Plugin {
       id: "toggle-annotation-view",
       name: t().commandToggleView,
       checkCallback: (checking) => {
-        const leaf = this.app.workspace.activeLeaf;
-        if (!leaf) return false;
-        const file = (leaf.view as any)?.file;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const file = view?.file;
         if (!file || file.extension !== "md") return false;
 
         if (!checking) {
-          this.toggleAnnotationView();
+          void this.toggleAnnotationView();
         }
         return true;
       },
@@ -1178,14 +1173,14 @@ export default class AnnotationPlugin extends Plugin {
     this.addCommand({
       id: "toggle-annotation-sidebar",
       name: t().commandSidebar,
-      callback: () => this.toggleSidebarView(),
+      callback: () => { void this.toggleSidebarView(); },
     });
 
     this.addCommand({
       id: "import-old-annotations",
       name: t().commandImport,
       callback: async () => {
-        const pluginDir = this.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
+        const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/obsidian-annotation-marker`;
         const scan = await preScanOldAnnotations(this.app, pluginDir);
         if (scan.fileCount === 0) {
           new Notice(t().noticeNoLegacyData);
@@ -1203,7 +1198,7 @@ export default class AnnotationPlugin extends Plugin {
         if (!activeFile || activeFile.extension !== "md") return false;
 
         if (!checking) {
-          this.exportCurrentAnnotations(activeFile.path);
+          void this.exportCurrentAnnotations(activeFile.path);
         }
         return true;
       },

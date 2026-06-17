@@ -72,7 +72,7 @@ export async function preScanOldAnnotations(
   for (const file of jsonFiles) {
     try {
       const raw = await app.vault.adapter.read(file);
-      const data: OldFileAnnotationData = JSON.parse(raw);
+      const data = JSON.parse(raw) as OldFileAnnotationData;
       if (data.annotations) {
         annotationCount += data.annotations.filter((a) => a.isValid === 1).length;
       }
@@ -113,7 +113,7 @@ export async function importOldAnnotations(
   for (const jsonPath of jsonFiles) {
     try {
       const raw = await app.vault.adapter.read(jsonPath);
-      const data: OldFileAnnotationData = JSON.parse(raw);
+      const data = JSON.parse(raw) as OldFileAnnotationData;
       if (!data.filePath || !Array.isArray(data.annotations)) {
         result.errors.push(`无效数据格式: ${jsonPath}`);
         continue;

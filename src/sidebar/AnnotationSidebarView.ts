@@ -1,7 +1,7 @@
-import { ItemView, MarkdownView, Notice, normalizePath, TFile } from "obsidian";
+import { ItemView, MarkdownView, Notice, normalizePath, TFile, WorkspaceLeaf } from "obsidian";
 import type { AnnotationColor, AnnotationRuby, ParsedAnnotation } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
-import { annotationPathToNotePath } from "../utils/helpers";
+import { annotationPathToNotePath, getViewFilePath } from "../utils/helpers";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
 import { scrollToAnnotation } from "../utils/scrollToAnnotation";
@@ -56,7 +56,7 @@ export class AnnotationSidebarView extends ItemView {
   // 渲染代际 token：递增，await 之后若已被新代次取代则丢弃，避免过期数据污染 DOM
   private renderGeneration = 0;
 
-  constructor(leaf: any, plugin: AnnotationPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: AnnotationPlugin) {
     super(leaf);
     this.plugin = plugin;
     this.fileManager = plugin.fileManager;
@@ -93,9 +93,9 @@ export class AnnotationSidebarView extends ItemView {
           const currentPath = activeFile?.path ?? null;
           if (currentPath === this.lastRefreshedNotePath) return;
 
-          if (this.leafChangeTimer) clearTimeout(this.leafChangeTimer);
+          if (this.leafChangeTimer) window.clearTimeout(this.leafChangeTimer);
           this.leafChangeTimer = window.setTimeout(() => {
-            this.refresh();
+            void this.refresh();
           }, 200);
         }
       })
@@ -107,7 +107,7 @@ export class AnnotationSidebarView extends ItemView {
         // 详情面板打开中，关闭后刷新
         this.closeDetailPanel();
       }
-      this.refresh();
+      void this.refresh();
     };
     this.plugin.annotationChangeCallbacks.push(this.boundAnnotationChange);
 
@@ -139,8 +139,8 @@ export class AnnotationSidebarView extends ItemView {
       cls: "annotation-sidebar-export-btn",
       text: t().sidebarExportBtn,
     });
-    this.exportBtn.addEventListener("click", () => this.exportCurrentAnnotations());
-    this.exportBtn.style.display = this.mode === "current" ? "" : "none";
+    this.exportBtn.addEventListener("click", () => { void this.exportCurrentAnnotations(); });
+    this.exportBtn.toggleClass("is-hidden", this.mode !== "current");
 
     this.sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
     this.sortSelect.addEventListener("change", () => {
@@ -153,7 +153,7 @@ export class AnnotationSidebarView extends ItemView {
   private updateSortOptions(): void {
     if (!this.sortSelect) return;
     const currentValue = this.sortOption;
-    this.sortSelect.innerHTML = "";
+    this.sortSelect.empty();
     const loc = t();
 
     if (this.mode === "current") {
@@ -165,9 +165,9 @@ export class AnnotationSidebarView extends ItemView {
         { v: "color-asc", t: loc.sidebarSortColor },
         { v: "color-desc", t: loc.sidebarSortColorDesc },
       ];
-      this.sortSelect.innerHTML = opts
-        .map((o) => `<option value="${o.v}">${o.t}</option>`)
-        .join("");
+      for (const o of opts) {
+        this.sortSelect.createEl("option", { value: o.v, text: o.t });
+      }
       // 如果当前选项不适用于当前笔记模式，回退
       if (!["position-asc", "position-desc", "time-asc", "time-desc", "color-asc", "color-desc"].includes(currentValue)) {
         this.sortOption = "position-asc";
@@ -179,9 +179,9 @@ export class AnnotationSidebarView extends ItemView {
         { v: "time-desc", t: loc.sidebarSortTimeDesc },
         { v: "color-asc", t: loc.sidebarSortColor },
       ];
-      this.sortSelect.innerHTML = opts
-        .map((o) => `<option value="${o.v}">${o.t}</option>`)
-        .join("");
+      for (const o of opts) {
+        this.sortSelect.createEl("option", { value: o.v, text: o.t });
+      }
       // 如果当前选项不适用于全部笔记模式，回退
       if (!["by-note", "time-asc", "time-desc", "color-asc"].includes(currentValue)) {
         this.sortOption = "by-note";
@@ -212,11 +212,11 @@ export class AnnotationSidebarView extends ItemView {
     this.tabs.current.toggleClass("active", newMode === "current");
     this.tabs.all.toggleClass("active", newMode === "all");
     if (this.exportBtn) {
-      this.exportBtn.style.display = newMode === "current" ? "" : "none";
+      this.exportBtn.toggleClass("is-hidden", newMode !== "current");
     }
     this.updateSortOptions();
     this.closeDetailPanel();
-    this.refresh();
+    void this.refresh();
   }
 
   private renderSearchBar(container: HTMLElement): void {
@@ -228,10 +228,10 @@ export class AnnotationSidebarView extends ItemView {
       placeholder: t().sidebarSearchPlaceholder,
     });
     this.searchInput.addEventListener("input", () => {
-      if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
+      if (this.searchDebounceTimer) window.clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = window.setTimeout(() => {
         this.searchQuery = this.searchInput?.value ?? "";
-        this.renderCards();
+        void this.renderCards();
       }, 300);
     });
 
@@ -245,7 +245,7 @@ export class AnnotationSidebarView extends ItemView {
     allBtn.addEventListener("click", () => {
       this.colorFilter = "all";
       this.updateColorBtnState();
-      this.renderCards();
+      void this.renderCards();
     });
     this.colorBtns.set("all", allBtn);
 
@@ -256,7 +256,7 @@ export class AnnotationSidebarView extends ItemView {
       btn.addEventListener("click", () => {
         this.colorFilter = color;
         this.updateColorBtnState();
-        this.renderCards();
+        void this.renderCards();
       });
       this.colorBtns.set(color, btn);
     }
@@ -322,7 +322,7 @@ export class AnnotationSidebarView extends ItemView {
     for (const cardData of sorted) {
       createAnnotationCard(this.cardListEl, cardData, {
         onClick: (data) => this.showDetailPanel(data),
-        onOpen: (data) => this.handleCardOpen(data),
+        onOpen: (data) => { void this.handleCardOpen(data); },
         onDelete: (data) => this.handleCardDelete(data),
       });
     }
@@ -358,7 +358,7 @@ export class AnnotationSidebarView extends ItemView {
   private async loadAllAnnotations(): Promise<AnnotationCardData[]> {
     if (this.allAnnotationsCache) return this.allAnnotationsCache;
 
-    const pluginDir = this.plugin.manifest.dir ?? ".obsidian/plugins/obsidian-annotation-marker";
+    const pluginDir = this.plugin.manifest.dir ?? `${this.app.vault.configDir}/plugins/obsidian-annotation-marker`;
     const annotationsDir = normalizePath(`${pluginDir}/annotations`);
 
     const exists = await this.app.vault.adapter.exists(annotationsDir);
@@ -462,14 +462,14 @@ export class AnnotationSidebarView extends ItemView {
   private closeDetailPanel(): void {
     this.detailCardData = null;
     this.detailIsEditing = false;
-    this.renderCards();
+    void this.renderCards();
   }
 
   private renderDetailContent(): void {
     if (!this.cardListEl || !this.detailCardData) return;
     this.cardListEl.empty();
 
-    const { annotation, notePath } = this.detailCardData;
+    const { annotation } = this.detailCardData;
     const loc = t();
 
     const panel = this.cardListEl.createDiv({ cls: "annotation-sidebar-detail" });
@@ -489,9 +489,9 @@ export class AnnotationSidebarView extends ItemView {
     textHeader.createEl("label", { text: loc.sidebarAnnotationText });
     const textCopyBtn = textHeader.createEl("button", { cls: "annotation-copy-btn", text: loc.copy });
     textCopyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(annotation.text).then(() => {
+      void navigator.clipboard.writeText(annotation.text).then(() => {
         textCopyBtn.textContent = loc.copied;
-        setTimeout(() => { textCopyBtn.textContent = loc.copy; }, 1500);
+        window.setTimeout(() => { textCopyBtn.textContent = loc.copy; }, 1500);
       });
     });
     textSection.createDiv({ cls: "annotation-sidebar-detail-text", text: annotation.text });
@@ -562,9 +562,9 @@ export class AnnotationSidebarView extends ItemView {
       if (annotation.note) {
         const noteCopyBtn = noteHeader.createEl("button", { cls: "annotation-copy-btn", text: loc.sidebarNoteCopy });
         noteCopyBtn.addEventListener("click", () => {
-          navigator.clipboard.writeText(annotation.note).then(() => {
+          void navigator.clipboard.writeText(annotation.note).then(() => {
             noteCopyBtn.textContent = loc.sidebarNoteCopied;
-            setTimeout(() => { noteCopyBtn.textContent = loc.sidebarNoteCopyRestore; }, 1500);
+            window.setTimeout(() => { noteCopyBtn.textContent = loc.sidebarNoteCopyRestore; }, 1500);
           });
         });
       }
@@ -624,7 +624,7 @@ export class AnnotationSidebarView extends ItemView {
         text: loc.save,
         cls: "annotation-btn annotation-btn-primary",
       });
-      saveBtn.addEventListener("click", () => this.handleDetailSave());
+      saveBtn.addEventListener("click", () => { void this.handleDetailSave(); });
 
       const cancelBtn = actions.createEl("button", {
         text: loc.cancel,
@@ -652,7 +652,7 @@ export class AnnotationSidebarView extends ItemView {
         cls: "annotation-btn annotation-btn-secondary",
       });
       openBtn.addEventListener("click", () => {
-        if (this.detailCardData) this.handleCardOpen(this.detailCardData);
+        if (this.detailCardData) void this.handleCardOpen(this.detailCardData);
       });
 
       const deleteBtn = actions.createEl("button", {
@@ -694,7 +694,7 @@ export class AnnotationSidebarView extends ItemView {
     }
 
     // 刷新标注视图
-    this.plugin.refreshAnnotationView(notePath);
+    await this.plugin.refreshAnnotationView(notePath);
     this.closeDetailPanel();
     new Notice(t().noticeAnnotationUpdated);
   }
@@ -708,7 +708,7 @@ export class AnnotationSidebarView extends ItemView {
     let result: MarkdownView | null = null;
     this.app.workspace.iterateAllLeaves((leaf) => {
       const view = leaf.view;
-      if (view instanceof MarkdownView && (view as any)?.file?.path === annotationPath) {
+      if (view instanceof MarkdownView && view.file?.path === annotationPath) {
         result = view;
       }
     });
@@ -722,20 +722,20 @@ export class AnnotationSidebarView extends ItemView {
 
     // 检查目标笔记是否已在标注视图中
     const annotationPath = this.plugin.activeAnnotationSessions.get(notePath);
-    let targetLeaf: any = null;
+    let targetLeaf: WorkspaceLeaf | null = null;
 
     if (annotationPath) {
       this.app.workspace.iterateAllLeaves((leaf) => {
         // 只匹配主区 leaf，排除左右 side dock，避免误激活 side view 导致侧边栏跳走
-        const root = (leaf as any).getRoot?.();
+        const root = leaf.getRoot();
         if (root !== this.app.workspace.rootSplit) return;
-        const filePath = (leaf.view as any)?.file?.path;
+        const filePath = getViewFilePath(leaf.view);
         if (filePath === annotationPath) {
           targetLeaf = leaf;
         } else if (!targetLeaf) {
           // 标签页未激活时 view.file 可能暂时为 null，用 viewState 兜底（与 main.ts layout-change 一致）
           const vs = leaf.getViewState();
-          if ((vs?.state as any)?.file === annotationPath) {
+          if ((vs.state as { file?: string }).file === annotationPath) {
             targetLeaf = leaf;
           }
         }
@@ -751,20 +751,20 @@ export class AnnotationSidebarView extends ItemView {
       // getLeaf(false) 复用活动 leaf；从侧边栏点击时活动 leaf 可能就是侧边栏 leaf，
       // 在其上 openFile 会把侧边栏视图替换成笔记，故检测到 side dock 时改在主区打开
       let leaf = this.app.workspace.getLeaf(false);
-      const root = (leaf as any).getRoot?.();
+      const root = leaf.getRoot();
       if (root === this.app.workspace.leftSplit || root === this.app.workspace.rightSplit) {
         leaf = this.app.workspace.getLeaf("tab");
       }
+      await leaf.openFile(file);
+      await this.plugin.openAnnotationView(leaf, notePath);
       targetLeaf = leaf;
-      await targetLeaf.openFile(file);
-      await this.plugin.openAnnotationView(targetLeaf, notePath);
     }
 
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
     await this.scrollToAnnotationInLeaf(targetLeaf, annotation);
   }
 
-  private async scrollToAnnotationInLeaf(leaf: any, annotation: ParsedAnnotation): Promise<void> {
+  private async scrollToAnnotationInLeaf(leaf: WorkspaceLeaf, annotation: ParsedAnnotation): Promise<void> {
     const view = leaf.view as MarkdownView;
     if (!view) return;
 
@@ -785,7 +785,7 @@ export class AnnotationSidebarView extends ItemView {
   }
 
   private getNotePathForView(view: MarkdownView): string | null {
-    const filePath = (view as any)?.file?.path;
+    const filePath = view.file?.path;
     if (!filePath) return null;
     return this.plugin.getOriginalPathByAnnotationPath(filePath) ?? filePath;
   }
@@ -812,7 +812,7 @@ export class AnnotationSidebarView extends ItemView {
           await this.fileManager.removeAnnotation(notePath, annotation.id);
         }
 
-        this.plugin.refreshAnnotationView(notePath);
+        await this.plugin.refreshAnnotationView(notePath);
         this.closeDetailPanel();
         new Notice(loc.noticeDeleted);
       },

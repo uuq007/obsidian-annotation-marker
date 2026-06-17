@@ -13,7 +13,7 @@ export async function scrollToAnnotation(
   options?: { delayBeforeScroll?: number }
 ): Promise<void> {
   if (options?.delayBeforeScroll) {
-    await new Promise((resolve) => setTimeout(resolve, options.delayBeforeScroll));
+    await new Promise((resolve) => window.setTimeout(resolve, options.delayBeforeScroll));
   }
 
   if (!view) return;
@@ -45,7 +45,7 @@ function scrollToAnnotationInEditor(
   view.editor.scrollIntoView({ from: pos, to: pos }, true);
 
   // 等待渲染后高亮
-  setTimeout(() => {
+  window.setTimeout(() => {
     highlightAnnotationElements(view.containerEl, annotation.id);
   }, 300);
 }
@@ -63,13 +63,15 @@ async function scrollToAnnotationInPreview(
     const lineIndex =
       content.substring(0, annotation.positions[0]!.start).split("\n").length - 1;
 
-    const previewMode = view.previewMode as any;
+    const previewMode = view.previewMode as unknown as {
+      renderer?: { applyScroll?: (line: number, opts?: { center?: boolean }) => void };
+    };
     if (previewMode?.renderer?.applyScroll) {
       // 判断是否为脚注区域
-      const currentFile = (view as any)?.file;
-      const cache = app.metadataCache.getFileCache(currentFile);
+      const currentFile = view.file;
+      const cache = currentFile ? app.metadataCache.getFileCache(currentFile) : null;
       const isFootnote = cache?.footnotes?.some(
-        (fn: any) =>
+        (fn: { position: { start: { line: number }; end: { line: number } } }) =>
           lineIndex >= fn.position.start.line && lineIndex <= fn.position.end.line
       );
 
@@ -89,7 +91,7 @@ async function scrollToAnnotationInPreview(
 
   // 等待渲染后高亮
   const containerEl = view.previewMode?.containerEl ?? view.containerEl;
-  setTimeout(() => {
+  window.setTimeout(() => {
     highlightAnnotationElements(containerEl, annotation.id);
   }, 300);
 }
@@ -105,12 +107,11 @@ function highlightAnnotationElements(
   if (!els || els.length === 0) return;
 
   for (const el of Array.from(els) as HTMLElement[]) {
-    el.style.transition = "box-shadow 0.3s ease";
-    el.style.boxShadow = "0 0 0 3px var(--interactive-accent)";
+    el.addClass("annotation-scroll-highlight");
   }
-  setTimeout(() => {
+  window.setTimeout(() => {
     for (const el of Array.from(els) as HTMLElement[]) {
-      el.style.boxShadow = "";
+      el.removeClass("annotation-scroll-highlight");
     }
   }, 2000);
 }

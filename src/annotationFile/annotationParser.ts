@@ -1,5 +1,4 @@
 import type { AnnotationColor, AnnotationRuby, ParsedAnnotation } from "../types";
-import { COLOR_BG_VARS } from "../constants";
 import { decodeAttr } from "../utils/helpers";
 
 // 从属性字符串中提取指定属性值

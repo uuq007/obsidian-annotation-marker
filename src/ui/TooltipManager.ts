@@ -12,15 +12,15 @@ export class TooltipManager {
   }
 
   register(): void {
-    this.plugin.registerDomEvent(document, "mouseover", (e: MouseEvent) => {
+    this.plugin.registerDomEvent(activeDocument, "mouseover", (e: MouseEvent) => {
       this.handleMouseOver(e);
     });
 
-    this.plugin.registerDomEvent(document, "mousemove", (e: MouseEvent) => {
+    this.plugin.registerDomEvent(activeDocument, "mousemove", (e: MouseEvent) => {
       this.handleMouseMove(e);
     });
 
-    this.plugin.registerDomEvent(document, "mouseout", (e: MouseEvent) => {
+    this.plugin.registerDomEvent(activeDocument, "mouseout", (e: MouseEvent) => {
       this.handleMouseOut(e);
     });
   }
@@ -38,18 +38,20 @@ export class TooltipManager {
 
     // 取消隐藏定时器
     if (this.hideTooltipTimeout) {
-      clearTimeout(this.hideTooltipTimeout);
+      window.clearTimeout(this.hideTooltipTimeout);
       this.hideTooltipTimeout = null;
     }
 
     // 创建或复用 tooltip
     if (!this.tooltipEl) {
-      this.tooltipEl = document.createElement("div");
+      this.tooltipEl = activeDocument.createElement("div");
       this.tooltipEl.className = "annotation-highlight-tooltip";
-      document.body.appendChild(this.tooltipEl);
+      activeDocument.body.appendChild(this.tooltipEl);
     }
 
-    this.tooltipEl.innerHTML = `<div class="annotation-tooltip-label">${t().tooltipLabel}</div><div class="annotation-tooltip-content">${this.escapeHtml(note)}</div>`;
+    this.tooltipEl.empty();
+    this.tooltipEl.createDiv({ cls: "annotation-tooltip-label", text: t().tooltipLabel });
+    this.tooltipEl.createDiv({ cls: "annotation-tooltip-content", text: note });
 
     this.positionTooltip(markEl);
   }
@@ -91,44 +93,40 @@ export class TooltipManager {
     const tooltipRect = this.tooltipEl.getBoundingClientRect();
     const threshold = window.innerHeight * 0.5;
 
+    let tooltipTop: number;
     // 标注在视口下半部分 → tooltip 显示在上方（用 tooltip-bottom 让箭头朝下）
     if (rect.bottom > threshold) {
       this.tooltipEl.classList.add("tooltip-bottom");
-      this.tooltipEl.style.top = `${rect.top - tooltipRect.height - 12}px`;
+      tooltipTop = rect.top - tooltipRect.height - 12;
     } else {
       // 标注在视口上半部分 → tooltip 显示在下方
       this.tooltipEl.classList.remove("tooltip-bottom");
-      this.tooltipEl.style.top = `${rect.bottom + 8}px`;
+      tooltipTop = rect.bottom + 8;
     }
 
     // 水平居中于标注，但不超出视口
     const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
-    this.tooltipEl.style.left = `${Math.max(10, Math.min(left, window.innerWidth - tooltipRect.width - 10))}px`;
+    const tooltipLeft = Math.max(10, Math.min(left, window.innerWidth - tooltipRect.width - 10));
+
+    this.tooltipEl.setCssStyles({
+      top: `${tooltipTop}px`,
+      left: `${tooltipLeft}px`,
+    });
 
     // 箭头居中
     const arrowLeft = tooltipRect.width / 2 - 5;
     this.tooltipEl.style.setProperty("--arrow-left", `${arrowLeft}px`);
 
-    this.tooltipEl.style.opacity = "1";
-    this.tooltipEl.style.visibility = "visible";
+    this.tooltipEl.addClass("is-visible");
   }
 
   private hideTooltip(): void {
-    if (this.tooltipEl) {
-      this.tooltipEl.style.opacity = "0";
-      this.tooltipEl.style.visibility = "hidden";
-    }
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement("div");
-    div.textContent = text.length > 200 ? text.substring(0, 200) + "..." : text;
-    return div.innerHTML;
+    this.tooltipEl?.removeClass("is-visible");
   }
 
   hide(): void {
     if (this.hideTooltipTimeout) {
-      clearTimeout(this.hideTooltipTimeout);
+      window.clearTimeout(this.hideTooltipTimeout);
       this.hideTooltipTimeout = null;
     }
     this.hideTooltip();

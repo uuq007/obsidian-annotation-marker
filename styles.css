@@ -300,6 +300,7 @@
   word-break: break-word;
   user-select: text;
   cursor: text;
+  white-space: pre-wrap;
 }
 
 .annotation-copy-btn {
@@ -460,7 +461,14 @@
   white-space: pre-wrap;
   word-break: break-all;
   pointer-events: none;
-  animation: annotation-tooltip-fade-in 0.15s ease-out;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease-out;
+}
+
+.annotation-highlight-tooltip.is-visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 .annotation-highlight-tooltip::before {
@@ -528,6 +536,10 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transition: background 0.15s ease, box-shadow 0.15s ease;
   z-index: 100;
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .annotation-list-btn:hover {
@@ -1410,6 +1422,10 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   border-color: var(--interactive-accent);
 }
 
+.annotation-sidebar-export-btn.is-hidden {
+  display: none;
+}
+
 /* ========== 导出 callout 颜色 ========== */
 .callout[data-callout^="annotation-"] {
   --callout-color: 153, 153, 153;
@@ -1437,4 +1453,19 @@ ruby[data-annotation-id] rt[data-annotation-id] {
 
 .callout[data-callout="annotation-none"] {
   --callout-color: 153, 153, 153;
+}
+
+/* ========== 审核修复：内联静态样式迁移为 class ========== */
+
+/* 导出弹窗输入框（原 ExportModal 内联静态样式） */
+.annotation-export-input {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 6px 8px;
+}
+
+/* 滚动定位高亮（原 scrollToAnnotation 内联静态样式） */
+.annotation-scroll-highlight {
+  transition: box-shadow 0.3s ease;
+  box-shadow: 0 0 0 3px var(--interactive-accent);
 }

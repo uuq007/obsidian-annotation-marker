@@ -1,6 +1,6 @@
 import { PluginSettingTab, Setting } from "obsidian";
 import type AnnotationPlugin from "../main";
-import { COLOR_NUMBERS } from "../types";
+import { COLOR_NUMBERS, type AnnotationColor, type NoteEffect } from "../types";
 import { t } from "../i18n";
 
 export class AnnotationSettingTab extends PluginSettingTab {
@@ -16,48 +16,57 @@ export class AnnotationSettingTab extends PluginSettingTab {
     containerEl.empty();
     const loc = t();
 
-    containerEl.createEl("h2", { text: loc.settingsTitle });
+    // 颜色字段以动态键访问（color1~5 / colorLabel1~5），用 Record 收窄避免 any
+    const colorSettings = this.plugin.settings as unknown as Record<string, unknown>;
+    const getColor = (n: string): string =>
+      typeof colorSettings[`color${n}`] === "string" ? (colorSettings[`color${n}`] as string) : "";
+    const getColorLabel = (n: string): string =>
+      typeof colorSettings[`colorLabel${n}`] === "string"
+        ? (colorSettings[`colorLabel${n}`] as string)
+        : loc.colorLabel(n);
+
+    new Setting(containerEl).setName(loc.settingsTitle).setHeading();
 
     new Setting(containerEl)
       .setName(loc.settingsDefaultColor)
       .setDesc(loc.settingsDefaultColorDesc)
       .addDropdown((dd) => {
         for (const n of COLOR_NUMBERS) {
-          dd.addOption(n, (this.plugin.settings as any)[`colorLabel${n}`] ?? loc.colorLabel(n));
+          dd.addOption(n, getColorLabel(n));
         }
         dd.addOption("none", loc.none);
         dd.setValue(this.plugin.settings.defaultColor);
         dd.onChange(async (v) => {
-          this.plugin.settings.defaultColor = v as any;
+          this.plugin.settings.defaultColor = v as AnnotationColor;
           await this.plugin.saveSettings();
         });
       });
 
-    containerEl.createEl("h3", { text: loc.settingsColorCustom });
+    new Setting(containerEl).setName(loc.settingsColorCustom).setHeading();
 
     for (const n of COLOR_NUMBERS) {
       new Setting(containerEl)
-        .setName((this.plugin.settings as any)[`colorLabel${n}`] ?? loc.colorLabel(n))
+        .setName(getColorLabel(n))
         .addColorPicker((cp) => {
-          cp.setValue((this.plugin.settings as any)[`color${n}`]);
+          cp.setValue(getColor(n));
           cp.onChange(async (v) => {
-            (this.plugin.settings as any)[`color${n}`] = v;
+            colorSettings[`color${n}`] = v;
             this.plugin.updateDynamicStyles();
             await this.plugin.saveSettings();
           });
         })
         .addText((txt) => {
           txt.setPlaceholder(loc.settingsColorPlaceholder)
-            .setValue((this.plugin.settings as any)[`colorLabel${n}`])
+            .setValue(getColorLabel(n))
             .onChange(async (v) => {
-              (this.plugin.settings as any)[`colorLabel${n}`] = v || loc.colorLabel(n);
+              colorSettings[`colorLabel${n}`] = v || loc.colorLabel(n);
               await this.plugin.saveSettings();
               this.display();
             });
         });
     }
 
-    containerEl.createEl("h3", { text: loc.settingsNoteStyle });
+    new Setting(containerEl).setName(loc.settingsNoteStyle).setHeading();
 
     new Setting(containerEl)
       .setName(loc.settingsNoteEffect)
@@ -70,7 +79,7 @@ export class AnnotationSettingTab extends PluginSettingTab {
         dd.addOption("underline-double", loc.settingsNoteEffectDouble);
         dd.setValue(this.plugin.settings.noteEffect);
         dd.onChange(async (v) => {
-          this.plugin.settings.noteEffect = v as any;
+          this.plugin.settings.noteEffect = v as NoteEffect;
           this.plugin.updateDynamicStyles();
           await this.plugin.saveSettings();
         });
@@ -88,7 +97,7 @@ export class AnnotationSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: loc.settingsRubyStyle });
+    new Setting(containerEl).setName(loc.settingsRubyStyle).setHeading();
 
     new Setting(containerEl)
       .setName(loc.settingsRubyFontSize)
@@ -113,7 +122,7 @@ export class AnnotationSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: loc.settingsAnnotationMode });
+    new Setting(containerEl).setName(loc.settingsAnnotationMode).setHeading();
 
     new Setting(containerEl)
       .setName(loc.settingsDefaultViewMode)
@@ -139,7 +148,7 @@ export class AnnotationSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: loc.settingsExportFolder });
+    new Setting(containerEl).setName(loc.settingsExportFolder).setHeading();
 
     new Setting(containerEl)
       .setName(loc.settingsExportFolder)

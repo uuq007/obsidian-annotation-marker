@@ -3,9 +3,9 @@ import { t } from "../i18n";
 
 // 文件夹选择对话框
 export class FolderSuggestModal extends FuzzySuggestModal<string> {
-  private onSelect: (folderPath: string) => void;
+  private onSelect: (folderPath: string) => void | Promise<void>;
 
-  constructor(app: App, onSelect: (folderPath: string) => void) {
+  constructor(app: App, onSelect: (folderPath: string) => void | Promise<void>) {
     super(app);
     this.onSelect = onSelect;
     this.setPlaceholder(t().exportFolderPlaceholder);
@@ -30,7 +30,7 @@ export class FolderSuggestModal extends FuzzySuggestModal<string> {
   }
 
   onChooseItem(item: string, _evt: MouseEvent | KeyboardEvent): void {
-    this.onSelect(item);
+    void this.onSelect(item);
   }
 
   onOpen(): void {
@@ -47,7 +47,7 @@ export class FolderSuggestModal extends FuzzySuggestModal<string> {
         evt.preventDefault();
         evt.stopPropagation();
         this.close();
-        this.onSelect(normalizePath(query));
+        void this.onSelect(normalizePath(query));
       }
     });
   }
@@ -56,10 +56,10 @@ export class FolderSuggestModal extends FuzzySuggestModal<string> {
 // 通用确认对话框（覆盖导出、删除确认等场景）
 export class ConfirmOverwriteModal extends Modal {
   private message: string;
-  private onConfirm: () => void;
+  private onConfirm: () => void | Promise<void>;
   private confirmText: string;
 
-  constructor(app: App, message: string, onConfirm: () => void, confirmText?: string) {
+  constructor(app: App, message: string, onConfirm: () => void | Promise<void>, confirmText?: string) {
     super(app);
     this.message = message;
     this.onConfirm = onConfirm;
@@ -83,7 +83,7 @@ export class ConfirmOverwriteModal extends Modal {
       cls: "mod-cta",
     }).addEventListener("click", () => {
       this.close();
-      this.onConfirm();
+      void this.onConfirm();
     });
   }
 
@@ -97,10 +97,10 @@ const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/;
 
 // 文件名输入对话框
 export class FileNameModal extends Modal {
-  private onConfirm: (fileName: string) => void;
+  private onConfirm: (fileName: string) => void | Promise<void>;
   private noteName: string;
 
-  constructor(app: App, noteName: string, onConfirm: (fileName: string) => void) {
+  constructor(app: App, noteName: string, onConfirm: (fileName: string) => void | Promise<void>) {
     super(app);
     this.noteName = noteName;
     this.onConfirm = onConfirm;
@@ -113,10 +113,8 @@ export class FileNameModal extends Modal {
     const input = this.contentEl.createEl("input", {
       type: "text",
       placeholder: loc.exportFileNamePlaceholder,
+      cls: "annotation-export-input",
     });
-    input.style.width = "100%";
-    input.style.marginBottom = "4px";
-    input.style.padding = "6px 8px";
 
     const errorEl = this.contentEl.createDiv({
       cls: "export-filename-error",
@@ -152,7 +150,7 @@ export class FileNameModal extends Modal {
       input.focus();
     });
 
-    const spacer = btnContainer.createEl("div", { attr: { style: "flex: 1;" } });
+    btnContainer.createEl("div", { attr: { style: "flex: 1;" } });
 
     const cancelBtn = btnContainer.createEl("button", { text: loc.cancel });
     cancelBtn.addEventListener("click", () => this.close());
@@ -167,7 +165,7 @@ export class FileNameModal extends Modal {
       if (!name || !validate()) return;
       const fileName = name.endsWith(".md") ? name : name + ".md";
       this.close();
-      this.onConfirm(fileName);
+      void this.onConfirm(fileName);
     };
 
     confirmBtn.addEventListener("click", submit);

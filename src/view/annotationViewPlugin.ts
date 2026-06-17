@@ -2,7 +2,7 @@
 // 添加 console.log 诊断日志，用于定位问题根因
 
 import { EditorView, ViewPlugin, Decoration, type ViewUpdate, type PluginValue } from "@codemirror/view";
-import { Prec, StateField, EditorSelection, RangeSetBuilder, type Extension } from "@codemirror/state";
+import { Prec, StateField, RangeSetBuilder, type Extension } from "@codemirror/state";
 import { scanAnnotationTags, hasAnnotationTags, type AnnotationBlock } from "./annotationTagParser";
 
 const DEBUG = false;
@@ -112,7 +112,7 @@ const annotationGuard = Prec.highest(EditorView.domEventHandlers({
     event.stopPropagation();
 
     // 拦截后主动恢复编辑器焦点，防止光标消失
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       if (!view.dom?.isConnected) return;
       view.dispatch({
         selection: { anchor: savedAnchor },
@@ -148,7 +148,7 @@ class CursorGuardPlugin implements PluginValue {
       ? Math.max(0, block.markOpenFrom - 1)
       : Math.min(update.state.doc.length, block.markCloseTo + 1);
     const view = this.view;
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (!view.dom?.isConnected) return;
       view.dispatch({
         selection: { anchor: target },

@@ -1,7 +1,7 @@
 import { App, MarkdownView, Notice, type EditorPosition } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { AnnotationColor, AnnotationRuby, BlockSegment, AnnotationPluginSettings } from "../types";
-import { COLOR_NUMBERS, DEFAULT_SETTINGS } from "../types";
+import { DEFAULT_SETTINGS } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement, generateId } from "../utils/helpers";
@@ -75,7 +75,7 @@ export class SelectionMenu {
     const maxLen = this.getSettings().maxNoteLength;
     const loc = t();
 
-    this.menuEl = document.createElement("div");
+    this.menuEl = activeDocument.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
 
     // 阻止菜单内的事件冒泡到 document，防止 Obsidian 焦点管理器抢走输入框焦点
@@ -105,12 +105,16 @@ export class SelectionMenu {
 
     const colors: AnnotationColor[] = [...ALL_COLORS];
     const settings = this.getSettings();
+    const settingsMap = settings as unknown as Record<string, unknown>;
     for (const c of colors) {
       const btn = this.colorContainer.createEl("button", {
         cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,
       });
       if (c === this.selectedColor) btn.addClass("active");
-      btn.title = c === "none" ? loc.none : (settings as any)[`colorLabel${c}`] ?? loc.colorLabel(c);
+      const colorLabel = typeof settingsMap[`colorLabel${c}`] === "string"
+        ? (settingsMap[`colorLabel${c}`] as string)
+        : loc.colorLabel(c);
+      btn.title = c === "none" ? loc.none : colorLabel;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.selectedColor = c;
@@ -156,7 +160,7 @@ export class SelectionMenu {
     });
     copyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      navigator.clipboard.writeText(this.selectedText);
+      void navigator.clipboard.writeText(this.selectedText);
       new Notice(loc.noticeCopied);
     });
 
@@ -188,10 +192,10 @@ export class SelectionMenu {
       await this.createAnnotation(note, true);
     });
 
-    document.body.appendChild(this.menuEl);
+    activeDocument.body.appendChild(this.menuEl);
 
     // 定位菜单
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       if (!this.menuEl) return;
       const menuWidth = 280;
       const menuHeight = this.menuEl.offsetHeight || 200;
@@ -211,18 +215,20 @@ export class SelectionMenu {
         menuY = window.innerHeight - menuHeight - 10;
       }
 
-      this.menuEl.style.left = `${Math.max(10, menuX)}px`;
-      this.menuEl.style.top = `${Math.max(10, menuY)}px`;
+      this.menuEl.setCssStyles({
+        left: `${Math.max(10, menuX)}px`,
+        top: `${Math.max(10, menuY)}px`,
+      });
     });
 
     // 点击外部关闭
     const clickHandler = (e: MouseEvent) => {
       if (this.menuEl && !this.menuEl.contains(e.target as Node)) {
         this.hide();
-        document.removeEventListener("click", clickHandler);
+        activeDocument.removeEventListener("click", clickHandler);
       }
     };
-    setTimeout(() => document.addEventListener("click", clickHandler), 10);
+    window.setTimeout(() => activeDocument.addEventListener("click", clickHandler), 10);
   }
 
   private buildRubySection(parent: HTMLElement): void {
@@ -237,11 +243,11 @@ export class SelectionMenu {
     rubyCheckbox.addEventListener("change", () => {
       this.rubyTextEnabled = rubyCheckbox.checked;
       if (this.rubyTextEnabled) {
-        this.rubyTextContainer!.style.display = "block";
+        this.rubyTextContainer!.setCssStyles({ display: "block" });
         this.rubyTextInput!.focus();
-        requestAnimationFrame(() => this.adjustMenuPosition());
+        window.requestAnimationFrame(() => this.adjustMenuPosition());
       } else {
-        this.rubyTextContainer!.style.display = "none";
+        this.rubyTextContainer!.setCssStyles({ display: "none" });
         this.rubyTexts = [];
         this.updateRubyList?.();
       }
@@ -250,7 +256,7 @@ export class SelectionMenu {
 
     this.rubyTextContainer = rubySection.createDiv({ cls: "annotation-ruby-input-container" });
     if (!this.rubyTextEnabled) {
-      this.rubyTextContainer.style.display = "none";
+      this.rubyTextContainer.setCssStyles({ display: "none" });
     }
 
     // 注音预览
@@ -265,7 +271,7 @@ export class SelectionMenu {
     // 监听预览区域的选区
     this.rubyTextPreview.addEventListener("mouseup", (e) => {
       e.stopPropagation();
-      setTimeout(() => {
+      window.setTimeout(() => {
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) {
           const range = sel.getRangeAt(0);
@@ -293,7 +299,7 @@ export class SelectionMenu {
         if (sel) {
           const textNode = this.rubyTextPreview!.firstChild;
           if (textNode) {
-            const range = document.createRange();
+            const range = activeDocument.createRange();
             range.setStart(textNode, this.selectedRubyRange.start);
             range.setEnd(textNode, this.selectedRubyRange.end);
             sel.removeAllRanges();
@@ -457,7 +463,7 @@ export class SelectionMenu {
         window.getSelection()?.removeAllRanges();
         this.hide();
         if (this.onAddCallback) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => window.setTimeout(resolve, 100));
           this.onAddCallback();
         }
         if (isFullText) {
@@ -493,7 +499,7 @@ export class SelectionMenu {
     const menuHeight = this.menuEl.offsetHeight || 200;
     const currentTop = parseInt(this.menuEl.style.top || "0", 10);
     if (currentTop + menuHeight > window.innerHeight - 20) {
-      this.menuEl.style.top = `${Math.max(10, window.innerHeight - menuHeight - 20)}px`;
+      this.menuEl.setCssStyles({ top: `${Math.max(10, window.innerHeight - menuHeight - 20)}px` });
     }
   }
 }

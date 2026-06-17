@@ -1,4 +1,4 @@
-import { Modal, Notice } from "obsidian";
+import { App, Modal, Notice } from "obsidian";
 import type { AnnotationColor, AnnotationPluginSettings, AnnotationRuby } from "../types";
 import { ALL_COLORS, COLOR_CLASSES } from "../constants";
 import { t } from "../i18n";
@@ -22,7 +22,7 @@ export class EditNoteModal extends Modal {
   private updateRubyList: (() => void) | null = null;
 
   constructor(
-    app: any,
+    app: App,
     getSettings: () => AnnotationPluginSettings,
     params: {
       text: string;
@@ -64,25 +64,28 @@ export class EditNoteModal extends Modal {
       text: loc.copy,
     });
     copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(this.annotationText).then(() => {
+      void navigator.clipboard.writeText(this.annotationText).then(() => {
         copyBtn.textContent = loc.copied;
-        setTimeout(() => { copyBtn.textContent = loc.copy; }, 1500);
-      });
+        window.setTimeout(() => { copyBtn.textContent = loc.copy; }, 1500);
+      }).catch(() => { /* 剪贴板写入失败时忽略 */ });
     });
     const previewText = this.annotationText.length > 200
       ? this.annotationText.substring(0, 200) + "..."
       : this.annotationText;
-    const previewSpan = previewEl.createEl("span", { text: previewText, cls: "annotation-modal-preview-text" });
-    previewSpan.style.whiteSpace = "pre-wrap";
+    previewEl.createEl("span", { text: previewText, cls: "annotation-modal-preview-text" });
 
     // 颜色选择
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });
     colorContainer.createEl("label", { text: loc.modalAnnotationColor });
 
+    const settingsMap = settings as unknown as Record<string, unknown>;
     const colors: AnnotationColor[] = [...ALL_COLORS];
     for (const c of colors) {
       const btn = colorContainer.createEl("button", { cls: `annotation-color-dot ${COLOR_CLASSES[c]}` });
-      btn.title = c === "none" ? loc.none : (settings as any)[`colorLabel${c}`] ?? loc.colorLabel(c);
+      const colorLabel = typeof settingsMap[`colorLabel${c}`] === "string"
+        ? (settingsMap[`colorLabel${c}`] as string)
+        : loc.colorLabel(c);
+      btn.title = c === "none" ? loc.none : colorLabel;
       if (c === this.currentColor) btn.addClass("active");
       btn.addEventListener("click", () => {
         colorContainer.querySelectorAll(".annotation-color-dot")
@@ -143,10 +146,10 @@ export class EditNoteModal extends Modal {
     rubyCheckbox.addEventListener("change", () => {
       this.rubyTextEnabled = rubyCheckbox.checked;
       if (this.rubyTextEnabled) {
-        this.rubyTextContainer!.style.display = "block";
+        this.rubyTextContainer!.setCssStyles({ display: "block" });
         this.rubyTextInput!.focus();
       } else {
-        this.rubyTextContainer!.style.display = "none";
+        this.rubyTextContainer!.setCssStyles({ display: "none" });
         this.rubyTexts = [];
         this.updateRubyList?.();
       }
@@ -154,7 +157,7 @@ export class EditNoteModal extends Modal {
     rubyRow.createEl("label", { text: loc.menuRuby });
 
     this.rubyTextContainer = rubySection.createDiv({ cls: "annotation-ruby-input-container" });
-    this.rubyTextContainer.style.display = this.rubyTextEnabled ? "block" : "none";
+    this.rubyTextContainer.setCssStyles({ display: this.rubyTextEnabled ? "block" : "none" });
 
     const rubyPreview = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-preview" });
     rubyPreview.createEl("label", { text: loc.menuRubySelectText });
@@ -165,7 +168,7 @@ export class EditNoteModal extends Modal {
 
     this.rubyTextPreview.addEventListener("mouseup", (e) => {
       e.stopPropagation();
-      setTimeout(() => {
+      window.setTimeout(() => {
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) {
           const range = sel.getRangeAt(0);

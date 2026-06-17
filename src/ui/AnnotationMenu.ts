@@ -30,9 +30,10 @@ export class AnnotationMenu {
 
     const { annotation, notePath, onUpdate } = params;
     const settings = this.getSettings();
+    const settingsMap = settings as unknown as Record<string, unknown>;
     const loc = t();
 
-    this.menuEl = document.createElement("div");
+    this.menuEl = activeDocument.createElement("div");
     this.menuEl.className = "annotation-card-menu annotation-view-menu";
 
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
@@ -71,7 +72,10 @@ export class AnnotationMenu {
         cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,
       });
       if (c === annotation.color) btn.addClass("active");
-      btn.title = c === "none" ? loc.none : (settings as any)[`colorLabel${c}`] ?? loc.colorLabel(c);
+      const colorLabel = typeof settingsMap[`colorLabel${c}`] === "string"
+        ? (settingsMap[`colorLabel${c}`] as string)
+        : loc.colorLabel(c);
+      btn.title = c === "none" ? loc.none : colorLabel;
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (c !== annotation.color) {
@@ -111,7 +115,7 @@ export class AnnotationMenu {
     });
     copyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      navigator.clipboard.writeText(annotation.text);
+      void navigator.clipboard.writeText(annotation.text);
       new Notice(loc.noticeOriginalCopied);
     });
 
@@ -126,7 +130,7 @@ export class AnnotationMenu {
         : loc.confirmDelete;
       this.hide();
       new ConfirmOverwriteModal(
-        (this.fileManager as any).app,
+        this.app,
         msg,
         async () => {
           const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -142,7 +146,7 @@ export class AnnotationMenu {
       ).open();
     });
 
-    document.body.appendChild(this.menuEl);
+    activeDocument.body.appendChild(this.menuEl);
 
     const menuWidth = 300;
     const menuHeight = this.menuEl.offsetHeight || 250;
@@ -160,16 +164,18 @@ export class AnnotationMenu {
       menuY = window.innerHeight - menuHeight - 10;
     }
 
-    this.menuEl.style.left = `${Math.max(10, menuX)}px`;
-    this.menuEl.style.top = `${Math.max(10, menuY)}px`;
+    this.menuEl.setCssStyles({
+      left: `${Math.max(10, menuX)}px`,
+      top: `${Math.max(10, menuY)}px`,
+    });
 
     const clickHandler = (e: MouseEvent) => {
       if (this.menuEl && !this.menuEl.contains(e.target as Node)) {
         this.hide();
-        document.removeEventListener("click", clickHandler);
+        activeDocument.removeEventListener("click", clickHandler);
       }
     };
-    setTimeout(() => document.addEventListener("click", clickHandler), 10);
+    window.setTimeout(() => activeDocument.addEventListener("click", clickHandler), 10);
   }
 
   private showEditModal(
@@ -180,7 +186,7 @@ export class AnnotationMenu {
     this.hide();
     const loc = t();
     const modal = new EditNoteModal(
-      (this.fileManager as any).app,
+      this.app,
       this.getSettings,
       {
         text: annotation.text,

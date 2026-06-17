@@ -55,16 +55,10 @@ export class AnnotationListPanel {
   private createListButton(): void {
     if (!this.containerEl) return;
 
-    this.listBtn = document.createElement("div");
+    this.listBtn = activeDocument.createElement("div");
     this.listBtn.className = "annotation-list-btn";
-    this.listBtn.innerHTML = "<span>📝</span>";
+    this.listBtn.createEl("span", { text: "📝" });
     this.listBtn.title = t().panelViewAnnotation;
-
-    this.listBtn.style.position = "absolute";
-    this.listBtn.style.right = "20px";
-    this.listBtn.style.top = "50%";
-    this.listBtn.style.transform = "translateY(-50%)";
-    this.listBtn.style.zIndex = "100";
 
     this.containerEl.appendChild(this.listBtn);
 
@@ -119,10 +113,12 @@ export class AnnotationListPanel {
       newLeft = Math.max(0, Math.min(this.dragContainerWidth - this.dragBtnWidth, newLeft));
       newTop = Math.max(0, Math.min(this.dragContainerHeight - this.dragBtnHeight, newTop));
 
-      this.listBtn.style.left = `${newLeft}px`;
-      this.listBtn.style.top = `${newTop}px`;
-      this.listBtn.style.right = "auto";
-      this.listBtn.style.transform = "none";
+      this.listBtn.setCssStyles({
+        left: `${newLeft}px`,
+        top: `${newTop}px`,
+        right: "auto",
+        transform: "none",
+      });
     };
 
     this.dragEndHandler = () => {
@@ -136,8 +132,8 @@ export class AnnotationListPanel {
       }
     };
 
-    document.addEventListener("mousemove", this.dragMoveHandler);
-    document.addEventListener("mouseup", this.dragEndHandler);
+    activeDocument.addEventListener("mousemove", this.dragMoveHandler);
+    activeDocument.addEventListener("mouseup", this.dragEndHandler);
   }
 
   private async showPanel(): Promise<void> {
@@ -145,7 +141,7 @@ export class AnnotationListPanel {
     this.hidePanel();
     const loc = t();
 
-    this.panelEl = document.createElement("div");
+    this.panelEl = activeDocument.createElement("div");
     this.panelEl.className = "annotation-list-panel";
 
     // 标题栏
@@ -163,9 +159,11 @@ export class AnnotationListPanel {
       { v: "color-asc", t: loc.panelSortColorAsc },
       { v: "color-desc", t: loc.panelSortColorDesc },
     ];
-    sortSelect.innerHTML = opts
-      .map((o) => `<option value="${o.v}" ${this.sortOption === o.v ? "selected" : ""}>${o.t}</option>`)
-      .join("");
+    sortSelect.empty();
+    for (const o of opts) {
+      const opt = sortSelect.createEl("option", { value: o.v, text: o.t });
+      if (this.sortOption === o.v) opt.selected = true;
+    }
     sortSelect.addEventListener("change", () => {
       this.sortOption = sortSelect.value as typeof this.sortOption;
       this.refreshContent();
@@ -182,10 +180,12 @@ export class AnnotationListPanel {
     if (!container) return;
 
     // 先放到屏幕外测量尺寸，避免用户看到错误位置
-    this.panelEl.style.position = "absolute";
-    this.panelEl.style.left = "-9999px";
-    this.panelEl.style.top = "-9999px";
-    this.panelEl.style.zIndex = "100";
+    this.panelEl.setCssStyles({
+      position: "absolute",
+      left: "-9999px",
+      top: "-9999px",
+      zIndex: "100",
+    });
     container.appendChild(this.panelEl);
 
     // 读取面板实际高度
@@ -208,14 +208,15 @@ export class AnnotationListPanel {
       const spaceRight = containerVisibleRight - btnRect.right;
       const spaceLeft = btnRect.left - containerVisibleLeft;
 
+      let panelLeft: number;
       if (spaceRight >= panelWidth + 10) {
-        this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 10}px`;
+        panelLeft = btnLeftInContainer + btnRect.width + 10;
       } else if (spaceLeft >= panelWidth + 10) {
-        this.panelEl.style.left = `${btnLeftInContainer - panelWidth - 10}px`;
+        panelLeft = btnLeftInContainer - panelWidth - 10;
       } else if (spaceRight >= spaceLeft) {
-        this.panelEl.style.left = `${btnLeftInContainer + btnRect.width + 5}px`;
+        panelLeft = btnLeftInContainer + btnRect.width + 5;
       } else {
-        this.panelEl.style.left = `${Math.max(0, btnLeftInContainer - panelWidth - 5)}px`;
+        panelLeft = Math.max(0, btnLeftInContainer - panelWidth - 5);
       }
 
       // 垂直方向：使用容器可见边界
@@ -228,12 +229,17 @@ export class AnnotationListPanel {
           panelTop = containerVisibleTop - containerRect.top + 10;
         }
       }
-      this.panelEl.style.top = `${panelTop}px`;
-      this.panelEl.style.transform = "";
+      this.panelEl.setCssStyles({
+        left: `${panelLeft}px`,
+        top: `${panelTop}px`,
+        transform: "",
+      });
     } else {
-      this.panelEl.style.right = "60px";
-      this.panelEl.style.top = "50%";
-      this.panelEl.style.transform = "translateY(-50%)";
+      this.panelEl.setCssStyles({
+        right: "60px",
+        top: "50%",
+        transform: "translateY(-50%)",
+      });
     }
 
     this.panelClickHandler = (e: MouseEvent) => {
@@ -242,9 +248,9 @@ export class AnnotationListPanel {
         this.hidePanel();
       }
     };
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (this.panelClickHandler) {
-        document.addEventListener("click", this.panelClickHandler);
+        activeDocument.addEventListener("click", this.panelClickHandler);
       }
     }, 10);
   }
@@ -344,10 +350,10 @@ export class AnnotationListPanel {
   }
 
   private showContextMenu(annotation: ParsedAnnotation, x: number, y: number): void {
-    document.querySelectorAll(".annotation-context-menu").forEach((el) => el.remove());
+    activeDocument.querySelectorAll(".annotation-context-menu").forEach((el) => el.remove());
     const loc = t();
 
-    const menu = document.createElement("div");
+    const menu = activeDocument.createElement("div");
     menu.className = "annotation-context-menu";
 
     const deleteBtn = menu.createEl("button", {
@@ -368,7 +374,7 @@ export class AnnotationListPanel {
       this.onUpdate?.();
     });
 
-    document.body.appendChild(menu);
+    activeDocument.body.appendChild(menu);
 
     const menuWidth = 120;
     const menuHeight = menu.offsetHeight || 80;
@@ -378,16 +384,18 @@ export class AnnotationListPanel {
     if (menuX + menuWidth > window.innerWidth) menuX = x - menuWidth - 10;
     if (menuY + menuHeight > window.innerHeight) menuY = window.innerHeight - menuHeight - 10;
 
-    menu.style.left = `${Math.max(10, menuX)}px`;
-    menu.style.top = `${Math.max(10, menuY)}px`;
+    menu.setCssStyles({
+      left: `${Math.max(10, menuX)}px`,
+      top: `${Math.max(10, menuY)}px`,
+    });
 
     const handler = (e: MouseEvent) => {
       if (!menu.contains(e.target as Node)) {
         menu.remove();
-        document.removeEventListener("click", handler);
+        activeDocument.removeEventListener("click", handler);
       }
     };
-    setTimeout(() => document.addEventListener("click", handler), 10);
+    window.setTimeout(() => activeDocument.addEventListener("click", handler), 10);
   }
 
   // 跳转到指定标注位置并高亮
@@ -408,7 +416,7 @@ export class AnnotationListPanel {
 
   private hidePanel(): void {
     if (this.panelClickHandler) {
-      document.removeEventListener("click", this.panelClickHandler);
+      activeDocument.removeEventListener("click", this.panelClickHandler);
       this.panelClickHandler = null;
     }
     if (this.panelEl) {
@@ -420,11 +428,11 @@ export class AnnotationListPanel {
   hide(): void {
     this.hidePanel();
     if (this.dragMoveHandler) {
-      document.removeEventListener("mousemove", this.dragMoveHandler);
+      activeDocument.removeEventListener("mousemove", this.dragMoveHandler);
       this.dragMoveHandler = null;
     }
     if (this.dragEndHandler) {
-      document.removeEventListener("mouseup", this.dragEndHandler);
+      activeDocument.removeEventListener("mouseup", this.dragEndHandler);
       this.dragEndHandler = null;
     }
     if (this.listBtn) {

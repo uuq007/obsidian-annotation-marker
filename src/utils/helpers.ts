@@ -1,4 +1,10 @@
 import { PATH_SEPARATOR } from "../constants";
+import { TFile, View } from "obsidian";
+
+// 安全获取视图所属文件路径（兼容带 file 属性的各类 view，避免使用 as any）
+export function getViewFilePath(view: View): string | undefined {
+  return (view as { file?: TFile | null }).file?.path;
+}
 
 // 生成唯一 ID（时间戳）
 export function generateId(): string {
@@ -57,7 +63,7 @@ export function calculateRangeOffsetInElement(
   let end = 0;
   let foundStart = false;
 
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  const walker = activeDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
   let node = walker.nextNode();
 
   while (node) {

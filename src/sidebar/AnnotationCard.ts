@@ -1,4 +1,4 @@
-import type { ParsedAnnotation, AnnotationColor } from "../types";
+import type { ParsedAnnotation } from "../types";
 import { COLOR_CLASSES } from "../constants";
 import { t } from "../i18n";
 

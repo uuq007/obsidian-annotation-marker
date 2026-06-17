@@ -72,7 +72,7 @@ export class AnnotationListPanel {
       if (this.panelEl && this.panelEl.style.display !== "none") {
         this.hidePanel();
       } else {
-        this.showPanel();
+        void this.showPanel();
       }
     });
 
@@ -166,7 +166,7 @@ export class AnnotationListPanel {
     }
     sortSelect.addEventListener("change", () => {
       this.sortOption = sortSelect.value as typeof this.sortOption;
-      this.refreshContent();
+      void this.refreshContent();
     });
 
     const closeBtn = header.createEl("button", { cls: "annotation-list-close", text: loc.close });
@@ -330,7 +330,7 @@ export class AnnotationListPanel {
       }
 
       item.addEventListener("click", () => {
-        this.jumpToAnnotation(annotation);
+        void this.jumpToAnnotation(annotation);
       });
 
       item.addEventListener("contextmenu", (e) => {
@@ -360,18 +360,20 @@ export class AnnotationListPanel {
       text: loc.panelDeleteAnnotation,
       cls: "annotation-context-menu-item annotation-context-menu-danger",
     });
-    deleteBtn.addEventListener("click", async () => {
-      if (!this.currentNotePath) return;
-      // 编辑模式：用 replaceRange 局部替换
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      const deleted = view ? await editAnnotationInEditor(view, this.fileManager, this.currentNotePath, annotation.id, 'delete') : false;
-      if (!deleted) {
-        await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
-      }
-      menu.remove();
-      new Notice(loc.noticeDeleted);
-      this.hidePanel();
-      this.onUpdate?.();
+    deleteBtn.addEventListener("click", () => {
+      void (async () => {
+        if (!this.currentNotePath) return;
+        // 编辑模式：用 replaceRange 局部替换
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const deleted = view ? await editAnnotationInEditor(view, this.fileManager, this.currentNotePath, annotation.id, 'delete') : false;
+        if (!deleted) {
+          await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
+        }
+        menu.remove();
+        new Notice(loc.noticeDeleted);
+        this.hidePanel();
+        this.onUpdate?.();
+      })();
     });
 
     activeDocument.body.appendChild(menu);

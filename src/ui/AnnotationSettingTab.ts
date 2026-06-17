@@ -45,7 +45,7 @@ export class AnnotationSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName(loc.settingsColorCustom).setHeading();
 
     for (const n of COLOR_NUMBERS) {
-      new Setting(containerEl)
+      const colorSetting = new Setting(containerEl)
         .setName(getColorLabel(n))
         .addColorPicker((cp) => {
           cp.setValue(getColor(n));
@@ -61,7 +61,8 @@ export class AnnotationSettingTab extends PluginSettingTab {
             .onChange(async (v) => {
               colorSettings[`colorLabel${n}`] = v || loc.colorLabel(n);
               await this.plugin.saveSettings();
-              this.display();
+              // 局部更新该项名称，替代整页重渲（避免使用已废弃的 display()）
+              colorSetting.setName(v || loc.colorLabel(n));
             });
         });
     }

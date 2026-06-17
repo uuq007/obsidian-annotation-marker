@@ -133,7 +133,7 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   async loadSettings() {
-    const data = await this.loadData();
+    const data = await this.loadData() as Record<string, unknown> | null;
     // 过滤掉旧版持久化的内部字段，避免污染 settings 对象
     const stored = (data ?? {}) as Partial<AnnotationPluginSettings> & Record<string, unknown>;
     delete stored._activeSessions;
@@ -174,7 +174,7 @@ export default class AnnotationPlugin extends Plugin {
   }
 
   private async _doRecoverOrphanedTabs() {
-    const savedData = await this.loadData();
+    const savedData = await this.loadData() as Record<string, unknown> | null;
     const stored = (savedData ?? {}) as Record<string, unknown>;
     const savedSessions = stored._activeSessions as Record<string, string> | undefined;
     const savedCounts = stored._sessionCounts as Record<string, number> | undefined;
@@ -364,8 +364,10 @@ export default class AnnotationPlugin extends Plugin {
     const anyFile = vault.getFiles()[0];
     if (!anyFile) throw new Error("Vault is empty");
 
-    const TFileConstructor = Object.getPrototypeOf(anyFile).constructor;
-    const fakeFile = new TFileConstructor(vault, path);
+    const proto = Object.getPrototypeOf(anyFile) as {
+      constructor: new (...args: unknown[]) => TFile;
+    };
+    const fakeFile = new proto.constructor(vault, path);
 
     (fakeFile as unknown as { deleted: boolean }).deleted = false;
     (vault as unknown as { fileMap: Record<string, TFile> }).fileMap[path] = fakeFile;
@@ -581,7 +583,7 @@ export default class AnnotationPlugin extends Plugin {
       await this.saveSettings();
     } catch (e) {
       console.error("[标注] openFile 失败:", e);
-      new Notice(t().noticeOpenFailed + e);
+      new Notice(t().noticeOpenFailed + (e instanceof Error ? e.message : String(e)));
     }
   }
 
@@ -844,9 +846,8 @@ export default class AnnotationPlugin extends Plugin {
             renderer.set(content);
           }
         } else {
-          // 编辑模式：通过 CM6 dispatch 更新编辑器内容
-          // @ts-expect-error — Obsidian 官方文档推荐的方式
-          const editorView: EditorView = view.editor.cm;
+          // 编辑模式：通过 CM6 dispatch 更新编辑器内容（cm 为 Obsidian 非公开属性）
+          const editorView = (view.editor as unknown as { cm: EditorView }).cm;
           if (editorView && content !== editorView.state.doc.toString()) {
             const scrollTop = editorView.scrollDOM.scrollTop;
 

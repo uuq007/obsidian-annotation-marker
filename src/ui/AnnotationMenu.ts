@@ -76,25 +76,27 @@ export class AnnotationMenu {
         ? (settingsMap[`colorLabel${c}`] as string)
         : loc.colorLabel(c);
       btn.title = c === "none" ? loc.none : colorLabel;
-      btn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        if (c !== annotation.color) {
-          // 编辑模式：用 replaceRange 局部替换
-          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-          const edited = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, {
-            color: c,
-            note: annotation.note,
-            rubyTexts: annotation.rubyTexts,
-            isFullText: annotation.isFullText,
-            isCrossBlock: annotation.isCrossBlock,
-          }) : false;
-          if (!edited) {
-            await this.fileManager.updateAnnotation(notePath, annotation.id, { color: c });
+      btn.addEventListener("click", (e) => {
+        void (async () => {
+          e.stopPropagation();
+          if (c !== annotation.color) {
+            // 编辑模式：用 replaceRange 局部替换
+            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+            const edited = view ? await editAnnotationInEditor(view, this.fileManager, notePath, annotation.id, {
+              color: c,
+              note: annotation.note,
+              rubyTexts: annotation.rubyTexts,
+              isFullText: annotation.isFullText,
+              isCrossBlock: annotation.isCrossBlock,
+            }) : false;
+            if (!edited) {
+              await this.fileManager.updateAnnotation(notePath, annotation.id, { color: c });
+            }
+            this.hide();
+            onUpdate();
+            new Notice(loc.noticeColorChanged);
           }
-          this.hide();
-          onUpdate();
-          new Notice(loc.noticeColorChanged);
-        }
+        })();
       });
     }
 

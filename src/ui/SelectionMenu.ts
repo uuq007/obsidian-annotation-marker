@@ -124,7 +124,7 @@ export class SelectionMenu {
 
         // 如果没批注也没注音，选色后直接标注
         if (c !== "none" && !this.pendingNote && this.rubyTexts.length === 0) {
-          this.createAnnotation("");
+          void this.createAnnotation("");
           return;
         }
       });
@@ -168,28 +168,32 @@ export class SelectionMenu {
       cls: "annotation-btn annotation-btn-primary annotation-btn-small",
       text: loc.save,
     });
-    saveBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const note = this.noteInput!.value.trim();
-      if (note.length > maxLen) {
-        new Notice(loc.noteTooLong(maxLen));
-        return;
-      }
-      await this.createAnnotation(note);
+    saveBtn.addEventListener("click", (e) => {
+      void (async () => {
+        e.stopPropagation();
+        const note = this.noteInput!.value.trim();
+        if (note.length > maxLen) {
+          new Notice(loc.noteTooLong(maxLen));
+          return;
+        }
+        await this.createAnnotation(note);
+      })();
     });
 
     const fullTextBtn = actionRow.createEl("button", {
       cls: "annotation-btn annotation-btn-secondary annotation-btn-small",
       text: loc.menuFullText,
     });
-    fullTextBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const note = this.noteInput!.value.trim();
-      if (note.length > maxLen) {
-        new Notice(loc.noteTooLong(maxLen));
-        return;
-      }
-      await this.createAnnotation(note, true);
+    fullTextBtn.addEventListener("click", (e) => {
+      void (async () => {
+        e.stopPropagation();
+        const note = this.noteInput!.value.trim();
+        if (note.length > maxLen) {
+          new Notice(loc.noteTooLong(maxLen));
+          return;
+        }
+        await this.createAnnotation(note, true);
+      })();
     });
 
     activeDocument.body.appendChild(this.menuEl);
@@ -405,9 +409,8 @@ export class SelectionMenu {
 
           view.editor.replaceRange(markTag, this.editorRange.from, this.editorRange.to);
 
-          // 将光标移到标注范围外，防止实时预览展开 HTML 源码
-          // @ts-expect-error — Obsidian 官方文档推荐的 CM6 访问方式
-          const cm: EditorView = view.editor.cm;
+          // 将光标移到标注范围外，防止实时预览展开 HTML 源码（cm 为 Obsidian 非公开属性）
+          const cm = (view.editor as unknown as { cm: EditorView }).cm;
           const cursorPos = cm.state.selection.main.head;
           if (cursorPos < cm.state.doc.length) {
             cm.dispatch({ selection: { anchor: cursorPos + 1 } });

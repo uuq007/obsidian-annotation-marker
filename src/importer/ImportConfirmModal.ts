@@ -50,21 +50,23 @@ export class ImportConfirmModal extends Modal {
       cls: "annotation-btn annotation-btn-primary",
     });
 
-    confirmBtn.addEventListener("click", async () => {
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = loc.importImporting;
-      buttons.querySelector(".annotation-btn-secondary")?.setAttribute("disabled", "true");
+    confirmBtn.addEventListener("click", () => {
+      void (async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = loc.importImporting;
+        buttons.querySelector(".annotation-btn-secondary")?.setAttribute("disabled", "true");
 
-      try {
-        const result = await importOldAnnotations(this.app, this.fileManager, this.pluginDir);
-        this.showResult(contentEl, result);
-      } catch (e) {
-        contentEl.empty();
-        contentEl.addClass("annotation-import-modal");
-        contentEl.createEl("h3", { text: loc.importFailed });
-        contentEl.createEl("p", { text: e instanceof Error ? e.message : String(e) });
-        this.createCloseButton(contentEl);
-      }
+        try {
+          const result = await importOldAnnotations(this.app, this.fileManager, this.pluginDir);
+          this.showResult(contentEl, result);
+        } catch (e) {
+          contentEl.empty();
+          contentEl.addClass("annotation-import-modal");
+          contentEl.createEl("h3", { text: loc.importFailed });
+          contentEl.createEl("p", { text: e instanceof Error ? e.message : String(e) });
+          this.createCloseButton(contentEl);
+        }
+      })();
     });
   }
 

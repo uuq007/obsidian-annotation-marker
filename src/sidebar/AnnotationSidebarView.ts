@@ -145,7 +145,7 @@ export class AnnotationSidebarView extends ItemView {
     this.sortSelect = toolbar.createEl("select", { cls: "annotation-sidebar-sort-select" });
     this.sortSelect.addEventListener("change", () => {
       this.sortOption = this.sortSelect!.value as SortOption;
-      this.renderCards();
+      void this.renderCards();
     });
     this.updateSortOptions();
   }

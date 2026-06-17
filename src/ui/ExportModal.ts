@@ -34,7 +34,7 @@ export class FolderSuggestModal extends FuzzySuggestModal<string> {
   }
 
   onOpen(): void {
-    super.onOpen();
+    void super.onOpen();
     // 支持输入新文件夹路径
     this.inputEl.addEventListener("keydown", (evt: KeyboardEvent) => {
       if (evt.key === "Enter") {

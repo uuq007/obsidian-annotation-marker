@@ -10,7 +10,7 @@ export class EditNoteModal extends Modal {
   private currentColor: AnnotationColor;
   private currentRubyTexts: AnnotationRuby[];
   private getSettings: () => AnnotationPluginSettings;
-  private onSave: (note: string, color: AnnotationColor, rubyTexts?: AnnotationRuby[]) => void;
+  private onSave: (note: string, color: AnnotationColor, rubyTexts?: AnnotationRuby[]) => void | Promise<void>;
 
   private noteInput: HTMLTextAreaElement | null = null;
   private rubyTextEnabled = false;
@@ -30,7 +30,7 @@ export class EditNoteModal extends Modal {
       color: AnnotationColor;
       rubyTexts?: AnnotationRuby[];
     },
-    onSave: (note: string, color: AnnotationColor, rubyTexts?: AnnotationRuby[]) => void
+    onSave: (note: string, color: AnnotationColor, rubyTexts?: AnnotationRuby[]) => void | Promise<void>
   ) {
     super(app);
     this.getSettings = getSettings;
@@ -129,7 +129,7 @@ export class EditNoteModal extends Modal {
       const rubyTexts = this.rubyTextEnabled && this.rubyTexts.length > 0
         ? this.rubyTexts
         : undefined;
-      this.onSave(note, this.currentColor, rubyTexts);
+      void this.onSave(note, this.currentColor, rubyTexts);
       this.close();
     });
   }

@@ -50,6 +50,12 @@ export class AnnotationSidebarView extends ItemView {
   private leafChangeTimer: number | null = null;
   private lastRefreshedNotePath: string | null = null;
 
+  // 刷新回调引用（onOpen/onClose 共用同一引用，确保 indexOf 能命中）
+  private boundAnnotationChange: (() => void) | null = null;
+
+  // 渲染代际 token：递增，await 之后若已被新代次取代则丢弃，避免过期数据污染 DOM
+  private renderGeneration = 0;
+
   constructor(leaf: any, plugin: AnnotationPlugin) {
     super(leaf);
     this.plugin = plugin;
@@ -95,28 +101,28 @@ export class AnnotationSidebarView extends ItemView {
       })
     );
 
-    // 注册刷新回调
-    this.plugin.annotationChangeCallbacks.push(() => {
+    // 注册刷新回调（保存引用，onClose 时用同一引用精确注销）
+    this.boundAnnotationChange = () => {
       if (this.detailCardData) {
         // 详情面板打开中，关闭后刷新
         this.closeDetailPanel();
       }
       this.refresh();
-    });
+    };
+    this.plugin.annotationChangeCallbacks.push(this.boundAnnotationChange);
 
     // 初始加载
     await this.refresh();
   }
 
   async onClose(): Promise<void> {
-    // 移除刷新回调
-    const cb = () => {
-      if (this.detailCardData) this.closeDetailPanel();
-      this.refresh();
-    };
-    const idx = this.plugin.annotationChangeCallbacks.indexOf(cb);
-    if (idx >= 0) {
-      this.plugin.annotationChangeCallbacks.splice(idx, 1);
+    // 使用同一引用精确注销
+    if (this.boundAnnotationChange) {
+      const idx = this.plugin.annotationChangeCallbacks.indexOf(this.boundAnnotationChange);
+      if (idx >= 0) {
+        this.plugin.annotationChangeCallbacks.splice(idx, 1);
+      }
+      this.boundAnnotationChange = null;
     }
     this.allAnnotationsCache = null;
     this.detailCardData = null;
@@ -273,21 +279,31 @@ export class AnnotationSidebarView extends ItemView {
 
   private async renderCards(): Promise<void> {
     if (!this.cardListEl) return;
+
+    // 本次渲染的代次；拍快照 mode，避免 await 期间 mode 被切换后仍走旧分支
+    const myGen = ++this.renderGeneration;
+    const modeSnapshot = this.mode;
+
     this.cardListEl.empty();
     this.detailCardData = null;
 
     let cards: AnnotationCardData[];
 
     try {
-      if (this.mode === "current") {
+      if (modeSnapshot === "current") {
         cards = await this.loadCurrentFileAnnotations();
       } else {
         cards = await this.loadAllAnnotations();
       }
     } catch {
-      this.renderEmpty(this.cardListEl, t().sidebarLoadFailed);
+      if (myGen === this.renderGeneration) {
+        this.renderEmpty(this.cardListEl, t().sidebarLoadFailed);
+      }
       return;
     }
+
+    // 检查点：数据加载后若已被更新的渲染取代，丢弃本次（防重复卡片 / 防混入）
+    if (myGen !== this.renderGeneration) return;
 
     const filtered = this.applyFilters(cards);
     const sorted = this.applySort(filtered);

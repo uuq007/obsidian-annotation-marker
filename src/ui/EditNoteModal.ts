@@ -1,6 +1,6 @@
 import { App, Modal, Notice } from "obsidian";
 import type { AnnotationColor, AnnotationPluginSettings, AnnotationRuby } from "../types";
-import { ALL_COLORS, COLOR_CLASSES } from "../constants";
+import { COLOR_CLASSES, getActiveColors } from "../constants";
 import { t } from "../i18n";
 
 // 编辑批注的模态框
@@ -79,7 +79,7 @@ export class EditNoteModal extends Modal {
     colorContainer.createEl("label", { text: loc.modalAnnotationColor });
 
     const settingsMap = settings as unknown as Record<string, unknown>;
-    const colors: AnnotationColor[] = [...ALL_COLORS];
+    const colors: AnnotationColor[] = getActiveColors(settings);
     for (const c of colors) {
       const btn = colorContainer.createEl("button", { cls: `annotation-color-dot ${COLOR_CLASSES[c]}` });
       const colorLabel = typeof settingsMap[`colorLabel${c}`] === "string"

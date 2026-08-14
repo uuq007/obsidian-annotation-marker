@@ -40,6 +40,8 @@ export const en: LocaleDict = {
   settingsDefaultColor: "Default annotation color",
   settingsDefaultColorDesc: "Default color used when creating new annotations",
   settingsColorCustom: "Color Customization",
+  settingsAddColor: "Add annotation color",
+  settingsRemoveColor: "Remove this color",
   settingsColorPlaceholder: "Display name",
   settingsNoteStyle: "Note Style",
   settingsNoteEffect: "Note effect",

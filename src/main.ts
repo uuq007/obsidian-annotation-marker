@@ -10,6 +10,7 @@ import {
 import { EditorView } from "@codemirror/view";
 import { AnnotationFileManager } from "./annotationFile/AnnotationFileManager";
 import { DEFAULT_SETTINGS, COLOR_NUMBERS, type AnnotationPluginSettings, type AnnotationColor } from "./types";
+import { getActiveColorNumbers } from "./constants";
 import { SelectionMenu } from "./ui/SelectionMenu";
 import { AnnotationMenu } from "./ui/AnnotationMenu";
 import { AnnotationListPanel } from "./ui/AnnotationListPanel";
@@ -140,6 +141,16 @@ export default class AnnotationPlugin extends Plugin {
     delete stored._activeSessions;
     delete stored._sessionCounts;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, stored) as AnnotationPluginSettings;
+
+    // 规范化激活颜色列表：过滤非法值/去重（按序号升序），全空时回退默认 1..5
+    const active = getActiveColorNumbers(this.settings);
+    this.settings.activeColors = active.length > 0
+      ? active
+      : [...DEFAULT_SETTINGS.activeColors];
+    // 默认颜色不在激活列表（如指向被删除的颜色）时回退 "3"
+    if (this.settings.defaultColor !== "none" && !this.settings.activeColors.includes(this.settings.defaultColor)) {
+      this.settings.defaultColor = "3";
+    }
   }
 
   async saveSettings() {
@@ -282,24 +293,22 @@ export default class AnnotationPlugin extends Plugin {
     const s = this.settings;
     const root = activeDocument.documentElement;
 
-    // 颜色变量（背景 + 强调色）
-    root.style.setProperty("--annotation-bg-color1", this.hexToRgba(s.color1, 0.35));
-    root.style.setProperty("--annotation-accent-color1", this.hexToRgba(s.color1, 0.8));
-    root.style.setProperty("--annotation-bg-color2", this.hexToRgba(s.color2, 0.35));
-    root.style.setProperty("--annotation-accent-color2", this.hexToRgba(s.color2, 0.8));
-    root.style.setProperty("--annotation-bg-color3", this.hexToRgba(s.color3, 0.45));
-    root.style.setProperty("--annotation-accent-color3", this.hexToRgba(s.color3, 0.8));
-    root.style.setProperty("--annotation-bg-color4", this.hexToRgba(s.color4, 0.35));
-    root.style.setProperty("--annotation-accent-color4", this.hexToRgba(s.color4, 0.8));
-    root.style.setProperty("--annotation-bg-color5", this.hexToRgba(s.color5, 0.35));
-    root.style.setProperty("--annotation-accent-color5", this.hexToRgba(s.color5, 0.8));
-
-    // 圆点颜色
-    root.style.setProperty("--annotation-dot-color1", s.color1);
-    root.style.setProperty("--annotation-dot-color2", s.color2);
-    root.style.setProperty("--annotation-dot-color3", s.color3);
-    root.style.setProperty("--annotation-dot-color4", s.color4);
-    root.style.setProperty("--annotation-dot-color5", s.color5);
+    // 颜色变量（背景 + 强调色 + 圆点）。
+    // 全量注入 1..10：停用色的存量标注引用的变量依然有效，保证显示不受增减颜色影响
+    const sMap = s as unknown as Record<string, unknown>;
+    const dMap = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+    for (const n of COLOR_NUMBERS) {
+      const raw = sMap[`color${n}`];
+      // 色值非法时回退默认，避免 hexToRgba 解析出 NaN
+      const hex = typeof raw === "string" && /^#[0-9a-fA-F]{6}$/.test(raw)
+        ? raw
+        : dMap[`color${n}`] as string;
+      // color3（默认色）背景透明度稍高，其余统一
+      const bgAlpha = n === "3" ? 0.45 : 0.35;
+      root.style.setProperty(`--annotation-bg-color${n}`, this.hexToRgba(hex, bgAlpha));
+      root.style.setProperty(`--annotation-accent-color${n}`, this.hexToRgba(hex, 0.8));
+      root.style.setProperty(`--annotation-dot-color${n}`, hex);
+    }
 
     // 注音样式
     root.style.setProperty("--annotation-ruby-font-size", s.rubyFontSize);
@@ -1324,9 +1333,20 @@ export default class AnnotationPlugin extends Plugin {
       },
     });
 
-    // 每种颜色一个"立即标注选区"命令，供用户绑定快捷键快速高亮。
-    // 注意：命令名在 onload 时求值，修改颜色显示名后需重载插件才更新
-    for (const c of COLOR_NUMBERS) {
+    // 每种激活颜色一个"立即标注选区"命令（供绑定快捷键快速高亮）
+    this.refreshAnnotateColorCommands();
+  }
+
+  // 每种激活颜色一个"立即标注选区"命令（供绑定快捷键）。
+  // 颜色增删后由设置页调用本方法同步命令列表，无需重载插件
+  refreshAnnotateColorCommands() {
+    // 先移除全部颜色命令（含已停用色），再按当前激活色重新注册。
+    // app.commands 为非公开 API，双重断言访问
+    const commands = (this.app as unknown as { commands?: { removeCommand?: (id: string) => void } }).commands;
+    for (const n of COLOR_NUMBERS) {
+      commands?.removeCommand?.(`${this.manifest.id}:annotate-color-${n}`);
+    }
+    for (const c of getActiveColorNumbers(this.settings)) {
       this.addCommand({
         id: `annotate-color-${c}`,
         name: t().commandAnnotateColor(this.getColorLabel(c)),

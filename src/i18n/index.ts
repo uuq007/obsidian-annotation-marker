@@ -41,6 +41,8 @@ export interface LocaleDict {
   settingsDefaultColor: string;
   settingsDefaultColorDesc: string;
   settingsColorCustom: string;
+  settingsAddColor: string;
+  settingsRemoveColor: string;
   settingsColorPlaceholder: string;
   settingsNoteStyle: string;
   settingsNoteEffect: string;

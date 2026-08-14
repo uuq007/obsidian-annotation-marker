@@ -1,4 +1,4 @@
-export type AnnotationColor = "1" | "2" | "3" | "4" | "5" | "none";
+export type AnnotationColor = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "none";
 
 export interface AnnotationRuby {
   startIndex: number;
@@ -67,18 +67,30 @@ export type NoteEffect = "none" | "underline-thick" | "underline-dashed" | "unde
 export interface AnnotationPluginSettings {
   defaultColor: AnnotationColor;
   maxNoteLength: number;
+  // 当前激活的颜色序号列表（可选颜色，最多 10 个；原有 5 色不可删）
+  activeColors: string[];
   // 颜色自定义（十六进制，通过调色盘设置）
   color1: string;
   color2: string;
   color3: string;
   color4: string;
   color5: string;
+  color6: string;
+  color7: string;
+  color8: string;
+  color9: string;
+  color10: string;
   // 颜色显示名
   colorLabel1: string;
   colorLabel2: string;
   colorLabel3: string;
   colorLabel4: string;
   colorLabel5: string;
+  colorLabel6: string;
+  colorLabel7: string;
+  colorLabel8: string;
+  colorLabel9: string;
+  colorLabel10: string;
   // 带批注标注的效果
   noteEffect: NoteEffect;
   // 注音样式
@@ -94,16 +106,27 @@ export interface AnnotationPluginSettings {
 export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
   defaultColor: "3",
   maxNoteLength: 500,
+  activeColors: ["1", "2", "3", "4", "5"],
   color1: "#ff6b6b",
   color2: "#54a0ff",
   color3: "#ffd43b",
   color4: "#26c281",
   color5: "#9b59b6",
+  color6: "#ff9f43",
+  color7: "#00d2d3",
+  color8: "#f368e0",
+  color9: "#8395a7",
+  color10: "#7f8c3f",
   colorLabel1: "颜色1",
   colorLabel2: "颜色2",
   colorLabel3: "颜色3",
   colorLabel4: "颜色4",
   colorLabel5: "颜色5",
+  colorLabel6: "颜色6",
+  colorLabel7: "颜色7",
+  colorLabel8: "颜色8",
+  colorLabel9: "颜色9",
+  colorLabel10: "颜色10",
   noteEffect: "none",
   rubyFontSize: "0.7em",
   rubyColor: "#999999",
@@ -112,5 +135,5 @@ export const DEFAULT_SETTINGS: AnnotationPluginSettings = {
   exportFolder: "",
 };
 
-// 所有颜色序号（不含 none）
-export const COLOR_NUMBERS: string[] = ["1", "2", "3", "4", "5"];
+// 颜色序号上限（不含 none）；实际激活数量由 settings.activeColors 控制
+export const COLOR_NUMBERS: string[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];

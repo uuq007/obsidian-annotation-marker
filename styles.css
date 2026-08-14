@@ -163,6 +163,7 @@
 
 .annotation-color-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -174,6 +175,8 @@
   cursor: pointer;
   transition: all 0.15s ease;
   padding: 0;
+  /* 颜色较多换行时不被压缩变形 */
+  flex: 0 0 auto;
 }
 
 .annotation-color-dot:hover {
@@ -203,6 +206,26 @@
 
 .annotation-color-dot.ac-5 {
   background: var(--annotation-dot-color5, #9b59b6);
+}
+
+.annotation-color-dot.ac-6 {
+  background: var(--annotation-dot-color6, #ff9f43);
+}
+
+.annotation-color-dot.ac-7 {
+  background: var(--annotation-dot-color7, #00d2d3);
+}
+
+.annotation-color-dot.ac-8 {
+  background: var(--annotation-dot-color8, #f368e0);
+}
+
+.annotation-color-dot.ac-9 {
+  background: var(--annotation-dot-color9, #8395a7);
+}
+
+.annotation-color-dot.ac-10 {
+  background: var(--annotation-dot-color10, #7f8c3f);
 }
 
 .annotation-color-dot.ac-none {
@@ -668,6 +691,26 @@
   background: var(--annotation-dot-color5, #9b59b6);
 }
 
+.annotation-list-dot.ac-6 {
+  background: var(--annotation-dot-color6, #ff9f43);
+}
+
+.annotation-list-dot.ac-7 {
+  background: var(--annotation-dot-color7, #00d2d3);
+}
+
+.annotation-list-dot.ac-8 {
+  background: var(--annotation-dot-color8, #f368e0);
+}
+
+.annotation-list-dot.ac-9 {
+  background: var(--annotation-dot-color9, #8395a7);
+}
+
+.annotation-list-dot.ac-10 {
+  background: var(--annotation-dot-color10, #7f8c3f);
+}
+
 .annotation-list-dot.ac-none {
   background: transparent;
   border: 2px dashed var(--text-muted);
@@ -1002,13 +1045,6 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   padding: 0 1px;
 }
 
-.cm-annotation-highlight.cm-annotation-color-1 { background: var(--annotation-bg-color1); }
-.cm-annotation-highlight.cm-annotation-color-2 { background: var(--annotation-bg-color2); }
-.cm-annotation-highlight.cm-annotation-color-3 { background: var(--annotation-bg-color3); }
-.cm-annotation-highlight.cm-annotation-color-4 { background: var(--annotation-bg-color4); }
-.cm-annotation-highlight.cm-annotation-color-5 { background: var(--annotation-bg-color5); }
-.cm-annotation-highlight.cm-annotation-color-none { background: transparent; }
-
 /* 批注效果 */
 [data-note-effect="underline-thick"] .cm-annotation-has-note {
   border-bottom: 3px solid var(--annotation-accent, transparent);
@@ -1137,6 +1173,7 @@ ruby[data-annotation-id] rt[data-annotation-id] {
 
 .annotation-sidebar-color-filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
 }
@@ -1456,6 +1493,26 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   --callout-color: 155, 89, 182;
 }
 
+.callout[data-callout="annotation-6"] {
+  --callout-color: 255, 159, 67;
+}
+
+.callout[data-callout="annotation-7"] {
+  --callout-color: 0, 210, 211;
+}
+
+.callout[data-callout="annotation-8"] {
+  --callout-color: 243, 104, 224;
+}
+
+.callout[data-callout="annotation-9"] {
+  --callout-color: 131, 149, 167;
+}
+
+.callout[data-callout="annotation-10"] {
+  --callout-color: 127, 140, 63;
+}
+
 .callout[data-callout="annotation-none"] {
   --callout-color: 153, 153, 153;
 }
@@ -1473,4 +1530,53 @@ ruby[data-annotation-id] rt[data-annotation-id] {
 .annotation-scroll-highlight {
   transition: box-shadow 0.3s ease;
   box-shadow: 0 0 0 3px var(--interactive-accent);
+}
+
+/* ========== 设置页颜色自定义行 ========== */
+
+/* 三列固定结构：色盘 | 显示名输入框 | 删除按钮（或等宽占位），颜色 1~10 逐列对齐。
+   尺寸对齐原生 Setting 项（行高、控件高度），保持设置页整体协调 */
+.annotation-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+}
+
+.annotation-color-row-picker {
+  width: 48px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.annotation-color-row-label {
+  flex: 1 1 auto;
+  max-width: 300px;
+  min-width: 160px;
+}
+
+/* 基础色（1~5）第三列占位，与删除按钮同宽，保证各行输入框宽度一致 */
+.annotation-color-row-spacer {
+  flex: 0 0 32px;
+  height: 32px;
+}
+
+.annotation-color-row-delete {
+  flex: 0 0 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annotation-color-row-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
 }

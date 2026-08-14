@@ -1,6 +1,6 @@
 import { ItemView, MarkdownView, Notice, normalizePath, TFile, WorkspaceLeaf } from "obsidian";
 import type { AnnotationColor, AnnotationRuby, ParsedAnnotation } from "../types";
-import { ALL_COLORS, COLOR_CLASSES } from "../constants";
+import { COLOR_CLASSES, getActiveColors } from "../constants";
 import { annotationPathToNotePath, getViewFilePath } from "../utils/helpers";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { editAnnotationInEditor } from "../utils/annotationEditorHelper";
@@ -249,7 +249,7 @@ export class AnnotationSidebarView extends ItemView {
     });
     this.colorBtns.set("all", allBtn);
 
-    for (const color of ALL_COLORS) {
+    for (const color of getActiveColors(this.plugin.settings)) {
       const btn = colorFilters.createEl("button", {
         cls: `annotation-sidebar-color-btn annotation-list-dot ${COLOR_CLASSES[color]}`,
       });
@@ -279,6 +279,12 @@ export class AnnotationSidebarView extends ItemView {
 
   private async renderCards(): Promise<void> {
     if (!this.cardListEl) return;
+
+    // 筛选色可能指向已删除（停用）的颜色，重置为全部
+    if (this.colorFilter !== "all" && !getActiveColors(this.plugin.settings).includes(this.colorFilter)) {
+      this.colorFilter = "all";
+      this.updateColorBtnState();
+    }
 
     // 本次渲染的代次；拍快照 mode，避免 await 期间 mode 被切换后仍走旧分支
     const myGen = ++this.renderGeneration;
@@ -515,7 +521,7 @@ export class AnnotationSidebarView extends ItemView {
 
     if (this.detailIsEditing) {
       const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
-      for (const c of ALL_COLORS) {
+      for (const c of getActiveColors(this.plugin.settings)) {
         const btn = colorContainer.createEl("button", {
           cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,
         });

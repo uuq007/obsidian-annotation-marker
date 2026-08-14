@@ -2,7 +2,7 @@ import { App, MarkdownView, Notice, type EditorPosition } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { AnnotationColor, AnnotationRuby, BlockSegment, AnnotationPluginSettings } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
-import { ALL_COLORS, COLOR_CLASSES } from "../constants";
+import { COLOR_CLASSES, getActiveColors } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement, generateId } from "../utils/helpers";
 import { buildMarkTag, PartialWikiLinkError } from "../annotationFile/annotationSerializer";
@@ -104,8 +104,8 @@ export class SelectionMenu {
     colorSection.createEl("label", { text: loc.menuSelectColor });
     this.colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
 
-    const colors: AnnotationColor[] = [...ALL_COLORS];
     const settings = this.getSettings();
+    const colors: AnnotationColor[] = getActiveColors(settings);
     const settingsMap = settings as unknown as Record<string, unknown>;
     for (const c of colors) {
       const btn = this.colorContainer.createEl("button", {

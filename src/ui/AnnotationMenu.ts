@@ -1,6 +1,6 @@
 import { App, MarkdownView, Notice } from "obsidian";
 import type { AnnotationColor, AnnotationPluginSettings, ParsedAnnotation } from "../types";
-import { ALL_COLORS, COLOR_CLASSES } from "../constants";
+import { COLOR_CLASSES, getActiveColors } from "../constants";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { EditNoteModal } from "./EditNoteModal";
 import { ConfirmOverwriteModal } from "./ExportModal";
@@ -66,7 +66,7 @@ export class AnnotationMenu {
     colorSection.createEl("label", { text: loc.sidebarAnnotationColor });
     const colorContainer = colorSection.createDiv({ cls: "annotation-color-buttons" });
 
-    const colors: AnnotationColor[] = [...ALL_COLORS];
+    const colors: AnnotationColor[] = getActiveColors(settings);
     for (const c of colors) {
       const btn = colorContainer.createEl("button", {
         cls: `annotation-color-dot ${COLOR_CLASSES[c]}`,

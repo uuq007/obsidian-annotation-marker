@@ -40,6 +40,8 @@ export const zhCN: LocaleDict = {
   settingsDefaultColor: "默认标注颜色",
   settingsDefaultColorDesc: "创建新标注时默认使用的颜色",
   settingsColorCustom: "颜色自定义",
+  settingsAddColor: "新增标注颜色",
+  settingsRemoveColor: "删除此颜色",
   settingsColorPlaceholder: "显示名",
   settingsNoteStyle: "批注样式",
   settingsNoteEffect: "批注效果",

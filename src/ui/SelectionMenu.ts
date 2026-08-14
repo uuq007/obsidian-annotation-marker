@@ -7,6 +7,7 @@ import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { calculateRangeOffsetInElement, generateId } from "../utils/helpers";
 import { buildMarkTag, PartialWikiLinkError } from "../annotationFile/annotationSerializer";
 import { restoreEditorFocus } from "../utils/focusManager";
+import { showSelectionHighlight, clearSelectionHighlight } from "../utils/selectionHighlight";
 import { t } from "../i18n";
 
 // 添加标注的浮动菜单
@@ -223,16 +224,18 @@ export class SelectionMenu {
         left: `${Math.max(10, menuX)}px`,
         top: `${Math.max(10, menuY)}px`,
       });
-    });
 
-    // 点击外部关闭
-    const clickHandler = (e: MouseEvent) => {
-      if (this.menuEl && !this.menuEl.contains(e.target as Node)) {
-        this.hide();
-        activeDocument.removeEventListener("click", clickHandler);
+      // 自动聚焦批注输入框。
+      // 必须在 rAF 内且注册顺序晚于 hide() 触发的 restoreEditorFocus（focusManager.ts
+      // 会在 rAF 中把非编辑器焦点抢回 CM），同帧按注册顺序执行后焦点最终落在输入框。
+      // 聚焦前克隆 DOM 选区并用高亮层渲染临时背景——聚焦后浏览器会把选区移进
+      // 输入框内，笔记区原选区的视觉效果会消失
+      const selection = activeDocument.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        showSelectionHighlight(selection.getRangeAt(0).cloneRange());
       }
-    };
-    window.setTimeout(() => activeDocument.addEventListener("click", clickHandler), 10);
+      this.noteInput?.focus({ preventScroll: true });
+    });
   }
 
   private buildRubySection(parent: HTMLElement): void {
@@ -492,9 +495,67 @@ export class SelectionMenu {
       this.menuEl.remove();
       this.menuEl = null;
     }
+    // 菜单关闭时清除原选区的临时高亮
+    clearSelectionHighlight();
     // 菜单关闭后恢复编辑器焦点
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (view) restoreEditorFocus(view);
+  }
+
+  isOpened(): boolean {
+    return this.menuEl !== null;
+  }
+
+  getCurrentNotePath(): string | null {
+    return this.menuEl ? this.currentNotePath : null;
+  }
+
+  // 快捷键命令路径 A：弹窗已打开时复用其保存的选区状态（等价于"选色 + 保存"）。
+  // 不预先 hide：阅读模式下 textarea 聚焦已使 DOM 选区失效，菜单字段是唯一可靠的
+  // 选区记录；createAnnotation 成功后自带 hide()，失败时菜单保留便于换色重试
+  async annotateWithColor(color: AnnotationColor): Promise<void> {
+    this.selectedColor = color;
+    // 同步颜色圆点选中态（标注失败菜单保留时保持 UI 一致）
+    this.colorContainer?.querySelectorAll(".annotation-color-dot").forEach((b) => {
+      b.toggleClass("active", b.hasClass(COLOR_CLASSES[color]));
+    });
+    const note = this.noteInput ? this.noteInput.value.trim() : this.pendingNote.trim();
+    await this.createAnnotation(note);
+  }
+
+  // 快捷键命令路径 B/C：弹窗未打开时的"无头"标注——填好字段后直接走 createAnnotation，
+  // 完整继承编辑器/文件两条路径、Notice 与成功回调（params 结构即 show() 入参去掉 x/y）
+  async annotateDirectly(params: {
+    notePath: string;
+    selectedText: string;
+    color: AnnotationColor;
+    contextBefore?: string;
+    contextAfter?: string;
+    startLine?: number;
+    endLine?: number;
+    occurrence?: number;
+    blockSegments?: BlockSegment[];
+    editorRange?: { from: EditorPosition; to: EditorPosition };
+    onAdd: () => void;
+  }): Promise<void> {
+    this.hide();
+    // 字段初始化镜像 show() 开头的赋值
+    this.currentNotePath = params.notePath;
+    this.selectedText = params.selectedText;
+    this.contextBefore = params.contextBefore ?? "";
+    this.contextAfter = params.contextAfter ?? "";
+    this.startLine = params.startLine;
+    this.endLine = params.endLine;
+    this.occurrence = params.occurrence;
+    this.onAddCallback = params.onAdd;
+    this.selectedColor = params.color;
+    this.pendingNote = "";
+    this.rubyTexts = [];
+    this.rubyTextEnabled = false;
+    this.selectedRubyRange = null;
+    this.blockSegments = params.blockSegments ?? null;
+    this.editorRange = params.editorRange ?? null;
+    await this.createAnnotation("");
   }
 
   private adjustMenuPosition(): void {

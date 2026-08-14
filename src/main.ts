@@ -9,7 +9,7 @@ import {
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { AnnotationFileManager } from "./annotationFile/AnnotationFileManager";
-import { DEFAULT_SETTINGS, type AnnotationPluginSettings } from "./types";
+import { DEFAULT_SETTINGS, COLOR_NUMBERS, type AnnotationPluginSettings, type AnnotationColor } from "./types";
 import { SelectionMenu } from "./ui/SelectionMenu";
 import { AnnotationMenu } from "./ui/AnnotationMenu";
 import { AnnotationListPanel } from "./ui/AnnotationListPanel";
@@ -675,47 +675,8 @@ export default class AnnotationPlugin extends Plugin {
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed) return;
 
-        const context = extractSelectionContext(selection);
-        if (!context || !context.text) return;
-
-        const range = selection.getRangeAt(0);
-        const startEl = range.startContainer.instanceOf(HTMLElement)
-          ? range.startContainer : range.startContainer.parentElement;
-        const endEl = range.endContainer.instanceOf(HTMLElement)
-          ? range.endContainer : range.endContainer.parentElement;
-        const startLineInfo = startEl ? this.findSectionLineInfo(startEl) : undefined;
-        const endLineInfo = endEl ? this.findSectionLineInfo(endEl) : undefined;
-
-        const lineStart = startLineInfo?.lineStart;
-        const lineEnd = endLineInfo?.lineEnd ?? startLineInfo?.lineEnd;
-
-        const isCrossSection = startLineInfo?.sectionEl !== endLineInfo?.sectionEl;
-
-        if (isCrossSection) {
-          const startCallout = startEl?.closest('.callout');
-          const endCallout = endEl?.closest('.callout');
-          if (startCallout !== endCallout) {
-            new Notice(t().noticeNoCrossCallout);
-            return;
-          }
-        }
-
-        const sectionEl = startLineInfo?.sectionEl;
-        const offset = sectionEl && !isCrossSection
-          ? calculateOffsetInBlock(range, sectionEl)
-          : 0;
-        const sectionText = !isCrossSection ? (sectionEl?.textContent || "") : "";
-        const occurrence = !isCrossSection
-          ? countOccurrenceIndex(sectionText, context.text, offset)
-          : undefined;
-
-        let blockSegments: BlockSegment[] | undefined;
-        if (isCrossSection) {
-          blockSegments = extractCrossBlockSegments(
-            range,
-            (el) => this.findSectionLineInfo(el)
-          );
-        }
+        const selectionInfo = this.collectSelectionParams(selection);
+        if (!selectionInfo) return;
 
         this.annotationMenu.hide();
 
@@ -732,14 +693,8 @@ export default class AnnotationPlugin extends Plugin {
         this.selectionMenu.show({
           x: e.clientX,
           y: e.clientY,
-          selectedText: context.text,
-          contextBefore: context.contextBefore,
-          contextAfter: context.contextAfter,
+          ...selectionInfo,
           notePath,
-          startLine: lineStart,
-          endLine: lineEnd,
-          occurrence,
-          blockSegments,
           editorRange,
           onAdd: () => { void this.refreshAnnotationView(notePath); },
         });
@@ -798,6 +753,132 @@ export default class AnnotationPlugin extends Plugin {
         }
       }).catch((err) => console.error("获取标注失败:", err));
     });
+  }
+
+  // 从 DOM 选区解析标注所需的上下文（mouseup 弹窗与快捷键命令共用）
+  private collectSelectionParams(selection: Selection): {
+    selectedText: string;
+    contextBefore: string;
+    contextAfter: string;
+    startLine?: number;
+    endLine?: number;
+    occurrence?: number;
+    blockSegments?: BlockSegment[];
+  } | null {
+    const context = extractSelectionContext(selection);
+    if (!context || !context.text) return null;
+
+    const range = selection.getRangeAt(0);
+    const startEl = range.startContainer.instanceOf(HTMLElement)
+      ? range.startContainer : range.startContainer.parentElement;
+    const endEl = range.endContainer.instanceOf(HTMLElement)
+      ? range.endContainer : range.endContainer.parentElement;
+    const startLineInfo = startEl ? this.findSectionLineInfo(startEl) : undefined;
+    const endLineInfo = endEl ? this.findSectionLineInfo(endEl) : undefined;
+
+    const lineStart = startLineInfo?.lineStart;
+    const lineEnd = endLineInfo?.lineEnd ?? startLineInfo?.lineEnd;
+
+    const isCrossSection = startLineInfo?.sectionEl !== endLineInfo?.sectionEl;
+
+    if (isCrossSection) {
+      const startCallout = startEl?.closest('.callout');
+      const endCallout = endEl?.closest('.callout');
+      if (startCallout !== endCallout) {
+        new Notice(t().noticeNoCrossCallout);
+        return null;
+      }
+    }
+
+    const sectionEl = startLineInfo?.sectionEl;
+    const offset = sectionEl && !isCrossSection
+      ? calculateOffsetInBlock(range, sectionEl)
+      : 0;
+    const sectionText = !isCrossSection ? (sectionEl?.textContent || "") : "";
+    const occurrence = !isCrossSection
+      ? countOccurrenceIndex(sectionText, context.text, offset)
+      : undefined;
+
+    let blockSegments: BlockSegment[] | undefined;
+    if (isCrossSection) {
+      blockSegments = extractCrossBlockSegments(
+        range,
+        (el) => this.findSectionLineInfo(el)
+      );
+    }
+
+    return {
+      selectedText: context.text,
+      contextBefore: context.contextBefore,
+      contextAfter: context.contextAfter,
+      startLine: lineStart,
+      endLine: lineEnd,
+      occurrence,
+      blockSegments,
+    };
+  }
+
+  // 读取颜色的显示名：优先用户自定义 colorLabel，回退内置文案（与 SelectionMenu 一致）
+  private getColorLabel(c: string): string {
+    const settingsMap = this.settings as unknown as Record<string, unknown>;
+    const key = `colorLabel${c}`;
+    return typeof settingsMap[key] === "string" ? settingsMap[key] as string : t().colorLabel(c);
+  }
+
+  // 快捷键命令：用指定颜色立即标注当前选区（无批注、无注音）
+  private async annotateSelectionWithColor(color: AnnotationColor): Promise<void> {
+    const notePath = this.getActiveAnnotationNotePath();
+    if (!notePath) return;
+    const loc = t();
+    const onAdd = () => { void this.refreshAnnotationView(notePath); };
+
+    // 路径 A：弹窗已开且属于当前笔记（重新划选都会经 mouseup 刷新 show，字段与选区同步）。
+    // 直接复用菜单状态——阅读模式下 textarea 聚焦后 DOM 选区已失效，菜单字段是唯一可靠来源
+    if (this.selectionMenu.isOpened() && this.selectionMenu.getCurrentNotePath() === notePath) {
+      await this.selectionMenu.annotateWithColor(color);
+      return;
+    }
+
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+
+    // 路径 B：源码/实时预览模式且弹窗未开：用 CM 编辑器选区（state.selection 失焦后仍保留，
+    // 不依赖 DOM Selection）。编辑器替换路径不需要 context/行号/occurrence。
+    // 单行限制：此场景拿不到 blockSegments（sectionLineMap 仅由 preview 后处理器填充），
+    // 跨空行的 mark 标签会破坏渲染结构；跨段场景由路径 A 的鼠标划选覆盖
+    if (view?.getMode?.() === "source" && view.editor) {
+      const text = view.editor.getSelection();
+      if (!text) {
+        new Notice(loc.noticeNoSelection);
+        return;
+      }
+      const from = view.editor.getCursor("from");
+      const to = view.editor.getCursor("to");
+      if (from.line !== to.line) {
+        new Notice(loc.noticeMultiLineSelection);
+        return;
+      }
+      await this.selectionMenu.annotateDirectly({
+        notePath,
+        selectedText: text,
+        color,
+        editorRange: { from, to },
+        onAdd,
+      });
+      return;
+    }
+
+    // 路径 C：阅读模式且弹窗未开：走与 mouseup 相同的 DOM 选区解析
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) {
+      new Notice(loc.noticeNoSelection);
+      return;
+    }
+    const info = this.collectSelectionParams(selection);
+    if (!info) {
+      new Notice(loc.noticeNoSelection);
+      return;
+    }
+    await this.selectionMenu.annotateDirectly({ ...info, notePath, color, onAdd });
   }
 
   private setupAnnotationListPanel(notePath: string, leaf: WorkspaceLeaf) {
@@ -1242,6 +1323,21 @@ export default class AnnotationPlugin extends Plugin {
         return true;
       },
     });
+
+    // 每种颜色一个"立即标注选区"命令，供用户绑定快捷键快速高亮。
+    // 注意：命令名在 onload 时求值，修改颜色显示名后需重载插件才更新
+    for (const c of COLOR_NUMBERS) {
+      this.addCommand({
+        id: `annotate-color-${c}`,
+        name: t().commandAnnotateColor(this.getColorLabel(c)),
+        checkCallback: (checking) => {
+          // 仅标注模式可用；选区有无在执行期用 Notice 反馈
+          if (!this.getActiveAnnotationNotePath()) return false;
+          if (!checking) void this.annotateSelectionWithColor(c as AnnotationColor);
+          return true;
+        },
+      });
+    }
   }
 
   // ========== 导出标注 ==========

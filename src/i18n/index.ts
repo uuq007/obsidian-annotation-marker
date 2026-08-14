@@ -24,6 +24,7 @@ export interface LocaleDict {
   commandToggleView: string;
   commandSidebar: string;
   commandImport: string;
+  commandAnnotateColor: (label: string) => string;
 
   // main.ts — Notice
   noticeNoFile: string;
@@ -32,6 +33,8 @@ export interface LocaleDict {
   noticeOriginalMissing: string;
   noticeNoCrossCallout: string;
   noticeNoLegacyData: string;
+  noticeNoSelection: string;
+  noticeMultiLineSelection: string;
 
   // 设置
   settingsTitle: string;

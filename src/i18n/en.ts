@@ -23,6 +23,7 @@ export const en: LocaleDict = {
   commandToggleView: "Toggle annotation view",
   commandSidebar: "Open/close annotation sidebar",
   commandImport: "Import legacy annotation data",
+  commandAnnotateColor: (label: string) => `Annotate selection with ${label}`,
 
   // main.ts — Notice
   noticeNoFile: "Please open a Markdown file first",
@@ -31,6 +32,8 @@ export const en: LocaleDict = {
   noticeOriginalMissing: "Original file does not exist",
   noticeNoCrossCallout: "Cannot annotate across callout boundaries",
   noticeNoLegacyData: "No legacy annotation data found",
+  noticeNoSelection: "Please select some text first",
+  noticeMultiLineSelection: "Multi-line selections must be annotated via the selection menu",
 
   // Settings
   settingsTitle: "Annotation Marker Settings",

@@ -1,3 +1,8 @@
+/* 弹出标注菜单时，原选区的临时高亮（CSS Custom Highlight API，配合 selectionHighlight.ts） */
+::highlight(annotation-selection-active) {
+  background-color: var(--text-selection);
+}
+
 .annotation-mode-active .markdown-preview-viewer,
 .annotation-mode-active .markdown-preview-sizer,
 .annotation-mode-active .markdown-preview {

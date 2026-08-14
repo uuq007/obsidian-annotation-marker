@@ -23,6 +23,7 @@ export const zhCN: LocaleDict = {
   commandToggleView: "切换标注视图",
   commandSidebar: "打开/关闭标注管理侧边栏",
   commandImport: "导入旧标注插件数据",
+  commandAnnotateColor: (label: string) => `用${label}标注选中文本`,
 
   // main.ts — Notice
   noticeNoFile: "请先打开一个 Markdown 文件",
@@ -31,6 +32,8 @@ export const zhCN: LocaleDict = {
   noticeOriginalMissing: "原始文件不存在",
   noticeNoCrossCallout: "不能跨 Callout 边界添加标注",
   noticeNoLegacyData: "未发现可导入的旧版标注数据",
+  noticeNoSelection: "请先选中文本",
+  noticeMultiLineSelection: "跨行选区请用鼠标划选后通过弹窗标注",
 
   // 设置
   settingsTitle: "标注插件设置",

@@ -16,7 +16,7 @@ import { AnnotationListPanel } from "./ui/AnnotationListPanel";
 import { AnnotationSettingTab } from "./ui/AnnotationSettingTab";
 import { TooltipManager } from "./ui/TooltipManager";
 import { extractSelectionContext, calculateOffsetInBlock, extractCrossBlockSegments } from "./utils/contentMapper";
-import { countOccurrenceIndex, getViewFilePath } from "./utils/helpers";
+import { countOccurrenceIndex, getViewFilePath, annotationPathToNotePath } from "./utils/helpers";
 import type { BlockSegment } from "./types";
 import { createAnnotationViewExtension } from "./view/annotationViewPlugin";
 import { AnnotationSidebarView, ANNOTATION_SIDEBAR_VIEW_TYPE } from "./sidebar/AnnotationSidebarView";
@@ -75,6 +75,7 @@ export default class AnnotationPlugin extends Plugin {
     this.registerCacheListeners();
     this.registerAnnotationInteraction();
     this.registerSectionLineCapture();
+    this.registerImageEmbedFixer();
 
     this.addRibbonIcon("lucide-highlighter", t().ribbonTooltip, () => {
       void this.toggleAnnotationView();
@@ -916,6 +917,43 @@ export default class AnnotationPlugin extends Plugin {
         await workspace.revealLeaf(rightLeaf);
       }
     }
+  }
+
+  // ========== 图片嵌入修正 ==========
+
+  // 标注文件通过 fakeTFile 注入，其 path 指向插件目录，导致 Obsidian 以该目录为基准
+  // 解析相对图片路径。只有含 ".."（相对上跳）的路径才会强制走"相对当前文件目录"解析，
+  // 因基准错误而失败；纯文件名/子目录/wikilink 等有兜底不受影响。
+  // 这里在渲染后改用原笔记路径重新解析受影响的图片嵌入，注入正确的 <img>。
+  private registerImageEmbedFixer() {
+    const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/obsidian-annotation-marker`;
+    const prefix = `${pluginDir}/annotations/`;
+
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      if (!ctx.sourcePath.startsWith(prefix)) return;
+      const originalPath = annotationPathToNotePath(pluginDir, ctx.sourcePath);
+
+      const embeds = el.querySelectorAll<HTMLElement>(".internal-embed");
+      for (const embed of Array.from(embeds)) {
+        if (embed.dataset.imageFixed === "1") continue;
+
+        const rawSrc = embed.getAttribute("src");
+        if (!rawSrc) continue;
+        // 跳过外部链接
+        if (/^(https?:|data:|app:|obsidian:|capacitor:)/i.test(rawSrc)) continue;
+        // 只处理含 ".."（相对上跳）的路径——纯文件名/子目录/wikilink 有兜底不受影响
+        if (!/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(rawSrc)) continue;
+
+        // 用原笔记路径作基准重新解析，得到 vault 根相对路径
+        const target = this.app.metadataCache.getFirstLinkpathDest(rawSrc, originalPath);
+        if (!(target instanceof TFile)) continue;
+
+        // post-processor 跑在 Obsidian embed 解析之前（此时 internal-embed 尚未填充），
+        // 把 src 改写成 vault 根相对路径，Obsidian 后续用正确路径解析填充
+        embed.setAttribute("src", target.path);
+        embed.dataset.imageFixed = "1";
+      }
+    });
   }
 
   // ========== Section 行号捕获 ==========

@@ -44,7 +44,7 @@ export class TooltipManager {
 
     // 创建或复用 tooltip
     if (!this.tooltipEl) {
-      this.tooltipEl = activeDocument.createElement("div");
+      this.tooltipEl = createDiv();
       this.tooltipEl.className = "annotation-highlight-tooltip";
       activeDocument.body.appendChild(this.tooltipEl);
     }

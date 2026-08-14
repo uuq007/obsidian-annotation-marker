@@ -72,7 +72,7 @@ export class EditNoteModal extends Modal {
     const previewText = this.annotationText.length > 200
       ? this.annotationText.substring(0, 200) + "..."
       : this.annotationText;
-    previewEl.createEl("span", { text: previewText, cls: "annotation-modal-preview-text" });
+    previewEl.createSpan({ text: previewText, cls: "annotation-modal-preview-text" });
 
     // 颜色选择
     const colorContainer = contentEl.createDiv({ cls: "annotation-color-picker" });

@@ -150,7 +150,7 @@ export class FileNameModal extends Modal {
       input.focus();
     });
 
-    btnContainer.createEl("div", { attr: { style: "flex: 1;" } });
+    btnContainer.createDiv({ attr: { style: "flex: 1;" } });
 
     const cancelBtn = btnContainer.createEl("button", { text: loc.cancel });
     cancelBtn.addEventListener("click", () => this.close());

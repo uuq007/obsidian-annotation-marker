@@ -33,11 +33,11 @@ export class AnnotationMenu {
     const settingsMap = settings as unknown as Record<string, unknown>;
     const loc = t();
 
-    this.menuEl = activeDocument.createElement("div");
+    this.menuEl = createDiv();
     this.menuEl.className = "annotation-card-menu annotation-view-menu";
 
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
-    header.createEl("span", { text: loc.menuAnnotationDetail, cls: "annotation-menu-title" });
+    header.createSpan({ text: loc.menuAnnotationDetail, cls: "annotation-menu-title" });
     const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: loc.close });
     closeBtn.addEventListener("click", () => this.hide());
 
@@ -45,20 +45,20 @@ export class AnnotationMenu {
     const previewText = annotation.text.length > 80
       ? annotation.text.substring(0, 80) + "..."
       : annotation.text;
-    textPreview.createEl("span", { text: `"${previewText}"` });
+    textPreview.createSpan({ text: `"${previewText}"` });
 
     if (annotation.isFullText && annotation.positions.length > 1) {
       const fullTextHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
-      fullTextHint.createEl("span", { text: loc.fullTextAnnotation(annotation.positions.length) });
+      fullTextHint.createSpan({ text: loc.fullTextAnnotation(annotation.positions.length) });
     } else if (annotation.isCrossBlock) {
       const crossBlockHint = this.menuEl.createDiv({ cls: "annotation-fulltext-hint" });
-      crossBlockHint.createEl("span", { text: loc.crossBlockAnnotation(annotation.positions.length) });
+      crossBlockHint.createSpan({ text: loc.crossBlockAnnotation(annotation.positions.length) });
     }
 
     if (annotation.note) {
       const noteSection = this.menuEl.createDiv({ cls: "annotation-menu-note" });
       noteSection.createEl("label", { text: loc.noteContent });
-      noteSection.createEl("div", { cls: "annotation-note-text", text: annotation.note });
+      noteSection.createDiv({ cls: "annotation-note-text", text: annotation.note });
     }
 
     // 颜色选择

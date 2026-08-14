@@ -1,35 +1,23 @@
-// 多层光标守卫（诊断版）：防止标注 Widget 展开
-// 添加 console.log 诊断日志，用于定位问题根因
+// 多层光标守卫：防止标注 Widget 展开
 
 import { EditorView, ViewPlugin, Decoration, type ViewUpdate, type PluginValue } from "@codemirror/view";
 import { Prec, StateField, RangeSetBuilder, type Extension } from "@codemirror/state";
 import { scanAnnotationTags, hasAnnotationTags, type AnnotationBlock } from "./annotationTagParser";
-
-const DEBUG = false;
-function log(...args: unknown[]) { if (DEBUG) console.log("[annotation-guard]", ...args); }
 
 // StateField 缓存标注范围
 const annotationRangesField = StateField.define<AnnotationBlock[]>({
   create(state) {
     const text = state.doc.toString();
     if (!hasAnnotationTags(text)) {
-      log("StateField.create: no annotation tags found, text length:", text.length);
       return [];
     }
-    const blocks = scanAnnotationTags(text, 0, text);
-    log("StateField.create: found", blocks.length, "blocks");
-    for (const b of blocks) {
-      log(`  block id=${b.id} range=[${b.markOpenFrom},${b.markCloseTo}]`);
-    }
-    return blocks;
+    return scanAnnotationTags(text, 0, text);
   },
   update(blocks, tr) {
     if (tr.docChanged) {
       const text = tr.newDoc.toString();
       if (!hasAnnotationTags(text)) return [];
-      const newBlocks = scanAnnotationTags(text, 0, text);
-      log("StateField.update: doc changed, found", newBlocks.length, "blocks");
-      return newBlocks;
+      return scanAnnotationTags(text, 0, text);
     }
     return blocks;
   }
@@ -57,13 +45,6 @@ const annotationGuard = Prec.highest(EditorView.domEventHandlers({
 
     const pos = view.state.selection.main.head;
     const blocks = getBlocks(view);
-    const blockInfo = blocks.length > 0
-      ? `blocks=${blocks.length} first=[${blocks[0]!.markOpenFrom},${blocks[0]!.markCloseTo}]`
-      : "blocks=0";
-    const docPreview = view.state.doc.sliceString(Math.max(0, pos - 20), Math.min(view.state.doc.length, pos + 20));
-    log(`keydown: key=${event.key} pos=${pos} ${blockInfo}`);
-    log(`  doc@pos: ...${docPreview}...`);
-
     if (blocks.length === 0) return false;
 
     const docLen = view.state.doc.length;
@@ -73,7 +54,6 @@ const annotationGuard = Prec.highest(EditorView.domEventHandlers({
         const block = isInAnnotationRange(blocks, p);
         if (block) {
           const target = Math.min(docLen, block.markCloseTo + 1);
-          log(`  ArrowRight: pos=${p} in block [${block.markOpenFrom},${block.markCloseTo}], skip to ${target}`);
           event.preventDefault();
           event.stopPropagation();
           view.dispatch({ selection: { anchor: target } });
@@ -86,7 +66,6 @@ const annotationGuard = Prec.highest(EditorView.domEventHandlers({
         const block = isInAnnotationRange(blocks, p);
         if (block) {
           const target = Math.max(0, block.markOpenFrom - 1);
-          log(`  ArrowLeft: pos=${p} in block [${block.markOpenFrom},${block.markCloseTo}], skip to ${target}`);
           event.preventDefault();
           event.stopPropagation();
           view.dispatch({ selection: { anchor: target } });
@@ -103,7 +82,6 @@ const annotationGuard = Prec.highest(EditorView.domEventHandlers({
     const embed = target.closest(".cm-html-embed");
     if (!embed) return false;
     if (!embed.querySelector("[data-annotation-id]")) return false;
-    log("mousedown: blocked click on annotation embed");
 
     // 保存当前光标位置
     const savedAnchor = view.state.selection.main.anchor;
@@ -124,11 +102,9 @@ const annotationGuard = Prec.highest(EditorView.domEventHandlers({
   }
 }));
 
-// ViewPlugin 回退（ArrowUp/Down 等）+ 诊断
+// ViewPlugin 回退（ArrowUp/Down 等）
 class CursorGuardPlugin implements PluginValue {
-  constructor(readonly view: EditorView) {
-    log("CursorGuardPlugin created");
-  }
+  constructor(readonly view: EditorView) {}
 
   update(update: ViewUpdate) {
     if (update.transactions.some(tr => tr.isUserEvent("annotation.cursorGuard"))) return;
@@ -141,7 +117,6 @@ class CursorGuardPlugin implements PluginValue {
     const block = isInAnnotationRange(blocks, head);
     if (!block) return;
 
-    log(`ViewPlugin.update: head=${head} in block [${block.markOpenFrom},${block.markCloseTo}]`);
     const distStart = Math.abs(head - block.markOpenFrom);
     const distEnd = Math.abs(head - block.markCloseTo);
     const target = distStart <= distEnd

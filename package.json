@@ -27,6 +27,6 @@
   },
   "dependencies": {
     "diff": "^8.0.3",
-    "obsidian": "latest"
+    "obsidian": "^1.13.1"
   }
 }

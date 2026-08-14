@@ -76,7 +76,7 @@ export class SelectionMenu {
     const maxLen = this.getSettings().maxNoteLength;
     const loc = t();
 
-    this.menuEl = activeDocument.createElement("div");
+    this.menuEl = createDiv();
     this.menuEl.className = "annotation-card-menu annotation-selection-menu";
 
     // 阻止菜单内的事件冒泡到 document，防止 Obsidian 焦点管理器抢走输入框焦点
@@ -86,7 +86,7 @@ export class SelectionMenu {
 
     // 标题栏
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
-    header.createEl("span", { text: loc.menuAddAnnotation, cls: "annotation-menu-title" });
+    header.createSpan({ text: loc.menuAddAnnotation, cls: "annotation-menu-title" });
     const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: loc.close });
     closeBtn.addEventListener("click", () => this.hide());
 
@@ -97,7 +97,7 @@ export class SelectionMenu {
     const previewText = this.selectedText.length > 80
       ? this.selectedText.substring(0, 80) + "..."
       : this.selectedText;
-    textPreview.createEl("span", { text: `"${previewText}"` });
+    textPreview.createSpan({ text: `"${previewText}"` });
 
     // 颜色选择
     const colorSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });

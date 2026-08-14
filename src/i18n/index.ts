@@ -1,3 +1,4 @@
+import { getLanguage } from "obsidian";
 import { zhCN } from "./zh";
 import { en } from "./en";
 
@@ -204,7 +205,8 @@ export interface LocaleDict {
 let currentLocale: LocaleDict | null = null;
 
 export function initLocale(): void {
-  const lang = localStorage.getItem("language") || "en";
+  // 用 Obsidian 官方接口获取界面语言，避免直接读 localStorage
+  const lang = getLanguage() || "en";
   if (lang === "zh" || lang.startsWith("zh-")) {
     currentLocale = zhCN;
   } else {

@@ -55,9 +55,9 @@ export class AnnotationListPanel {
   private createListButton(): void {
     if (!this.containerEl) return;
 
-    this.listBtn = activeDocument.createElement("div");
+    this.listBtn = createDiv();
     this.listBtn.className = "annotation-list-btn";
-    this.listBtn.createEl("span", { text: "📝" });
+    this.listBtn.createSpan({ text: "📝" });
     this.listBtn.title = t().panelViewAnnotation;
 
     this.containerEl.appendChild(this.listBtn);
@@ -141,12 +141,12 @@ export class AnnotationListPanel {
     this.hidePanel();
     const loc = t();
 
-    this.panelEl = activeDocument.createElement("div");
+    this.panelEl = createDiv();
     this.panelEl.className = "annotation-list-panel";
 
     // 标题栏
     const header = this.panelEl.createDiv({ cls: "annotation-list-header" });
-    header.createEl("span", { text: loc.panelTitle, cls: "annotation-list-title" });
+    header.createSpan({ text: loc.panelTitle, cls: "annotation-list-title" });
 
     // 排序选择
     const sortContainer = header.createDiv({ cls: "annotation-list-sort-container" });
@@ -353,7 +353,7 @@ export class AnnotationListPanel {
     activeDocument.querySelectorAll(".annotation-context-menu").forEach((el) => el.remove());
     const loc = t();
 
-    const menu = activeDocument.createElement("div");
+    const menu = createDiv();
     menu.className = "annotation-context-menu";
 
     const deleteBtn = menu.createEl("button", {

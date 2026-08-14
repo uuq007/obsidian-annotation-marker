@@ -140,7 +140,7 @@ export default class AnnotationPlugin extends Plugin {
     const stored = (data ?? {}) as Partial<AnnotationPluginSettings> & Record<string, unknown>;
     delete stored._activeSessions;
     delete stored._sessionCounts;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, stored) as AnnotationPluginSettings;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, stored);
 
     // 规范化激活颜色列表：过滤非法值/去重（按序号升序），全空时回退默认 1..5
     const active = getActiveColorNumbers(this.settings);
@@ -831,7 +831,7 @@ export default class AnnotationPlugin extends Plugin {
   private getColorLabel(c: string): string {
     const settingsMap = this.settings as unknown as Record<string, unknown>;
     const key = `colorLabel${c}`;
-    return typeof settingsMap[key] === "string" ? settingsMap[key] as string : t().colorLabel(c);
+    return typeof settingsMap[key] === "string" ? settingsMap[key] : t().colorLabel(c);
   }
 
   // 快捷键命令：用指定颜色立即标注当前选区（无批注、无注音）

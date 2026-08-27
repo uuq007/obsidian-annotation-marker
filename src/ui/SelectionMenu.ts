@@ -1,4 +1,4 @@
-import { App, MarkdownView, Notice, type EditorPosition } from "obsidian";
+import { App, MarkdownView, Notice, Platform, type EditorPosition } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { AnnotationColor, AnnotationRuby, BlockSegment, AnnotationPluginSettings } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
@@ -9,6 +9,9 @@ import { buildMarkTag, PartialWikiLinkError } from "../annotationFile/annotation
 import { restoreEditorFocus } from "../utils/focusManager";
 import { showSelectionHighlight, clearSelectionHighlight } from "../utils/selectionHighlight";
 import { t } from "../i18n";
+
+// 移动端注音预览划选的选区稳定防抖时长（ms）
+const RUBY_SELECTION_DEBOUNCE_MS = 300;
 
 // 添加标注的浮动菜单
 export class SelectionMenu {
@@ -36,6 +39,10 @@ export class SelectionMenu {
   private updateRubyList: (() => void) | null = null;
   private blockSegments: BlockSegment[] | null = null;
   private editorRange: { from: EditorPosition; to: EditorPosition } | null = null;
+  // 移动端可视视口 resize 监听（软键盘弹出收缩视口时把菜单钳回可见范围）
+  private vvResizeHandler: (() => void) | null = null;
+  // 移动端注音预览划选监听的清理函数
+  private rubyMobileSelectionCleanup: (() => void) | null = null;
 
   constructor(private app: App, fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
     this.fileManager = fileManager;
@@ -202,7 +209,8 @@ export class SelectionMenu {
     // 定位菜单
     window.requestAnimationFrame(() => {
       if (!this.menuEl) return;
-      const menuWidth = 280;
+      // 用真实渲染宽度参与翻转判定（CSS max-width 随视口收缩，写死常量在小屏上会失准）
+      const menuWidth = this.menuEl.offsetWidth || 280;
       const menuHeight = this.menuEl.offsetHeight || 200;
 
       let menuX = params.x + 10;
@@ -225,17 +233,37 @@ export class SelectionMenu {
         top: `${Math.max(10, menuY)}px`,
       });
 
-      // 自动聚焦批注输入框。
-      // 必须在 rAF 内且注册顺序晚于 hide() 触发的 restoreEditorFocus（focusManager.ts
-      // 会在 rAF 中把非编辑器焦点抢回 CM），同帧按注册顺序执行后焦点最终落在输入框。
-      // 聚焦前克隆 DOM 选区并用高亮层渲染临时背景——聚焦后浏览器会把选区移进
-      // 输入框内，笔记区原选区的视觉效果会消失
+      // 克隆 DOM 选区并用高亮层渲染临时背景——一旦后续聚焦输入框，浏览器会把原生
+      // 选区移进输入框内，笔记区原选区的视觉就只剩这份克隆高亮（移动端尤其依赖它）
       const selection = activeDocument.getSelection();
       if (selection && selection.rangeCount > 0) {
         showSelectionHighlight(selection.getRangeAt(0).cloneRange());
       }
-      this.noteInput?.focus({ preventScroll: true });
+      // 自动聚焦批注输入框。
+      // 桌面端：必须在 rAF 内且注册顺序晚于 hide() 触发的 restoreEditorFocus（focusManager.ts
+      // 会在 rAF 中把非编辑器焦点抢回 CM），同帧按注册顺序执行后焦点最终落在输入框。
+      // 移动端不自动聚焦：弹菜单一瞬拉起软键盘会把布局顶飞；用户 tap 输入框时才聚焦
+      if (!Platform.isMobile) {
+        this.noteInput?.focus({ preventScroll: true });
+      }
+
+      // 移动端监听可视视口收缩（软键盘弹出）：把菜单顶端钳回可视范围内
+      if (Platform.isMobile && window.visualViewport) {
+        this.vvResizeHandler = () => this.handleVisualViewportResize();
+        window.visualViewport.addEventListener("resize", this.vvResizeHandler);
+      }
     });
+  }
+
+  // 软键盘弹出收缩可视视口时，把菜单顶端钳回可视范围（低度干预，只上移不跟随）
+  private handleVisualViewportResize(): void {
+    const vv = window.visualViewport;
+    if (!vv || !this.menuEl) return;
+    const limit = vv.height + vv.offsetTop - this.menuEl.offsetHeight - 10;
+    const top = parseInt(this.menuEl.style.top || "0", 10);
+    if (top > limit) {
+      this.menuEl.setCssStyles({ top: `${Math.max(10, limit)}px` });
+    }
   }
 
   private buildRubySection(parent: HTMLElement): void {
@@ -278,17 +306,26 @@ export class SelectionMenu {
     // 监听预览区域的选区
     this.rubyTextPreview.addEventListener("mouseup", (e) => {
       e.stopPropagation();
-      window.setTimeout(() => {
-        const sel = window.getSelection();
-        if (sel && !sel.isCollapsed) {
-          const range = sel.getRangeAt(0);
-          const offset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-          if (offset) {
-            this.selectedRubyRange = { start: offset.start, end: offset.end };
-          }
-        }
-      }, 10);
+      window.setTimeout(() => this.captureRubyPreviewSelection(), 10);
     });
+
+    if (Platform.isMobile) {
+      // 移动端长按划选预览文字不会触发 mouseup：菜单打开期间挂防抖 selectionchange，
+      // 选区稳定且仍落在预览内时记录注音范围（main.ts 全局入口因 isOpened() 会短路，不会重建菜单）
+      let timer: number | null = null;
+      const handler = () => {
+        if (timer !== null) window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          timer = null;
+          this.captureRubyPreviewSelection();
+        }, RUBY_SELECTION_DEBOUNCE_MS);
+      };
+      activeDocument.addEventListener("selectionchange", handler);
+      this.rubyMobileSelectionCleanup = () => {
+        if (timer !== null) window.clearTimeout(timer);
+        activeDocument.removeEventListener("selectionchange", handler);
+      };
+    }
 
     // 注音输入
     const rubyInputRow = this.rubyTextContainer.createDiv({ cls: "annotation-ruby-input-row" });
@@ -351,6 +388,25 @@ export class SelectionMenu {
       }
     };
     this.updateRubyList();
+  }
+
+  // 记录落在注音预览文本内的选区（桌面 mouseup 与移动端 selectionchange 共用）
+  private captureRubyPreviewSelection(): void {
+    if (!this.rubyTextPreview || !this.menuEl) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    // 只认完全落在预览元素内部的选区，避免把笔记正文选区误记为注音范围
+    if (
+      !this.rubyTextPreview.contains(range.startContainer) ||
+      !this.rubyTextPreview.contains(range.endContainer)
+    ) {
+      return;
+    }
+    const offset = calculateRangeOffsetInElement(range, this.rubyTextPreview);
+    if (offset) {
+      this.selectedRubyRange = { start: offset.start, end: offset.end };
+    }
   }
 
   private addRuby(): void {
@@ -491,6 +547,14 @@ export class SelectionMenu {
   }
 
   hide(): void {
+    // 注销移动端可视视口监听
+    if (this.vvResizeHandler && window.visualViewport) {
+      window.visualViewport.removeEventListener("resize", this.vvResizeHandler);
+      this.vvResizeHandler = null;
+    }
+    // 注销移动端注音预览划选监听
+    this.rubyMobileSelectionCleanup?.();
+    this.rubyMobileSelectionCleanup = null;
     if (this.menuEl) {
       this.menuEl.remove();
       this.menuEl = null;

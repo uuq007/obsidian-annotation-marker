@@ -1,6 +1,7 @@
 import {
   MarkdownView,
   Notice,
+  Platform,
   Plugin,
   TFile,
   type WorkspaceLeaf,
@@ -28,6 +29,9 @@ import { FolderSuggestModal, FileNameModal, ConfirmOverwriteModal } from "./ui/E
 import { sortAnnotations, buildExportContent } from "./utils/exporter";
 import { restoreEditorFocus } from "./utils/focusManager";
 
+// 移动端选区稳定防抖时长（ms）：拖手柄停手后需持续稳定该时长才弹菜单，可在 250-600 间微调手感
+const MOBILE_SELECTION_DEBOUNCE_MS = 400;
+
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
   fileManager: AnnotationFileManager;
@@ -46,6 +50,9 @@ export default class AnnotationPlugin extends Plugin {
 
   // 实时同步防抖定时器
   private syncToOriginalTimers: Map<string, number> = new Map();
+
+  // 移动端选区稳定检测：selectionchange 防抖定时器（触摸选词不触发 mouseup，改由选区稳定后弹菜单）
+  private mobileSelectionTimer: number | null = null;
 
   // 侧边栏刷新回调
   annotationChangeCallbacks: Array<() => void> = [];
@@ -104,6 +111,8 @@ export default class AnnotationPlugin extends Plugin {
 
   onunload() {
     this.isUnloading = true;
+    // 清理待触发的移动端选区弹窗定时器
+    this.cancelMobileSelectionTimer();
     // 同步所有活跃会话
     for (const [originalPath] of this.activeAnnotationSessions) {
       const timer = this.syncToOriginalTimers.get(originalPath);
@@ -667,6 +676,19 @@ export default class AnnotationPlugin extends Plugin {
   // ========== 标注交互事件 ==========
 
   private registerAnnotationInteraction() {
+    // 已有标注的点击详情菜单：移动端 tap 会合成 click，全平台共用
+    this.registerMarkClickInteraction();
+    // 「添加标注」入口按平台分流：触摸长按选词不会触发 mouseup，移动端改用 selectionchange 防抖；
+    // 两入口互斥注册，同一手势只有一条路径可产生弹窗（天然防双触发），桌面行为保持不变
+    if (Platform.isMobile) {
+      this.registerMobileSelectionEntry();
+    } else {
+      this.registerDesktopMouseupEntry();
+    }
+  }
+
+  // 桌面端入口：划选松开（mouseup）后延迟读取选区并弹出添加标注菜单
+  private registerDesktopMouseupEntry() {
     this.registerDomEvent(activeDocument, "mouseup", (e: MouseEvent) => {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;
@@ -681,35 +703,118 @@ export default class AnnotationPlugin extends Plugin {
       if (target.closest(".inline-title, .view-header-title")) return;
 
       window.setTimeout(() => {
-        const selection = window.getSelection();
-        if (!selection || selection.isCollapsed) return;
-
-        const selectionInfo = this.collectSelectionParams(selection);
-        if (!selectionInfo) return;
-
-        this.annotationMenu.hide();
-
-        // 编辑模式下保存编辑器选区位置
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        let editorRange: { from: EditorPosition; to: EditorPosition } | undefined;
-        if (view?.getMode?.() === "source" && view.editor) {
-          editorRange = {
-            from: view.editor.getCursor("from"),
-            to: view.editor.getCursor("to"),
-          };
-        }
-
-        this.selectionMenu.show({
-          x: e.clientX,
-          y: e.clientY,
-          ...selectionInfo,
-          notePath,
-          editorRange,
-          onAdd: () => { void this.refreshAnnotationView(notePath); },
-        });
+        this.tryShowSelectionMenu(e.clientX, e.clientY, notePath);
       }, 10);
     });
+  }
 
+  // 移动端入口：长按选词 / 拖动选择手柄只会派发 selectionchange 而无 mouseup，
+  // 因此监听选区变化，待选区稳定（防抖到期）后再弹菜单
+  private registerMobileSelectionEntry() {
+    // 选词与拖手柄期间 selectionchange 连发，每次都重置定时器，只有停手稳定后才触发一次
+    this.registerDomEvent(activeDocument, "selectionchange", () => {
+      this.cancelMobileSelectionTimer();
+      this.mobileSelectionTimer = window.setTimeout(() => {
+        this.mobileSelectionTimer = null;
+        this.handleMobileSelectionStable();
+      }, MOBILE_SELECTION_DEBOUNCE_MS);
+    }, { capture: true });
+
+    // 滚动后选区矩形的视口坐标已失效，滚动时取消待触发的弹窗
+    // （拖选择手柄扩展选区时页面不滚动，不受影响）
+    this.registerDomEvent(activeDocument, "scroll", () => {
+      this.cancelMobileSelectionTimer();
+    }, { capture: true });
+  }
+
+  private cancelMobileSelectionTimer(): void {
+    if (this.mobileSelectionTimer !== null) {
+      window.clearTimeout(this.mobileSelectionTimer);
+      this.mobileSelectionTimer = null;
+    }
+  }
+
+  // 移动端：防抖到期后的校验链，任一环节失败即静默放弃
+  private handleMobileSelectionStable(): void {
+    const notePath = this.getActiveAnnotationNotePath();
+    if (!notePath) return;
+
+    // 菜单已打开时不重建（如正在批注输入框打字）；创建标注成功后会清空原生选区，isCollapsed 兜底
+    if (this.selectionMenu.isOpened()) return;
+
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+
+    // 选区起止元素都必须落在当前笔记的预览容器或编辑器容器内（排除侧栏、标签栏、本插件菜单等）
+    const range = selection.getRangeAt(0);
+    const startEl = range.startContainer.instanceOf(HTMLElement)
+      ? range.startContainer : range.startContainer.parentElement;
+    const endEl = range.endContainer.instanceOf(HTMLElement)
+      ? range.endContainer : range.endContainer.parentElement;
+    if (!startEl || !endEl) return;
+
+    // 排除模态框、插件自身菜单及各类输入控件内的选区
+    const excludedSelf = ".annotation-card-menu, .modal-container, input, textarea";
+    if (startEl.closest(excludedSelf) || endEl.closest(excludedSelf)) return;
+
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    // 编辑器容器通过非公开的 cm 属性取（公开 Editor 类型未暴露容器，与 focusManager.ts 同一访问方式）
+    const cmDom = (view?.editor as unknown as { cm?: EditorView } | undefined)?.cm?.dom;
+    const validContainers = [view?.previewMode?.containerEl, cmDom];
+    const inNoteContainer = validContainers.some(
+      (c) => c && c.contains(startEl) && c.contains(endEl)
+    );
+    if (!inNoteContainer) return;
+
+    // 内容过滤清单与桌面 mouseup 分支一致（代码块/嵌入/callout 外壳/frontmatter/标题等）
+    for (const el of [startEl, endEl]) {
+      if (el.closest("pre, .el-pre")) return;
+      if (el.closest(".internal-embed")) return;
+      if (el.closest(".callout") && !el.closest(".callout-content")) return;
+      if (el.closest(".frontmatter, .cm-hmd-frontmatter, .metadata-container")) return;
+      if (el.closest(".inline-title, .view-header-title")) return;
+    }
+
+    // 移动端无指针坐标，用选区矩形下缘中点作为菜单锚点；无效矩形或整体在视口外则放弃本次
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+
+    this.tryShowSelectionMenu(rect.left + rect.width / 2, rect.bottom, notePath);
+  }
+
+  // 从当前 DOM 选区弹出「添加标注」菜单（桌面 mouseup 与移动端 selectionchange 共用）
+  private tryShowSelectionMenu(x: number, y: number, notePath: string): void {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return;
+
+    const selectionInfo = this.collectSelectionParams(selection);
+    if (!selectionInfo) return;
+
+    this.annotationMenu.hide();
+
+    // 编辑模式下保存编辑器选区位置
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    let editorRange: { from: EditorPosition; to: EditorPosition } | undefined;
+    if (view?.getMode?.() === "source" && view.editor) {
+      editorRange = {
+        from: view.editor.getCursor("from"),
+        to: view.editor.getCursor("to"),
+      };
+    }
+
+    this.selectionMenu.show({
+      x,
+      y,
+      ...selectionInfo,
+      notePath,
+      editorRange,
+      onAdd: () => { void this.refreshAnnotationView(notePath); },
+    });
+  }
+
+  // 点击已有标注 → 弹出详情/改色/删除菜单
+  private registerMarkClickInteraction() {
     this.registerDomEvent(activeDocument, "click", (e: MouseEvent) => {
       const notePath = this.getActiveAnnotationNotePath();
       if (!notePath) return;

@@ -150,7 +150,8 @@ export class AnnotationMenu {
 
     activeDocument.body.appendChild(this.menuEl);
 
-    const menuWidth = 300;
+    // 用真实渲染宽度参与翻转判定（CSS max-width 随视口收缩，写死常量在小屏上会失准）
+    const menuWidth = this.menuEl.offsetWidth || 300;
     const menuHeight = this.menuEl.offsetHeight || 250;
     let menuX = params.x + 10;
     let menuY = params.y + 10;

@@ -30,8 +30,8 @@ export class AnnotationListPanel {
   private dragContainerHeight = 0;
   private dragBtnWidth = 0;
   private dragBtnHeight = 0;
-  private dragMoveHandler: ((e: MouseEvent) => void) | null = null;
-  private dragEndHandler: ((e: MouseEvent) => void) | null = null;
+  private dragMoveHandler: ((e: PointerEvent) => void) | null = null;
+  private dragEndHandler: ((e: PointerEvent) => void) | null = null;
 
   constructor(app: App, fileManager: AnnotationFileManager) {
     this.app = app;
@@ -76,14 +76,15 @@ export class AnnotationListPanel {
       }
     });
 
-    // 拖动开始
-    this.listBtn.addEventListener("mousedown", (e) => {
+    // 拖动开始（Pointer Events 统一鼠标与触摸；.annotation-list-btn 的 touch-action:none
+    // 允许在按钮上起拖手势而不触发页面滚动）
+    this.listBtn.addEventListener("pointerdown", (e: PointerEvent) => {
       if (e.button !== 0) return;
       this.isMouseDown = true;
       this.isDragging = false;
       this.wasDragged = false;
 
-      // mousedown 时缓存所有尺寸，避免 mousemove 中触发回流
+      // 按下时缓存所有尺寸，避免拖动中触发回流
       const btnRect = this.listBtn!.getBoundingClientRect();
       const containerRect = this.containerEl!.getBoundingClientRect();
       this.dragStartX = e.clientX;
@@ -94,10 +95,18 @@ export class AnnotationListPanel {
       this.dragContainerHeight = containerRect.height;
       this.dragBtnWidth = btnRect.width;
       this.dragBtnHeight = btnRect.height;
+
+      // 捕获指针：手指滑出按钮乃至容器外，move/up 仍定向派发到按钮，
+      // 拖动监听因此可以全部收敛到元素自身（不再挂 document）
+      try {
+        this.listBtn!.setPointerCapture(e.pointerId);
+      } catch {
+        // 指针已失效等极端情况忽略；捕获失败时后续 move 收不到，只是无法拖动
+      }
     });
 
-    // 拖动移动和结束
-    this.dragMoveHandler = (e: MouseEvent) => {
+    // 拖动移动和结束（捕获状态下监听挂在按钮自身即可）
+    this.dragMoveHandler = (e: PointerEvent) => {
       if (!this.isMouseDown || !this.listBtn) return;
       const dx = e.clientX - this.dragStartX;
       const dy = e.clientY - this.dragStartY;
@@ -132,8 +141,10 @@ export class AnnotationListPanel {
       }
     };
 
-    activeDocument.addEventListener("mousemove", this.dragMoveHandler);
-    activeDocument.addEventListener("mouseup", this.dragEndHandler);
+    // pointercancel：来电/系统手势劫持等中断也要复位拖动状态，避免悬浮球卡在拖动态
+    this.listBtn.addEventListener("pointermove", this.dragMoveHandler);
+    this.listBtn.addEventListener("pointerup", this.dragEndHandler);
+    this.listBtn.addEventListener("pointercancel", this.dragEndHandler);
   }
 
   private async showPanel(): Promise<void> {
@@ -429,14 +440,7 @@ export class AnnotationListPanel {
 
   hide(): void {
     this.hidePanel();
-    if (this.dragMoveHandler) {
-      activeDocument.removeEventListener("mousemove", this.dragMoveHandler);
-      this.dragMoveHandler = null;
-    }
-    if (this.dragEndHandler) {
-      activeDocument.removeEventListener("mouseup", this.dragEndHandler);
-      this.dragEndHandler = null;
-    }
+    // 拖动监听已收敛到按钮自身，随节点移除一并销毁，无需 document 级解绑
     if (this.listBtn) {
       this.listBtn.remove();
       this.listBtn = null;

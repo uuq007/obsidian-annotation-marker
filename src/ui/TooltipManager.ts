@@ -2,6 +2,8 @@ import type AnnotationPlugin from "../main";
 import { t } from "../i18n";
 
 // 悬停显示批注内容的工具提示管理器
+// 触屏端不做长按唤起：tap 标注会合成 click 弹出详情菜单（main.ts 的 click 处理器），
+// 那才是移动端查看标注内容的正式通道；本类只负责展示与"及时收起"
 export class TooltipManager {
   private plugin: AnnotationPlugin;
   private tooltipEl: HTMLElement | null = null;
@@ -12,6 +14,9 @@ export class TooltipManager {
   }
 
   register(): void {
+    // 桌面 hover 三件套：悬入显示、移动跟位、移出延迟隐藏。
+    // 触屏端 tap 合成的 mouseover 之后永无 mouseout，只靠它们气泡会永久粘滞，
+    // 因此下方补齐多条兜底关闭路径
     this.plugin.registerDomEvent(activeDocument, "mouseover", (e: MouseEvent) => {
       this.handleMouseOver(e);
     });
@@ -22,6 +27,36 @@ export class TooltipManager {
 
     this.plugin.registerDomEvent(activeDocument, "mouseout", (e: MouseEvent) => {
       this.handleMouseOut(e);
+    });
+
+    // ===== 生命周期兜底：tooltip 为 position:fixed 锚定创建时坐标，布局或视口一旦变化必须收起 =====
+
+    // 切换文件 / 布局变动 / 打开新文件时收起，防止气泡跨文件残留（此前切文件后气泡不消失的主因）
+    const workspace = this.plugin.app.workspace;
+    this.plugin.registerEvent(workspace.on("active-leaf-change", () => {
+      if (this.tooltipEl?.hasClass("is-visible")) this.hide();
+    }));
+    this.plugin.registerEvent(workspace.on("layout-change", () => {
+      if (this.tooltipEl?.hasClass("is-visible")) this.hide();
+    }));
+    this.plugin.registerEvent(workspace.on("file-open", () => {
+      if (this.tooltipEl?.hasClass("is-visible")) this.hide();
+    }));
+
+    // 滚动会使固定定位的气泡错位，直接收起（capture 以捕获编辑器/预览内部容器的滚动）
+    this.plugin.registerDomEvent(activeDocument, "scroll", () => {
+      if (this.tooltipEl?.hasClass("is-visible")) this.hide();
+    }, { capture: true });
+
+    // tap / 点击任意位置先收旧泡（tooltip 自身 pointer-events:none，不影响命中）；
+    // 若落点仍是带批注的标注，随后的合成 mouseover 会再弹新泡，视觉上是干净的"关旧开新"
+    this.plugin.registerDomEvent(activeDocument, "pointerdown", () => {
+      if (this.tooltipEl?.hasClass("is-visible")) this.hide();
+    }, { capture: true });
+
+    // 应用退到后台时收起，避免回前台时气泡锚定的内容早已滚出视野
+    this.plugin.registerDomEvent(activeDocument, "visibilitychange", () => {
+      if (activeDocument.hidden && this.tooltipEl?.hasClass("is-visible")) this.hide();
     });
   }
 

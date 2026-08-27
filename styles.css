@@ -9,10 +9,10 @@
   cursor: text;
 }
 
-.annotation-mode-active .markdown-preview-viewer:hover,
-.annotation-mode-active .markdown-preview-sizer:hover,
-.annotation-mode-active .markdown-preview:hover {
-  cursor: text;
+@media (hover: hover) {
+  .annotation-mode-active .markdown-preview-viewer:hover, .annotation-mode-active .markdown-preview-sizer:hover, .annotation-mode-active .markdown-preview:hover {
+    cursor: text;
+  }
 }
 
 .annotation-highlight {
@@ -21,16 +21,19 @@
   transition: all 0.15s ease;
 }
 
-.annotation-highlight:hover {
-  filter: brightness(0.9);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+@media (hover: hover) {
+  .annotation-highlight:hover {
+    filter: brightness(0.9);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
 }
 
 .annotation-card-menu {
   position: fixed;
   z-index: 9999;
   min-width: 260px;
-  max-width: 340px;
+  /* 小屏保险：菜单宽度不超过视口减两侧留白（SelectionMenu/AnnotationMenu 共用） */
+  max-width: min(340px, calc(100vw - 20px));
   max-height: 70vh;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
@@ -97,9 +100,11 @@
   line-height: 1;
 }
 
-.annotation-menu-close:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+@media (hover: hover) {
+  .annotation-menu-close:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
 }
 
 .annotation-menu-preview {
@@ -170,6 +175,15 @@
 .annotation-color-dot {
   width: 28px;
   height: 28px;
+  /* 防御宿主主题：移动端主题常为触控目标加大 button 的 min-height/padding，
+     一旦覆盖某一维尺寸就会把圆形撑成椭圆；显式锁定两维并加 aspect-ratio 兜底，
+     appearance:none 剥离原生按钮内建样式 */
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  aspect-ratio: 1 / 1;
+  min-width: 28px;
+  min-height: 28px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
@@ -179,8 +193,10 @@
   flex: 0 0 auto;
 }
 
-.annotation-color-dot:hover {
-  transform: scale(1.1);
+@media (hover: hover) {
+  .annotation-color-dot:hover {
+    transform: scale(1.1);
+  }
 }
 
 .annotation-color-dot.active {
@@ -258,8 +274,10 @@
   color: var(--text-on-accent);
 }
 
-.annotation-btn-primary:hover {
-  background: var(--interactive-accent-hover);
+@media (hover: hover) {
+  .annotation-btn-primary:hover {
+    background: var(--interactive-accent-hover);
+  }
 }
 
 .annotation-btn-secondary {
@@ -267,8 +285,10 @@
   color: var(--text-normal);
 }
 
-.annotation-btn-secondary:hover {
-  background: var(--background-modifier-border);
+@media (hover: hover) {
+  .annotation-btn-secondary:hover {
+    background: var(--background-modifier-border);
+  }
 }
 
 .annotation-btn-icon {
@@ -278,9 +298,11 @@
   flex: 0;
 }
 
-.annotation-btn-icon:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+@media (hover: hover) {
+  .annotation-btn-icon:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
 }
 
 .annotation-btn-danger {
@@ -288,8 +310,10 @@
   color: #ff6b6b;
 }
 
-.annotation-btn-danger:hover {
-  background: rgba(255, 107, 107, 0.25);
+@media (hover: hover) {
+  .annotation-btn-danger:hover {
+    background: rgba(255, 107, 107, 0.25);
+  }
 }
 
 .annotation-note-modal {
@@ -342,9 +366,11 @@
   flex-shrink: 0;
 }
 
-.annotation-copy-btn:hover {
-  background: var(--background-modifier-active-hover);
-  color: var(--text-normal);
+@media (hover: hover) {
+  .annotation-copy-btn:hover {
+    background: var(--background-modifier-active-hover);
+    color: var(--text-normal);
+  }
 }
 
 .annotation-color-picker {
@@ -570,8 +596,10 @@
   transform: translateY(-50%);
 }
 
-.annotation-list-btn:hover {
-  background: var(--background-modifier-hover);
+@media (hover: hover) {
+  .annotation-list-btn:hover {
+    background: var(--background-modifier-hover);
+  }
 }
 
 .annotation-list-btn.dragging {
@@ -629,9 +657,11 @@
   justify-content: center;
 }
 
-.annotation-list-close:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+@media (hover: hover) {
+  .annotation-list-close:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
 }
 
 .annotation-list-content {
@@ -659,8 +689,10 @@
   word-break: break-word;
 }
 
-.annotation-list-item:hover {
-  background: var(--background-modifier-hover);
+@media (hover: hover) {
+  .annotation-list-item:hover {
+    background: var(--background-modifier-hover);
+  }
 }
 
 .annotation-list-dot {
@@ -753,8 +785,10 @@
   min-width: 160px;
 }
 
-.annotation-list-sort-select:hover {
-  border-color: var(--interactive-accent);
+@media (hover: hover) {
+  .annotation-list-sort-select:hover {
+    border-color: var(--interactive-accent);
+  }
 }
 
 .annotation-list-sort-select:focus {
@@ -788,16 +822,20 @@
   transition: background 0.15s ease;
 }
 
-.annotation-context-menu-item:hover {
-  background: var(--background-modifier-hover);
+@media (hover: hover) {
+  .annotation-context-menu-item:hover {
+    background: var(--background-modifier-hover);
+  }
 }
 
 .annotation-context-menu-danger {
   color: #ff6b6b;
 }
 
-.annotation-context-menu-danger:hover {
-  background: rgba(255, 107, 107, 0.1);
+@media (hover: hover) {
+  .annotation-context-menu-danger:hover {
+    background: rgba(255, 107, 107, 0.1);
+  }
 }
 
 .annotation-ruby-section {
@@ -943,9 +981,11 @@
   line-height: 1;
 }
 
-.annotation-ruby-item-delete:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+@media (hover: hover) {
+  .annotation-ruby-item-delete:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
 }
 
 /* ========== 标注视图样式 ========== */
@@ -960,10 +1000,11 @@
   transition: box-shadow 0.15s ease;
 }
 
-.markdown-rendered mark[data-annotation-id]:hover,
-.markdown-preview-view mark[data-annotation-id]:hover {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-  outline: 1px solid rgba(0, 0, 0, 0.2);
+@media (hover: hover) {
+  .markdown-rendered mark[data-annotation-id]:hover, .markdown-preview-view mark[data-annotation-id]:hover {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+    outline: 1px solid rgba(0, 0, 0, 0.2);
+  }
 }
 
 /* 嵌套标注的视觉反馈 */
@@ -1139,9 +1180,11 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   transition: all 0.15s ease;
 }
 
-.annotation-sidebar-tab:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
+@media (hover: hover) {
+  .annotation-sidebar-tab:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+  }
 }
 
 .annotation-sidebar-tab.active {
@@ -1181,6 +1224,13 @@ ruby[data-annotation-id] rt[data-annotation-id] {
 .annotation-sidebar-color-btn {
   width: 20px;
   height: 20px;
+  /* 同 .annotation-color-dot 的宿主主题防御（-all 文本变体宽高为 auto，不受 aspect-ratio/min 尺寸影响） */
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  aspect-ratio: 1 / 1;
+  min-width: 20px;
+  min-height: 20px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
@@ -1189,8 +1239,10 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   flex-shrink: 0;
 }
 
-.annotation-sidebar-color-btn:hover {
-  transform: scale(1.15);
+@media (hover: hover) {
+  .annotation-sidebar-color-btn:hover {
+    transform: scale(1.15);
+  }
 }
 
 .annotation-sidebar-color-btn.active {
@@ -1232,9 +1284,11 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   transition: all 0.15s ease;
 }
 
-.annotation-sidebar-card:hover {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+@media (hover: hover) {
+  .annotation-sidebar-card:hover {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
 }
 
 .annotation-sidebar-card-header {
@@ -1331,9 +1385,11 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   justify-content: center;
 }
 
-.annotation-sidebar-detail-close:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+@media (hover: hover) {
+  .annotation-sidebar-detail-close:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
 }
 
 .annotation-sidebar-detail-section {
@@ -1459,9 +1515,11 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   transition: all 0.15s ease;
 }
 
-.annotation-sidebar-export-btn:hover {
-  background: var(--background-modifier-hover);
-  border-color: var(--interactive-accent);
+@media (hover: hover) {
+  .annotation-sidebar-export-btn:hover {
+    background: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+  }
 }
 
 .annotation-sidebar-export-btn.is-hidden {
@@ -1579,4 +1637,21 @@ ruby[data-annotation-id] rt[data-annotation-id] {
   align-items: center;
   gap: 6px;
   margin-top: 10px;
+}
+
+/* ===== 触屏按压反馈（:active 不受 hover 媒体查询限制，补偿触屏上被禁用的悬停态）===== */
+.annotation-color-dot:active {
+  transform: scale(0.9);
+}
+
+.annotation-sidebar-color-btn:active {
+  transform: scale(0.9);
+}
+
+.annotation-list-item:active {
+  background: var(--background-modifier-hover);
+}
+
+.annotation-context-menu-item:active {
+  background: var(--background-modifier-hover);
 }

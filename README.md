@@ -10,9 +10,9 @@ Annotation data is stored in separate annotation files without modifying the ori
 
 ### Annotation Types / 标注类型
 
-- **彩色标注** — 5 种颜色高亮（红、蓝、黄、绿、紫），可自定义颜色
+- **彩色标注** — 默认 5 种颜色高亮（红、蓝、黄、绿、紫），可在设置中扩展至最多 10 种并自定义色值与标签名
 
-  **Color highlights** — 5 highlight colors (red, blue, yellow, green, purple), fully customizable
+  **Color highlights** — 5 highlight colors by default (red, blue, yellow, green, purple), expandable up to 10 in settings with custom hex values and labels
 
 - **批注** — 为标注添加详细笔记，悬浮即可查看
 
@@ -56,6 +56,24 @@ Annotation data is stored in separate annotation files without modifying the ori
 
   Sidebar annotation management view — browse all annotations by file, with search and color filtering
 
+### Mobile Support / 移动端支持
+
+- 手机上长按选词或拖动选择手柄，选区稳定后自动弹出添加标注菜单
+
+  On mobile, long-press to select a word or drag the selection handles; once the selection is stable, the add-annotation menu pops up automatically
+
+- 点击已有标注打开操作菜单 — 移动端查看/编辑批注的入口
+
+  Tap an existing annotation to open its action menu — the entry point for viewing/editing notes on mobile
+
+- 弹出菜单不抢占焦点，不会被软键盘顶飞布局；悬浮气泡在切换文件、滚动或点击其他区域时自动收起
+
+  Menus don't steal focus on open, so the soft keyboard won't break the layout; note bubbles auto-dismiss on file switch, scroll, or tapping elsewhere
+
+- 触屏优化：无粘滞悬停态、按压反馈，标注列表悬浮球可用手指自由拖动
+
+  Touch-friendly: no sticky hover states, press feedback, and the annotation-list floating button can be dragged freely with a finger
+
 ### Dual Mode Support / 双模式支持
 
 - **阅读模式** — 标注以彩色 `<mark>` 标签渲染
@@ -90,9 +108,9 @@ Annotation data is stored in separate annotation files without modifying the ori
 
   Default annotation color
 
-- 5 种标注颜色的自定义（支持十六进制色值）
+- 标注颜色自定义（默认 5 种，最多扩展至 10 种，支持十六进制色值）
 
-  Customize 5 annotation colors (hex color values supported)
+  Customize annotation colors (5 by default, expandable up to 10; hex color values supported)
 
 - 颜色标签名称
 

@@ -48,6 +48,9 @@ export class SelectionMenu {
   private vvResizeHandler: (() => void) | null = null;
   // 移动端注音预览划选监听的清理函数
   private rubyMobileSelectionCleanup: (() => void) | null = null;
+  // 用户手动拖动过菜单后置位：updateSelection 不再把菜单拉回选区旁（用户可能
+  // 特意把菜单挪开以便查看被选中的文字），show() 时重置
+  private menuManuallyMoved = false;
 
   constructor(private app: App, fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
     this.fileManager = fileManager;
@@ -85,6 +88,7 @@ export class SelectionMenu {
     this.selectedRubyRange = null;
     this.blockSegments = params.blockSegments ?? null;
     this.editorRange = params.editorRange ?? null;
+    this.menuManuallyMoved = false;
     const maxLen = this.getSettings().maxNoteLength;
     const loc = t();
 
@@ -100,7 +104,8 @@ export class SelectionMenu {
     const header = this.menuEl.createDiv({ cls: "annotation-menu-header" });
     header.createSpan({ text: loc.menuAddAnnotation, cls: "annotation-menu-title" });
     const closeBtn = header.createEl("button", { cls: "annotation-menu-close", text: loc.close });
-    closeBtn.addEventListener("click", () => this.hide());
+    closeBtn.addEventListener("click", () => this.hide(true));
+    this.setupMenuDrag(header);
 
     const scrollableContent = this.menuEl.createDiv({ cls: "annotation-menu-scrollable-content" });
 
@@ -276,6 +281,70 @@ export class SelectionMenu {
     if (top > limit) {
       this.menuEl.setCssStyles({ top: `${Math.max(10, limit)}px` });
     }
+  }
+
+  // 标题栏拖动移菜菜单（桌面鼠标 + 移动端触摸统一 Pointer Events，
+  // 与 AnnotationListPanel 悬浮球同一模式：setPointerCapture 后 move/up 收敛到拖柄自身）。
+  // 拖柄仅限标题栏——正文有输入框和色点，整菜单拖动会与输入交互冲突
+  private setupMenuDrag(handle: HTMLElement): void {
+    let pressing = false;
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let originLeft = 0;
+    let originTop = 0;
+
+    handle.addEventListener("pointerdown", (e: PointerEvent) => {
+      // 关闭按钮保留点击语义，不作为拖柄
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement | null)?.closest?.(".annotation-menu-close")) return;
+      if (!this.menuEl) return;
+
+      pressing = true;
+      dragging = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      originLeft = parseInt(this.menuEl.style.left || "0", 10) || this.menuEl.offsetLeft;
+      originTop = parseInt(this.menuEl.style.top || "0", 10) || this.menuEl.offsetTop;
+      // 捕获指针：拖出拖柄乃至视口外，move/up 仍定向派发到拖柄
+      try {
+        handle.setPointerCapture(e.pointerId);
+      } catch {
+        // 指针已失效等极端情况忽略；捕获失败时后续 move 收不到，只是无法拖动
+      }
+      // 防止拖动时选中标题文字、抑制兼容鼠标事件
+      e.preventDefault();
+    });
+
+    handle.addEventListener("pointermove", (e: PointerEvent) => {
+      if (!pressing || !this.menuEl) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      // 超过阈值才算手动拖动：防止点击标题栏误置位导致菜单失去自动跟随
+      if (!dragging && Math.abs(dx) + Math.abs(dy) <= 3) return;
+      if (!dragging) {
+        dragging = true;
+        this.menuManuallyMoved = true;
+      }
+
+      // 钳制在视口内，菜单拖不丢
+      const menuWidth = this.menuEl.offsetWidth || 280;
+      const menuHeight = this.menuEl.offsetHeight || 200;
+      const newLeft = Math.max(10, Math.min(window.innerWidth - menuWidth - 10, originLeft + dx));
+      const newTop = Math.max(10, Math.min(window.innerHeight - menuHeight - 10, originTop + dy));
+      this.menuEl.setCssStyles({
+        left: `${newLeft}px`,
+        top: `${newTop}px`,
+      });
+    });
+
+    const endDrag = () => {
+      pressing = false;
+      dragging = false;
+    };
+    handle.addEventListener("pointerup", endDrag);
+    // pointercancel：来电/系统手势劫持等中断也要复位，避免拖柄卡在拖动态
+    handle.addEventListener("pointercancel", endDrag);
   }
 
   private buildRubySection(parent: HTMLElement): void {
@@ -509,7 +578,7 @@ export class SelectionMenu {
           await this.fileManager.writeAnnotationFile(this.currentNotePath, newContent);
 
           window.getSelection()?.removeAllRanges();
-          this.hide();
+          this.hide(true);
           new Notice(note || rubyTexts ? loc.noticeAnnotationAndNoteAdded : loc.noticeAnnotationAdded);
           return;
         }
@@ -550,7 +619,7 @@ export class SelectionMenu {
       if (result) {
         // 清除浏览器文本选区，防止 mouseup handler 再次弹出菜单
         window.getSelection()?.removeAllRanges();
-        this.hide();
+        this.hide(true);
         if (this.onAddCallback) {
           await new Promise(resolve => window.setTimeout(resolve, 100));
           this.onAddCallback();
@@ -575,7 +644,7 @@ export class SelectionMenu {
     }
   }
 
-  hide(): void {
+  hide(clearSelection = false): void {
     // 注销移动端可视视口监听
     if (this.vvResizeHandler && window.visualViewport) {
       window.visualViewport.removeEventListener("resize", this.vvResizeHandler);
@@ -590,10 +659,25 @@ export class SelectionMenu {
     }
     // 菜单关闭时清除原选区的临时高亮
     clearSelectionHighlight();
-    // 移动端关闭时同时塌陷原生选区：所有关闭路径（点 × / 标注成功 / 切文件 / 卸载）
-    // 都不留蓝紫选区残影（对 createAnnotation 成功路径幂等；标注写入不依赖实时选区）
-    if (Platform.isMobile) {
-      activeDocument.getSelection()?.removeAllRanges();
+    // 清除选区只走真正的关闭路径（点 × / 标注成功 / 切文件 / 卸载等，由调用方传 true）。
+    // show() 开头的刷新 hide() 绝不能清：移动端在此处 removeAllRanges 会把用户刚做好的
+    // 选区抹掉，随后的克隆高亮捕获到空选区——阅读模式弹菜单后选区完全无颜色
+    if (clearSelection) {
+      if (Platform.isMobile) {
+        activeDocument.getSelection()?.removeAllRanges();
+      }
+      // 实时预览/源码模式：CM6 会从自身状态重新断言 DOM 选区，仅移除 DOM 选区在
+      // iPad 上清不掉选区颜色；需把显示当前标注文件的编辑器选区一并塌陷到光标
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (this.currentNotePath && view?.file?.path) {
+        const expected = normalizePath(this.fileManager.getAnnotationFilePath(this.currentNotePath));
+        if (view.file.path === expected && view.getMode?.() === "source") {
+          const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+          if (cm) {
+            cm.dispatch({ selection: { anchor: cm.state.selection.main.head } });
+          }
+        }
+      }
     }
     // 菜单关闭后恢复编辑器焦点
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -661,8 +745,11 @@ export class SelectionMenu {
       clearSelectionHighlight();
     }
 
-    // 菜单重新锚定到新选区旁
-    window.requestAnimationFrame(() => this.positionMenuAt(params.x, params.y));
+    // 菜单重新锚定到新选区旁（用户手动拖动过菜单后不再自动跟随，
+    // 拖开可能是为了看清被选中的文字）
+    if (!this.menuManuallyMoved) {
+      window.requestAnimationFrame(() => this.positionMenuAt(params.x, params.y));
+    }
   }
 
   getCurrentNotePath(): string | null {

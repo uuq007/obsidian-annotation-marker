@@ -66,6 +66,15 @@
   border-radius: 8px 8px 0 0;
 }
 
+/* 添加标注菜单的标题栏作为拖动手柄：cursor 提示可拖，
+   touch-action: none 让触摸拖动不被页面滚动接管，拖动时不选中标题文字 */
+.annotation-selection-menu .annotation-menu-header {
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .annotation-menu-title {
   font-weight: 600;
   color: var(--text-normal);

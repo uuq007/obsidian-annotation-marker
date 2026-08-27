@@ -146,7 +146,7 @@ export default class AnnotationPlugin extends Plugin {
     }
     this.annotationPanels.clear();
 
-    this.selectionMenu.hide();
+    this.selectionMenu.hide(true);
     this.annotationMenu.hide();
     this.tooltipManager.destroy();
 
@@ -403,7 +403,7 @@ export default class AnnotationPlugin extends Plugin {
   // getAbstractFileByPath 等 fileMap 直查是"可解析性"依赖（openFile/恢复/行号捕获），绝不能动
   private loadedFilesPatchInstalled: boolean = false;
   // 补丁登记：宿主对象、方法名、原函数（onunload 还原用，不 bind 保留可比较性）
-  private patchedMethods: { host: object; name: string; original: (...args: unknown[]) => unknown }[] = [];
+  private patchedMethods: { host: object; name: string; original: (...args: unknown[]) => unknown[] }[] = [];
   // 需隐藏的标注路径集合；在 createFakeTFile/removeFakeTFile 中增删，
   // 与 fileMap 注入严格同生命周期（这两处是 fileMap 注入的唯一出入口）
   private hiddenAnnotationPaths: Set<string> = new Set();
@@ -411,18 +411,20 @@ export default class AnnotationPlugin extends Plugin {
   // 安装枚举过滤补丁（幂等）。集合为空时等价直通，常驻开销仅一次 size 判断
   private installLoadedFilesPatch(): void {
     if (this.loadedFilesPatchInstalled) return;
-    const self = this;
     // 通用包装：原方法返回数组时按路径过滤（TAbstractFile 数组与纯路径字符串数组均覆盖）
     const wrap = (host: object, name: string): void => {
       const slot = host as unknown as Record<string, unknown>;
-      const original = slot[name];
-      if (typeof original !== "function") return;
-      this.patchedMethods.push({ host, name, original: original as (...args: unknown[]) => unknown });
-      slot[name] = function (this: unknown, ...args: unknown[]) {
-        const result = (original as (...args: unknown[]) => unknown).apply(this, args);
-        if (!Array.isArray(result) || self.hiddenAnnotationPaths.size === 0) return result;
+      const candidate = slot[name] as unknown;
+      if (typeof candidate !== "function") return;
+      // 三个出口的返回值均兼容"数组"签名（unknown[]），过滤逻辑得以统一
+      const original = candidate as (...args: unknown[]) => unknown[];
+      this.patchedMethods.push({ host, name, original });
+      // 箭头函数避免 this 别名；host 已在闭包中，调用原方法时显式作接收者
+      slot[name] = (...args: unknown[]) => {
+        const result = original.apply(host, args);
+        if (!Array.isArray(result) || this.hiddenAnnotationPaths.size === 0) return result;
         return result.filter((item) =>
-          !self.hiddenAnnotationPaths.has(typeof item === "string" ? item : (item as { path: string }).path)
+          !this.hiddenAnnotationPaths.has(typeof item === "string" ? item : (item as { path: string }).path)
         );
       };
     };
@@ -740,7 +742,7 @@ export default class AnnotationPlugin extends Plugin {
       await this.saveSettings();
     }
 
-    this.selectionMenu.hide();
+    this.selectionMenu.hide(true);
     this.annotationMenu.hide();
     const panel = this.annotationPanels.get(leaf);
     if (panel) {
@@ -965,7 +967,7 @@ export default class AnnotationPlugin extends Plugin {
       }
 
       this.fileManager.getAnnotations(notePath).then((annotations) => {
-        this.selectionMenu.hide();
+        this.selectionMenu.hide(true);
 
         if (annotationIds.length >= 1) {
           const annotation = annotations.find((a) => a.id === annotationIds[0]);
@@ -1509,7 +1511,7 @@ export default class AnnotationPlugin extends Plugin {
                 this.annotationPanels.delete(leaf);
               }
             }
-            this.selectionMenu.hide();
+            this.selectionMenu.hide(true);
             this.annotationMenu.hide();
 
             // 关闭显示该标注文件的 leaf

@@ -170,8 +170,11 @@
 }
 
 /* 双写类名抬高特异性（0,2,0）：移动端 app/主题会给 button 注入 padding（触控目标尺寸），
-   border-box 下 padding 会把 28px 圆点撑成椭圆。实测（dev:mobile + getComputedStyle 探针）
-   单类 (0,1,0) 已可胜出宿主规则，双写留出余量，无需 !important */
+   border-box 下 padding 会把 28px 圆点撑成椭圆。
+   padding 必须用 !important：3.0.17 曾试验纯特异性方案（双写类名 0,2,0），桌面
+   dev:mobile 模拟探针通过，但真机 iPad 回归证实宿主规则强于该特异性（或为内联注入），
+   模拟环境不足以代表真机 CSS——!important 是真机验证过的唯一可靠手段，
+   CSS lint 的 Avoid !important Warning 已知并刻意接受 */
 .annotation-color-dot.annotation-color-dot {
   width: 28px;
   height: 28px;
@@ -190,7 +193,7 @@
   border: 2px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
-  padding: 0;
+  padding: 0 !important;
   /* 颜色较多换行时不被压缩变形 */
   flex: 0 0 auto;
 }

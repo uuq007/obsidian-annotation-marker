@@ -78,6 +78,9 @@ export default class AnnotationPlugin extends Plugin {
     const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/obsidian-annotation-marker`;
     this.fileManager = new AnnotationFileManager(this.app, pluginDir);
 
+    // 安装枚举过滤补丁：须早于 onLayoutReady 延迟 1s 的孤立标签页恢复（会调 createFakeTFile）
+    this.installLoadedFilesPatch();
+
     this.selectionMenu = new SelectionMenu(this.app, this.fileManager, () => this.settings);
     this.annotationMenu = new AnnotationMenu(this.app, this.fileManager, () => this.settings);
 
@@ -117,6 +120,8 @@ export default class AnnotationPlugin extends Plugin {
 
   onunload() {
     this.isUnloading = true;
+    // 第一时间还原枚举函数；后续 removeFakeTFile 清空 fileMap，原始枚举也不会再列出假文件
+    this.uninstallLoadedFilesPatch();
     // 清理待触发的移动端选区弹窗定时器
     this.cancelMobileSelectionTimer();
     // 同步所有活跃会话
@@ -244,6 +249,9 @@ export default class AnnotationPlugin extends Plugin {
     const freeLeaves: WorkspaceLeaf[] = [];
 
     this.app.workspace.iterateAllLeaves((leaf) => {
+      // 只在主工作区恢复标注标签页；排除左右侧边栏与浮窗 leaf，
+      // 防止标注视图被塞进侧边栏并被 workspace.json 持久化
+      if (leaf.getRoot() !== this.app.workspace.rootSplit) return;
       const currentFile = getViewFilePath(leaf.view);
       const viewState = leaf.getViewState();
       const intendedFile: string | undefined = (viewState.state as { file?: string } | undefined)?.file;
@@ -384,6 +392,64 @@ export default class AnnotationPlugin extends Plugin {
 
   // ========== 假文件管理 ==========
 
+  // 枚举过滤补丁：把注入 fileMap 的标注假文件从会被用户界面枚举的出口里剔除，
+  // 使其不出现在快速切换器等 UI 中。已覆盖三个出口：
+  // - vault.getAllLoadedFiles：直接 for-in 遍历 fileMap
+  // - workspace.getRecentFiles：快速切换器空查询的"最近文件"来源（标注标签页
+  //   开着时其路径必然在列表中，且 getAbstractFileByPath 能解析到假文件）
+  // - workspace.getLastOpenFiles：最近打开文件（CLI __files/recents 等使用），
+  //   内部转调 getRecentFiles，两层包装时过滤幂等
+  // 注意：vault.getFiles/getMarkdownFiles 走 TFolder.children 递归，本来就不含假文件；
+  // getAbstractFileByPath 等 fileMap 直查是"可解析性"依赖（openFile/恢复/行号捕获），绝不能动
+  private loadedFilesPatchInstalled: boolean = false;
+  // 补丁登记：宿主对象、方法名、原函数（onunload 还原用，不 bind 保留可比较性）
+  private patchedMethods: { host: object; name: string; original: (...args: unknown[]) => unknown }[] = [];
+  // 需隐藏的标注路径集合；在 createFakeTFile/removeFakeTFile 中增删，
+  // 与 fileMap 注入严格同生命周期（这两处是 fileMap 注入的唯一出入口）
+  private hiddenAnnotationPaths: Set<string> = new Set();
+
+  // 安装枚举过滤补丁（幂等）。集合为空时等价直通，常驻开销仅一次 size 判断
+  private installLoadedFilesPatch(): void {
+    if (this.loadedFilesPatchInstalled) return;
+    const self = this;
+    // 通用包装：原方法返回数组时按路径过滤（TAbstractFile 数组与纯路径字符串数组均覆盖）
+    const wrap = (host: object, name: string): void => {
+      const slot = host as unknown as Record<string, unknown>;
+      const original = slot[name];
+      if (typeof original !== "function") return;
+      this.patchedMethods.push({ host, name, original: original as (...args: unknown[]) => unknown });
+      slot[name] = function (this: unknown, ...args: unknown[]) {
+        const result = (original as (...args: unknown[]) => unknown).apply(this, args);
+        if (!Array.isArray(result) || self.hiddenAnnotationPaths.size === 0) return result;
+        return result.filter((item) =>
+          !self.hiddenAnnotationPaths.has(typeof item === "string" ? item : (item as { path: string }).path)
+        );
+      };
+    };
+    wrap(this.app.vault, "getAllLoadedFiles");
+    wrap(this.app.workspace, "getRecentFiles");
+    wrap(this.app.workspace, "getLastOpenFiles");
+    this.loadedFilesPatchInstalled = true;
+  }
+
+  // 还原原始函数。原为原型方法时 delete 实例属性恢复原型查找；
+  // 原为实例属性（他人补丁）时原样回写，不破坏补丁链
+  private uninstallLoadedFilesPatch(): void {
+    if (!this.loadedFilesPatchInstalled) return;
+    for (const rec of this.patchedMethods) {
+      const slot = rec.host as unknown as Record<string, unknown>;
+      const proto = Object.getPrototypeOf(rec.host) as Record<string, unknown>;
+      if (proto[rec.name] === rec.original) {
+        delete slot[rec.name];
+      } else {
+        slot[rec.name] = rec.original;
+      }
+    }
+    this.patchedMethods = [];
+    this.loadedFilesPatchInstalled = false;
+    this.hiddenAnnotationPaths.clear();
+  }
+
   private createFakeTFile(path: string): TFile {
     const vault = this.app.vault;
     const anyFile = vault.getFiles()[0];
@@ -396,12 +462,14 @@ export default class AnnotationPlugin extends Plugin {
 
     (fakeFile as unknown as { deleted: boolean }).deleted = false;
     (vault as unknown as { fileMap: Record<string, TFile> }).fileMap[path] = fakeFile;
+    this.hiddenAnnotationPaths.add(path); // 注入即隐藏：同步进枚举过滤集合
 
     return fakeFile;
   }
 
   private removeFakeTFile(path: string) {
     delete (this.app.vault as unknown as { fileMap: Record<string, TFile> }).fileMap[path];
+    this.hiddenAnnotationPaths.delete(path); // 移除注入即解除隐藏
   }
 
   // ========== 元数据缓存 ==========

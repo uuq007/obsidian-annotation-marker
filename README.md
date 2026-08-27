@@ -102,6 +102,14 @@ Annotation data is stored in separate annotation files without modifying the ori
 
   Support importing annotation data from older plugin versions
 
+- 标注文件不出现在快速切换器（含"最近文件"列表）、搜索等文件枚举中，标注模式开启期间同样保持隐藏
+
+  Annotation files are hidden from the Quick Switcher (including the recent-files list), search, and other file enumerations — even while an annotation session is active
+
+- 重启后标注标签页仅在主工作区恢复，不会挤占左右侧边栏
+
+  After a restart, annotation tabs are restored only in the main workspace and never take over the sidebars
+
 ### Configurable Options / 可配置项
 
 - 默认标注颜色

@@ -363,7 +363,8 @@ export function updateAnnotationTag(
   let m: RegExpExecArray | null;
   while ((m = openRe.exec(content)) !== null) {
     const start = m.index;
-    const openLength = m[0]!.length;
+    // RegExpExecArray 的 [0] 是具名 string 成员，无需断言（m[1] 走索引签名才需要）
+    const openLength = m[0].length;
     const closeStart = findMatchingCloseMark(content, start + openLength);
     if (closeStart === -1) continue;
     ranges.push({ start, end: closeStart + 7, attrs: m[1]!, openLength });

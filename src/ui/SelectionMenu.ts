@@ -437,7 +437,8 @@ export class SelectionMenu {
         preview.contains(range.endContainer);
       if (insidePreview) {
         selectedRubyText = sel.toString();
-        const offset = calculateRangeOffsetInElement(range, preview!);
+        // insidePreview（aliased condition）为真时 preview 已被收窄为 HTMLElement，无需断言
+        const offset = calculateRangeOffsetInElement(range, preview);
         if (offset) rubyStart = offset.start;
       }
     }

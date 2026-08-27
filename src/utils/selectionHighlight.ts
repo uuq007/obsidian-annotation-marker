@@ -1,3 +1,5 @@
+import { Platform } from "obsidian";
+
 // 弹出标注菜单时，焦点移入批注输入框会导致浏览器把 DOM 选区移进输入框内，
 // 笔记区原选区的视觉高亮随之消失。这里在聚焦前克隆选区 Range，用
 // CSS Custom Highlight API 在原位置渲染临时背景（纯视觉层，不改动 DOM 结构）
@@ -27,6 +29,10 @@ function getHighlightApi(): { Highlight: HighlightCtor; highlights: HighlightReg
 }
 
 export function showSelectionHighlight(range: Range): void {
+  // iPadOS WebKit 对该 API 有绘制缺陷：registry delete/替换后旧区域的绘制不失效，
+  // 每次选中的高亮都会残留在屏幕上并可跨操作累积（安卓 Blink 无此问题）。
+  // iOS 上一律不注册克隆高亮——移动端不自动转移焦点，原生选区视觉本来就可见
+  if (Platform.isIosApp) return;
   const api = getHighlightApi();
   if (!api) return;
   api.highlights.set(HIGHLIGHT_NAME, new api.Highlight(range));

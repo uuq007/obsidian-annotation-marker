@@ -414,7 +414,7 @@ export default class AnnotationPlugin extends Plugin {
     // 通用包装：原方法返回数组时按路径过滤（TAbstractFile 数组与纯路径字符串数组均覆盖）
     const wrap = (host: object, name: string): void => {
       const slot = host as unknown as Record<string, unknown>;
-      const candidate = slot[name] as unknown;
+      const candidate = slot[name];
       if (typeof candidate !== "function") return;
       // 三个出口的返回值均兼容"数组"签名（unknown[]），过滤逻辑得以统一
       const original = candidate as (...args: unknown[]) => unknown[];

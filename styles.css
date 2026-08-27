@@ -169,7 +169,10 @@
   gap: 8px;
 }
 
-.annotation-color-dot {
+/* 双写类名抬高特异性（0,2,0）：移动端 app/主题会给 button 注入 padding（触控目标尺寸），
+   border-box 下 padding 会把 28px 圆点撑成椭圆。实测（dev:mobile + getComputedStyle 探针）
+   单类 (0,1,0) 已可胜出宿主规则，双写留出余量，无需 !important */
+.annotation-color-dot.annotation-color-dot {
   width: 28px;
   height: 28px;
   /* 防御宿主主题：移动端主题常为触控目标加大 button 的 min-height/padding，
@@ -181,16 +184,13 @@
   aspect-ratio: 1 / 1;
   min-width: 28px;
   min-height: 28px;
-  /* 移动端 app 以高特异性规则给 button 注入 padding: 4px 20px（触控目标尺寸），
-     在 border-box 下 padding+border 会把 28px 盒子实际撑到 44px 宽（椭圆根源，
-     此时 aspect-ratio/max-width 均无法对抗 padding 下限），只能以 !important 压制 */
   max-width: 28px;
   max-height: 28px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
-  padding: 0 !important;
+  padding: 0;
   /* 颜色较多换行时不被压缩变形 */
   flex: 0 0 auto;
 }

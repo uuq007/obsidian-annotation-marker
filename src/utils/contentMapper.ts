@@ -1,58 +1,7 @@
 // 标注文件内容的位置映射工具
 // 解决「渲染视图中的选区」与「源文件中的字符位置」之间的映射问题
 
-export interface ContentMap {
-  // 分段信息（标签 vs 文本）
-  segments: Array<{ text: string; isTag: boolean; sourceOffset: number }>;
-  // 剥离标签后的纯文本
-  strippedContent: string;
-  // strippedContent[i] 对应的源文件位置
-  strippedToSource: number[];
-}
-
-// 解析标注文件内容，构建标签/文本分段和位置映射
-export function buildContentMap(content: string): ContentMap {
-  const segments: ContentMap["segments"] = [];
-  const strippedChars: string[] = [];
-  const strippedToSource: number[] = [];
-
-  // 匹配所有标注相关标签（带 data-annotation-id 的标签及其闭合标签）
-  const tagRegex = /<(?:mark|ruby|rt)\s+[^>]*data-annotation-id="[^"]*"[^>]*>|<\/(?:mark|ruby|rt)>/g;
-
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = tagRegex.exec(content)) !== null) {
-    // 标签之前的文本
-    if (match.index > lastIndex) {
-      const text = content.substring(lastIndex, match.index);
-      segments.push({ text, isTag: false, sourceOffset: lastIndex });
-      for (let i = 0; i < text.length; i++) {
-        strippedChars.push(text.charAt(i));
-        strippedToSource.push(lastIndex + i);
-      }
-    }
-    // 标签本身
-    segments.push({ text: match[0], isTag: true, sourceOffset: match.index });
-    lastIndex = tagRegex.lastIndex;
-  }
-
-  // 最后一段文本
-  if (lastIndex < content.length) {
-    const text = content.substring(lastIndex);
-    segments.push({ text, isTag: false, sourceOffset: lastIndex });
-    for (let i = 0; i < text.length; i++) {
-      strippedChars.push(text.charAt(i));
-      strippedToSource.push(lastIndex + i);
-    }
-  }
-
-  return {
-    segments,
-    strippedContent: strippedChars.join(""),
-    strippedToSource,
-  };
-}
+import { countOccurrenceIndex } from "./helpers";
 
 // 在源文件内容中查找选中文本的位置
 // 通过清理 HTML/markdown 语法后的内容进行搜索，再映射回源文件位置
@@ -96,10 +45,10 @@ export function findTextInSource(
 
   if (occurrences.length === 0) return null;
 
-  // 选择目标匹配
-  const targetCleanedIdx = (occurrence !== undefined && occurrence < occurrences.length)
-    ? occurrences[occurrence]!
-    : occurrences[0]!;
+  // 选择目标匹配。occurrence 越界说明文档已被编辑、缓存的出现序号失效——
+  // 返回 null 走"找不到文本"提示，避免静默落到第一个匹配（重复文本场景会标错位置）
+  if (occurrence !== undefined && occurrence >= occurrences.length) return null;
+  const targetCleanedIdx = occurrences[occurrence ?? 0]!;
 
   const cleanedStart = targetCleanedIdx;
   const cleanedEnd = targetCleanedIdx + searchText.length;
@@ -455,18 +404,26 @@ export function extractCrossBlockSegments(
 
     const nodeText = node.textContent || "";
 
-    // 进入选区
-    if (node === range.startContainer) {
+    // 越过选区终点：endContainer 为元素节点时不会与任何文本节点相等（从标题边缘起
+    // 拖选等场景），只能用位置比较判定——节点尾端已越过终点即停止
+    if (range.comparePoint(node, nodeText.length) > 0) {
+      flushBlock();
+      break;
+    }
+
+    // 进入选区：节点为起点文本节点；或起点为元素节点时，节点起点已到达/越过选区起点
+    const isStartNode = node === range.startContainer;
+    if (isStartNode || (!inRange && range.comparePoint(node, 0) >= 0)) {
       inRange = true;
       blockSectionEl = sectionInfo.sectionEl;
       blockLineStart = sectionInfo.lineStart;
       blockLineEnd = sectionInfo.lineEnd;
-      blockOffsetInSection = sectionCharOffset + range.startOffset;
+      blockOffsetInSection = sectionCharOffset + (isStartNode ? range.startOffset : 0);
     }
 
     // 在选区内：收集文本
     if (inRange) {
-      const startOff = (node === range.startContainer) ? range.startOffset : 0;
+      const startOff = isStartNode ? range.startOffset : 0;
       const endOff = (node === range.endContainer) ? range.endOffset : nodeText.length;
       const segment = nodeText.substring(startOff, endOff);
 
@@ -518,7 +475,7 @@ export function extractCrossBlockSegments(
       lineStart: draft.lineStart,
       lineEnd: draft.lineEnd,
       fullTextOffset: draft.fullTextOffset,
-      occurrence: countOccurrenceIndexLocal(sectionText, draft.text, draft.offsetInSection),
+      occurrence: countOccurrenceIndex(sectionText, draft.text, draft.offsetInSection),
     });
   }
 
@@ -537,29 +494,6 @@ function getSectionCleanText(sectionEl: HTMLElement): string {
   return parts.join("");
 }
 
-// 计算 searchText 在 text 中离 offset 最近的出现序号（0-indexed）
-function countOccurrenceIndexLocal(text: string, searchText: string, offset: number): number {
-  const positions: number[] = [];
-  let pos = 0;
-  while (true) {
-    const idx = text.indexOf(searchText, pos);
-    if (idx < 0) break;
-    positions.push(idx);
-    pos = idx + 1;
-  }
-  if (positions.length === 0) return 0;
-  let bestIdx = 0;
-  let bestDist = Math.abs(positions[0]! - offset);
-  for (let i = 1; i < positions.length; i++) {
-    const dist = Math.abs(positions[i]! - offset);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-
 // 扫描源码中不可标注的区域（围栏代码块和内联代码）
 export function findExcludedRanges(source: string): Array<{start: number, end: number}> {
   const ranges: Array<{start: number, end: number}> = [];
@@ -568,13 +502,18 @@ export function findExcludedRanges(source: string): Array<{start: number, end: n
   let inFenced = false;
   let fenceStart = 0;
 
-  // 逐行扫描围栏代码块
+  // 逐行扫描围栏代码块（支持列表内缩进围栏与 ~~~ 围栏；闭合须为同字符、长度 ≥ 开围栏）
+  let fenceMarker = "`";
+  let fenceLen = 3;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (!inFenced && /^```/.test(line)) {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (!inFenced && fenceMatch) {
       inFenced = true;
+      fenceMarker = fenceMatch[1]!.charAt(0);
+      fenceLen = fenceMatch[1]!.length;
       fenceStart = pos;
-    } else if (inFenced && /^```/.test(line)) {
+    } else if (inFenced && fenceMatch && fenceMatch[1]!.charAt(0) === fenceMarker && fenceMatch[1]!.length >= fenceLen) {
       ranges.push({ start: fenceStart, end: pos + line.length });
       inFenced = false;
     }
@@ -585,8 +524,8 @@ export function findExcludedRanges(source: string): Array<{start: number, end: n
     ranges.push({ start: fenceStart, end: source.length });
   }
 
-  // 内联代码（跳过已在围栏代码块内的）
-  const inlineRe = /`([^`\n]+)`/g;
+  // 内联代码（优先匹配双反引号形式 ``code``，避免漏掉外侧反引号；跳过已在围栏代码块内的）
+  const inlineRe = /(``[^`\n]+``|`[^`\n]+`)/g;
   let m: RegExpExecArray | null;
   while ((m = inlineRe.exec(source)) !== null) {
     const inFencedBlock = ranges.some(r => m!.index >= r.start && m!.index < r.end);

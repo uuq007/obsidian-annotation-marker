@@ -17,6 +17,8 @@ export class AnnotationListPanel {
   private onUpdate: (() => void) | null = null;
   private sortOption: "position-asc" | "position-desc" | "time-asc" | "time-desc" | "color-asc" | "color-desc" = "position-asc";
   private panelClickHandler: ((e: MouseEvent) => void) | null = null;
+  // 右键删除确认小菜单：面板关闭时一并回收，避免残留
+  private contextMenuEl: HTMLElement | null = null;
 
   // 拖动相关
   private isMouseDown = false;
@@ -153,10 +155,13 @@ export class AnnotationListPanel {
     const loc = t();
 
     this.panelEl = createDiv();
-    this.panelEl.className = "annotation-list-panel";
+    // 用局部引用贯穿整个异步流程：await 期间二次点击会走 hidePanel() 把 panelEl 置 null，
+    // 恢复执行后若直接用 this.panelEl 会空引用崩溃（调用处 void 吞掉异常表现为面板打不开）
+    const panel = this.panelEl;
+    panel.className = "annotation-list-panel";
 
     // 标题栏
-    const header = this.panelEl.createDiv({ cls: "annotation-list-header" });
+    const header = panel.createDiv({ cls: "annotation-list-header" });
     header.createSpan({ text: loc.panelTitle, cls: "annotation-list-title" });
 
     // 排序选择
@@ -183,24 +188,25 @@ export class AnnotationListPanel {
     const closeBtn = header.createEl("button", { cls: "annotation-list-close", text: loc.close });
     closeBtn.addEventListener("click", () => this.hidePanel());
 
-    const content = this.panelEl.createDiv({ cls: "annotation-list-content" });
+    const content = panel.createDiv({ cls: "annotation-list-content" });
     // 先渲染内容，再定位，避免空面板闪烁后跳位
     await this.renderContent(content);
 
+    // await 期间面板已被关闭（二次点击 hidePanel）→ 放弃本次渲染
+    if (this.panelEl !== panel || !this.containerEl) return;
     const container = this.containerEl;
-    if (!container) return;
 
     // 先放到屏幕外测量尺寸，避免用户看到错误位置
-    this.panelEl.setCssStyles({
+    panel.setCssStyles({
       position: "absolute",
       left: "-9999px",
       top: "-9999px",
       zIndex: "100",
     });
-    container.appendChild(this.panelEl);
+    container.appendChild(panel);
 
     // 读取面板实际高度
-    const panelHeight = this.panelEl.offsetHeight || 300;
+    const panelHeight = panel.offsetHeight || 300;
 
     if (this.listBtn) {
       const btnRect = this.listBtn.getBoundingClientRect();
@@ -240,13 +246,13 @@ export class AnnotationListPanel {
           panelTop = containerVisibleTop - containerRect.top + 10;
         }
       }
-      this.panelEl.setCssStyles({
+      panel.setCssStyles({
         left: `${panelLeft}px`,
         top: `${panelTop}px`,
         transform: "",
       });
     } else {
-      this.panelEl.setCssStyles({
+      panel.setCssStyles({
         right: "60px",
         top: "50%",
         transform: "translateY(-50%)",
@@ -381,12 +387,16 @@ export class AnnotationListPanel {
           await this.fileManager.removeAnnotation(this.currentNotePath, annotation.id);
         }
         menu.remove();
+        if (this.contextMenuEl === menu) this.contextMenuEl = null;
         new Notice(loc.noticeDeleted);
         this.hidePanel();
         this.onUpdate?.();
       })();
     });
 
+    // 新菜单打开前回收旧菜单（连续右键不同条目时避免叠加）
+    this.contextMenuEl?.remove();
+    this.contextMenuEl = menu;
     activeDocument.body.appendChild(menu);
 
     const menuWidth = 120;
@@ -405,6 +415,7 @@ export class AnnotationListPanel {
     const handler = (e: MouseEvent) => {
       if (!menu.contains(e.target as Node)) {
         menu.remove();
+        if (this.contextMenuEl === menu) this.contextMenuEl = null;
         activeDocument.removeEventListener("click", handler);
       }
     };
@@ -431,6 +442,10 @@ export class AnnotationListPanel {
     if (this.panelClickHandler) {
       activeDocument.removeEventListener("click", this.panelClickHandler);
       this.panelClickHandler = null;
+    }
+    if (this.contextMenuEl) {
+      this.contextMenuEl.remove();
+      this.contextMenuEl = null;
     }
     if (this.panelEl) {
       this.panelEl.remove();

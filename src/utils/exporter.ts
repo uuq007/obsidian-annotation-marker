@@ -1,6 +1,10 @@
 import type { AnnotationColor, AnnotationRuby, ParsedAnnotation } from "../types";
+import { encodeAttr } from "./helpers";
 
-type SortOption = "position-asc" | "position-desc" | "time-asc" | "time-desc" | "color-asc" | "color-desc" | "by-note";
+// 注意：不含 "by-note"——按笔记分组是"全部笔记"侧边栏模式的语义，
+// 导出场景只面向单文件，这里若保留该分支只会与 position-asc 静默重合（语义漂移）。
+// 侧边栏的 by-note 分组逻辑在 AnnotationSidebarView 内部实现
+type SortOption = "position-asc" | "position-desc" | "time-asc" | "time-desc" | "color-asc" | "color-desc";
 
 // 将标注按排序选项排序（复用侧边栏排序逻辑）
 export function sortAnnotations(annotations: ParsedAnnotation[], sortOption: SortOption): ParsedAnnotation[] {
@@ -24,9 +28,6 @@ export function sortAnnotations(annotations: ParsedAnnotation[], sortOption: Sor
     case "color-desc":
       sorted.sort((a, b) => b.color.localeCompare(a.color));
       break;
-    case "by-note":
-      sorted.sort((a, b) => a.positions[0]!.start - b.positions[0]!.start);
-      break;
   }
   return sorted;
 }
@@ -44,7 +45,7 @@ export function buildAnnotatedText(text: string, rubyTexts: AnnotationRuby[]): s
       result += text.substring(currentIndex, ruby.startIndex);
     }
     const baseText = text.substring(ruby.startIndex, ruby.startIndex + ruby.length);
-    result += `<ruby>${baseText}<rt>${ruby.ruby}</rt></ruby>`;
+    result += `<ruby>${baseText}<rt>${encodeAttr(ruby.ruby)}</rt></ruby>`;
     currentIndex = ruby.startIndex + ruby.length;
   }
 

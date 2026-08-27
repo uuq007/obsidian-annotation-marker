@@ -15,7 +15,6 @@ export const en: LocaleDict = {
   none: "None",
   noData: "No annotations",
   noRuby: "No ruby",
-  noNote: "(No note)",
   noteContent: "Note",
 
   // main.ts — ribbon & commands
@@ -161,6 +160,7 @@ export const en: LocaleDict = {
   importComplete: "Import Complete",
   importResultImported: (n: number) => `Successfully imported: ${n}`,
   importResultSkippedInvalid: (n: number) => `Skipped (invalid): ${n}`,
+  importResultSkippedDuplicate: (n: number) => `Skipped (duplicates): ${n}`,
   importResultSkippedNotFound: (n: number) => `Skipped (file not found): ${n}`,
   importResultFailed: (n: number) => `Failed to match: ${n}`,
   importErrorDetails: "Error details:",
@@ -183,6 +183,7 @@ export const en: LocaleDict = {
   exportFileNamePlaceholder: "File name (.md suffix added automatically)",
   exportFileNameInvalid: "Filename cannot contain: \\ / : * ? \" < > |",
   exportAutoName: "Auto name",
+  exportAutoNamePrefix: "[Annotations] ",
   settingsExportFolder: "Export annotation folder",
   settingsExportFolderDesc: "When set, exports will use this folder automatically. Leave empty to choose manually each time.",
 

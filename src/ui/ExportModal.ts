@@ -4,6 +4,9 @@ import { t } from "../i18n";
 // 文件夹选择对话框
 export class FolderSuggestModal extends FuzzySuggestModal<string> {
   private onSelect: (folderPath: string) => void | Promise<void>;
+  // 文件夹列表缓存：FuzzySuggestModal 每次输入变化都调 getItems()，
+  // 全库遍历+排序放这里会在大库下每击键卡顿，改为 onOpen 时构建一次
+  private foldersCache: string[] = [];
 
   constructor(app: App, onSelect: (folderPath: string) => void | Promise<void>) {
     super(app);
@@ -13,16 +16,7 @@ export class FolderSuggestModal extends FuzzySuggestModal<string> {
   }
 
   getItems(): string[] {
-    const folderSet = new Set<string>();
-    folderSet.add("/");
-    for (const file of this.app.vault.getFiles()) {
-      let current: TFolder | null = file.parent;
-      while (current) {
-        folderSet.add(current.path);
-        current = current.parent;
-      }
-    }
-    return Array.from(folderSet).sort();
+    return this.foldersCache;
   }
 
   getItemText(item: string): string {
@@ -35,6 +29,19 @@ export class FolderSuggestModal extends FuzzySuggestModal<string> {
 
   onOpen(): void {
     void super.onOpen();
+
+    // 构建文件夹列表缓存
+    const folderSet = new Set<string>();
+    folderSet.add("/");
+    for (const file of this.app.vault.getFiles()) {
+      let current: TFolder | null = file.parent;
+      while (current) {
+        folderSet.add(current.path);
+        current = current.parent;
+      }
+    }
+    this.foldersCache = Array.from(folderSet).sort();
+
     // 支持输入新文件夹路径
     this.inputEl.addEventListener("keydown", (evt: KeyboardEvent) => {
       if (evt.key === "Enter") {
@@ -144,7 +151,8 @@ export class FileNameModal extends Modal {
 
     const autoBtn = btnContainer.createEl("button", { text: loc.exportAutoName });
     autoBtn.addEventListener("click", () => {
-      const autoName = `【导出标注】${this.noteName}`;
+      // 前缀走 i18n，避免英文环境导出得到中文文件名
+      const autoName = `${loc.exportAutoNamePrefix}${this.noteName}`;
       input.value = autoName;
       validate();
       input.focus();

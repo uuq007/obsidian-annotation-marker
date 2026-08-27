@@ -28,48 +28,48 @@ function stripRubyText(html: string): string {
   return stripTags(noRt);
 }
 
-// 从标注文件内容中剥离所有标注标签，只保留纯文本
+// 从标注文件内容中剥离插件生成的标注标签，只保留纯文本。
+// 必须只匹配带 data-annotation-id 的插件标签：用户手写的原生 <mark>/<ruby>
+// 若被误剥，回写原笔记时会静默丢失（与 diffSync 的 scanAllTags 口径对齐）
 export function stripAnnotationTags(content: string): string {
   let result = content.replace(
-    /<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
+    /<ruby\s+[^>]*data-annotation-id=[^>]*>([\s\S]*?)<rt\s+[^>]*data-annotation-id=[^>]*>([\s\S]*?)<\/rt><\/ruby>/g,
     "$1"
   );
   result = stripNestedMarks(result);
   return result;
 }
 
-// 用深度计数法剥离嵌套的 <mark> 标签，保留文字内容
+// 用深度配对法剥离插件生成的嵌套 <mark> 标签（开闭成对移除），保留文字内容；
+// 用户手写的无 id <mark>/<ruby> 标签原样保留
 function stripNestedMarks(content: string): string {
-  const openRe = /<mark\s+[^>]*>/g;
-  const closeRe = /<\/mark>/g;
-  const segments: Array<{ text: string; isTag: boolean; index: number }> = [];
+  const openRe = /<mark\s+[^>]*data-annotation-id=[^>]*>/g;
+  // 收集需要移除的区间：每个插件 mark 的开标签 + 与之深度配对的闭标签
+  const removals: Array<[number, number]> = [];
 
-  const tags: Array<{ index: number; length: number; isOpen: boolean }> = [];
   let m: RegExpExecArray | null;
-
   openRe.lastIndex = 0;
   while ((m = openRe.exec(content)) !== null) {
-    tags.push({ index: m.index, length: m[0].length, isOpen: true });
-  }
-  closeRe.lastIndex = 0;
-  while ((m = closeRe.exec(content)) !== null) {
-    tags.push({ index: m.index, length: m[0].length, isOpen: false });
-  }
-
-  tags.sort((a, b) => a.index - b.index);
-
-  let lastIdx = 0;
-  for (const tag of tags) {
-    if (tag.index > lastIdx) {
-      segments.push({ text: content.substring(lastIdx, tag.index), isTag: false, index: lastIdx });
-    }
-    lastIdx = tag.index + tag.length;
-  }
-  if (lastIdx < content.length) {
-    segments.push({ text: content.substring(lastIdx), isTag: false, index: lastIdx });
+    const openStart = m.index;
+    const openEnd = openStart + m[0].length;
+    const closeStart = findMatchingCloseMark(content, openEnd);
+    if (closeStart === -1) continue;
+    removals.push([openStart, openEnd], [closeStart, closeStart + 7]);
   }
 
-  return segments.map(s => s.text).join("");
+  if (removals.length === 0) return content;
+  removals.sort((a, b) => a[0] - b[0]);
+
+  let out = "";
+  let last = 0;
+  for (const [s, e] of removals) {
+    // 畸形嵌套时的重叠区间保护
+    if (s < last) continue;
+    out += content.slice(last, s);
+    last = e;
+  }
+  out += content.slice(last);
+  return out;
 }
 
 // 标记结构（解析过程中的中间结果）
@@ -81,8 +81,8 @@ interface MarkSegment {
   endIndex: number;
 }
 
-// 用深度计数法找到配对的 </mark> 闭标签
-function findMatchingCloseMark(content: string, openTagEnd: number): number {
+// 用深度计数法找到配对的 </mark> 闭标签（serializer 的标注更新也依赖此配对逻辑）
+export function findMatchingCloseMark(content: string, openTagEnd: number): number {
   let depth = 1;
   let pos = openTagEnd;
 
@@ -136,7 +136,8 @@ function parseRubyTags(content: string, parentAnnotationId: string): AnnotationR
       rubies.push({
         startIndex: plainBefore.length,
         length: baseText.length,
-        ruby: rtText,
+        // 写入时经 encodeAttr 转义，读取端对称解码
+        ruby: decodeAttr(rtText),
       });
     }
   }
@@ -238,10 +239,4 @@ export function parseAnnotations(content: string): ParsedAnnotation[] {
   }
 
   return annotations;
-}
-
-// 根据 ID 查找特定标注
-export function findAnnotationById(content: string, id: string): ParsedAnnotation | null {
-  const annotations = parseAnnotations(content);
-  return annotations.find((a) => a.id === id) ?? null;
 }

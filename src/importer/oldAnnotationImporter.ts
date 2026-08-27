@@ -2,6 +2,7 @@ import { App, normalizePath } from "obsidian";
 import type { AnnotationColor, NewAnnotation } from "../types";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 import { insertAnnotation } from "../annotationFile/annotationSerializer";
+import { parseAnnotations } from "../annotationFile/annotationParser";
 import { buildCleanedMap } from "../utils/contentMapper";
 
 // ── 旧版标注数据类型 ──
@@ -38,6 +39,7 @@ export interface ImportResult {
   totalAnnotations: number;
   imported: number;
   skippedInvalid: number;
+  skippedDuplicate: number;
   skippedNotFound: number;
   failed: number;
   errors: string[];
@@ -96,6 +98,7 @@ export async function importOldAnnotations(
     totalAnnotations: 0,
     imported: 0,
     skippedInvalid: 0,
+    skippedDuplicate: 0,
     skippedNotFound: 0,
     failed: 0,
     errors: [],
@@ -141,11 +144,43 @@ export async function importOldAnnotations(
       // 读取标注文件内容（单次）
       let content = await fileManager.readAnnotationFile(notePath);
 
+      // 重复导入防护：与确认弹窗"重复标注将被自动跳过"的承诺一致——
+      // 已有相同文本（行号相近）的标注时跳过，避免同一文本被新旧 id 层层嵌套包裹
+      const existingAnnotations = parseAnnotations(content);
+      const lineStarts: number[] = [0];
+      for (let i = 0; i < content.length; i++) {
+        if (content[i] === "\n") lineStarts.push(i + 1);
+      }
+      const lineOfOffset = (offset: number): number => {
+        let lo = 0;
+        let hi = lineStarts.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if ((lineStarts[mid] ?? 0) <= offset) lo = mid;
+          else hi = mid - 1;
+        }
+        return lo;
+      };
+      const isDuplicate = (text: string, startLine: number): boolean =>
+        existingAnnotations.some((a) =>
+          a.text === text &&
+          a.positions.some((p) => {
+            // 旧行号信息缺失（0）时仅按文本判断
+            if (!startLine) return true;
+            return Math.abs(lineOfOffset(p.start) - startLine) <= 1;
+          })
+        );
+
       for (const oldAnn of data.annotations) {
         result.totalAnnotations++;
 
         if (oldAnn.isValid !== 1) {
           result.skippedInvalid++;
+          continue;
+        }
+
+        if (isDuplicate(oldAnn.text, oldAnn.startLine)) {
+          result.skippedDuplicate++;
           continue;
         }
 

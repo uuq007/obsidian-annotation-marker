@@ -84,11 +84,16 @@ export class AnnotationFileManager {
     }
   }
 
-  // 同步标注文件编辑回原文件
+  // 同步标注文件编辑回原文件。
+  // 写回前先把原文件的外部变更（分屏编辑/同步盘等在会话期间发生的修改）
+  // 经 diffSync 合并进标注文件，再剥离标注标签写回——双向核对，
+  // 避免直接用标注文件内容全文覆盖掉外部修改
   async syncToOriginal(notePath: string): Promise<void> {
     try {
       const file = this.app.vault.getAbstractFileByPath(notePath);
       if (!(file instanceof TFile)) return;
+
+      await this.syncFromOriginal(notePath);
 
       const annotatedContent = await this.readAnnotationFile(notePath);
       const pureContent = stripAnnotationTags(annotatedContent);

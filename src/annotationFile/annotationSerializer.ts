@@ -9,7 +9,7 @@ export class PartialWikiLinkError extends Error {
   constructor() { super("partialWikiLink"); }
 }
 import type { Interval } from "../utils/overlapUtils";
-import { parseAnnotations, stripAnnotationTags } from "./annotationParser";
+import { parseAnnotations, stripAnnotationTags, findMatchingCloseMark } from "./annotationParser";
 
 // 清理原生 <ruby> 标签（非插件生成）：移除 <rt> 内容和 <ruby> 标签本身
 function stripNativeRuby(text: string): string {
@@ -20,7 +20,8 @@ function stripNativeRuby(text: string): string {
 
 // 构建 <ruby> 标签
 function buildRubyTag(annotationId: string, text: string, ruby: string): string {
-  return `<ruby data-annotation-id="${annotationId}">${text}<rt data-annotation-id="${annotationId}">${ruby}</rt></ruby>`;
+  // ruby 文本来自用户输入，必须转义——含 < / " 会破坏标注文件标签结构（读取端 decodeAttr 对称解码）
+  return `<ruby data-annotation-id="${annotationId}">${text}<rt data-annotation-id="${annotationId}">${encodeAttr(ruby)}</rt></ruby>`;
 }
 
 // 构建带有注音标注的文本内容
@@ -171,7 +172,8 @@ function rebuildOverlapRegion(
         start: idx,
         end: idx + ann.text.length,
         annotationColor: ann.color,
-        note: ann.note ? encodeAttr(ann.note) : undefined,
+        // note 传原文，由 buildSegmentHtml 统一转义
+        note: ann.note || undefined,
         rubyTexts: ann.rubyTexts,
       });
     }
@@ -353,13 +355,28 @@ export function updateAnnotationTag(
     rubyTexts?: AnnotationRuby[];
   }
 ): string {
-  const regex = new RegExp(
-    `(<mark\\s+)([^>]*data-annotation-id="${annotationId}"[^>]*)(>)([\\s\\S]*?)(<\\/mark>)`,
-    "g"
-  );
+  // 用深度配对定位每个完整 <mark> 区间：惰性正则在嵌套标注（重叠重建的产物）上
+  // 会把内容截短到第一个 </mark>，重建时吞掉内层标注、产生孤立闭标签
+  const openRe = new RegExp(`<mark\\s+([^>]*data-annotation-id="${annotationId}"[^>]*)>`, "g");
+  const ranges: Array<{ start: number; end: number; attrs: string; openLength: number }> = [];
 
-  return content.replace(regex, (_match, prefix: string, attrs: string, open: string, innerContent: string, close: string) => {
-    let newAttrs = attrs;
+  let m: RegExpExecArray | null;
+  while ((m = openRe.exec(content)) !== null) {
+    const start = m.index;
+    const openLength = m[0]!.length;
+    const closeStart = findMatchingCloseMark(content, start + openLength);
+    if (closeStart === -1) continue;
+    ranges.push({ start, end: closeStart + 7, attrs: m[1]!, openLength });
+  }
+
+  if (ranges.length === 0) return content;
+
+  // 从后往前重建，避免前序替换使后序偏移失效
+  let result = content;
+  for (let i = ranges.length - 1; i >= 0; i--) {
+    const r = ranges[i]!;
+    const innerContent = content.slice(r.start + r.openLength, r.end - 7);
+    let newAttrs = r.attrs;
 
     if (updates.color) {
       const bgVar = COLOR_BG_VARS[updates.color];
@@ -390,14 +407,17 @@ export function updateAnnotationTag(
       }
     }
 
+    let newInnerContent = innerContent;
     if (updates.rubyTexts !== undefined) {
-      const plainText = innerContent.replace(/<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>[\s\S]*?<\/rt><\/ruby>/g, "$1");
-      const newInnerContent = buildAnnotatedText(plainText, annotationId, updates.rubyTexts);
-      return `${prefix}${newAttrs}${open}${newInnerContent}${close}`;
+      // 只剥离本标注的 ruby（嵌套的其他标注 ruby 不受影响）后按新注音重建
+      const plainText = removeRubyById(innerContent, annotationId);
+      newInnerContent = buildAnnotatedText(plainText, annotationId, updates.rubyTexts);
     }
 
-    return `${prefix}${newAttrs}${open}${innerContent}${close}`;
-  });
+    result = result.slice(0, r.start) + `<mark ${newAttrs}>${newInnerContent}</mark>` + result.slice(r.end);
+  }
+
+  return result;
 }
 
 // 全文标注插入
@@ -415,13 +435,17 @@ export function insertFullTextAnnotation(
     const idx = map.cleaned.indexOf(annotation.text, searchFrom);
     if (idx < 0) break;
     occurrences.push(idx);
-    searchFrom = idx + 1;
+    // 按 text 长度推进，不允许重叠匹配（如对"哈哈"全文标注"哈哈"这类叠词，
+    // 重叠区间相交会在插入时切进已生成的 <mark> 产生损坏标签）
+    searchFrom = idx + annotation.text.length;
   }
 
   if (occurrences.length === 0) return { content, id, count: 0 };
 
   let newContent = content;
   let actualCount = 0;
+  // 已插入区间（源坐标），插入循环跳过与之重叠的匹配（wiki-link 扩展可能使区间变宽）
+  const insertedRanges: Array<{ start: number; end: number }> = [];
   for (let i = occurrences.length - 1; i >= 0; i--) {
     const cleanStart = occurrences[i]!;
     const cleanEnd = cleanStart + annotation.text.length;
@@ -442,10 +466,13 @@ export function insertFullTextAnnotation(
     srcStart = expanded.start;
     srcEnd = expanded.end;
 
+    if (insertedRanges.some(r => srcStart < r.end && srcEnd > r.start)) continue;
+
     const sourceSlice = newContent.substring(srcStart, srcEnd);
 
     const tag = buildMarkTag(id, sourceSlice, annotation.color, annotation.note, undefined, undefined, true);
     newContent = newContent.substring(0, srcStart) + tag + newContent.substring(srcEnd);
+    insertedRanges.push({ start: srcStart, end: srcEnd });
     actualCount++;
   }
 

@@ -17,7 +17,6 @@ export interface LocaleDict {
   none: string;
   noData: string;
   noRuby: string;
-  noNote: string;
   noteContent: string;
 
   // main.ts — 功能区 & 命令
@@ -163,6 +162,7 @@ export interface LocaleDict {
   importComplete: string;
   importResultImported: (n: number) => string;
   importResultSkippedInvalid: (n: number) => string;
+  importResultSkippedDuplicate: (n: number) => string;
   importResultSkippedNotFound: (n: number) => string;
   importResultFailed: (n: number) => string;
   importErrorDetails: string;
@@ -185,6 +185,7 @@ export interface LocaleDict {
   exportFileNamePlaceholder: string;
   exportFileNameInvalid: string;
   exportAutoName: string;
+  exportAutoNamePrefix: string;
   settingsExportFolder: string;
   settingsExportFolderDesc: string;
 

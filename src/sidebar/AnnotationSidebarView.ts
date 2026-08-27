@@ -104,8 +104,10 @@ export class AnnotationSidebarView extends ItemView {
     // 注册刷新回调（保存引用，onClose 时用同一引用精确注销）
     this.boundAnnotationChange = () => {
       if (this.detailCardData) {
-        // 详情面板打开中，关闭后刷新
+        // 详情面板打开中：closeDetailPanel 内部已重新渲染卡片列表，
+        // 再走 refresh 会双跑一轮全量加载，直接返回
         this.closeDetailPanel();
+        return;
       }
       void this.refresh();
     };
@@ -123,6 +125,15 @@ export class AnnotationSidebarView extends ItemView {
         this.plugin.annotationChangeCallbacks.splice(idx, 1);
       }
       this.boundAnnotationChange = null;
+    }
+    // 清掉挂起的防抖定时器：关视图后仍触发会对已脱离 DOM 的列表做全量加载
+    if (this.searchDebounceTimer) {
+      window.clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+    if (this.leafChangeTimer) {
+      window.clearTimeout(this.leafChangeTimer);
+      this.leafChangeTimer = null;
     }
     this.allAnnotationsCache = null;
     this.detailCardData = null;
@@ -374,23 +385,33 @@ export class AnnotationSidebarView extends ItemView {
     }
 
     const listed = await this.app.vault.adapter.list(annotationsDir);
-    const results: AnnotationCardData[] = [];
 
-    for (const filePath of listed.files) {
-      if (!filePath.endsWith(".md")) continue;
-      try {
-        const notePath = annotationPathToNotePath(pluginDir, filePath);
-        const originalFile = this.app.vault.getAbstractFileByPath(notePath);
-        if (!(originalFile instanceof TFile)) continue;
-        const annotations = await this.fileManager.getAnnotations(notePath);
-        const fileName = originalFile.name;
-        for (const annotation of annotations) {
-          results.push({ annotation, notePath, fileName });
+    // 并行读取（限流 8 并发，避免大库一次性打满 I/O）：此前逐文件串行 await，
+    // 全部笔记模式下首次加载与缓存失效后的重读都很慢
+    const mdFiles = listed.files.filter((f) => f.endsWith(".md"));
+    const results: AnnotationCardData[] = [];
+    const CONCURRENCY = 8;
+    let cursor = 0;
+
+    const worker = async (): Promise<void> => {
+      while (cursor < mdFiles.length) {
+        const filePath = mdFiles[cursor++]!;
+        try {
+          const notePath = annotationPathToNotePath(pluginDir, filePath);
+          const originalFile = this.app.vault.getAbstractFileByPath(notePath);
+          if (!(originalFile instanceof TFile)) continue;
+          const annotations = await this.fileManager.getAnnotations(notePath);
+          const fileName = originalFile.name;
+          for (const annotation of annotations) {
+            results.push({ annotation, notePath, fileName });
+          }
+        } catch {
+          // 跳过
         }
-      } catch {
-        // 跳过
       }
-    }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, mdFiles.length) }, worker));
 
     this.allAnnotationsCache = results;
     return results;
@@ -836,9 +857,12 @@ export class AnnotationSidebarView extends ItemView {
       return;
     }
 
+    // 导出仅在当前笔记模式可用（exportBtn 在 by-note 所属的"全部笔记"模式下隐藏），
+    // 防御性兜底：万一 sortOption 残留 by-note 则回退为位置正序
+    const sortOption = this.sortOption === "by-note" ? "position-asc" as const : this.sortOption;
     const annotations = sortAnnotations(
       cards.map((c) => c.annotation),
-      this.sortOption
+      sortOption
     );
     const content = buildExportContent(annotations);
     const exportFolder = this.plugin.settings.exportFolder?.trim();

@@ -15,7 +15,6 @@ export const zhCN: LocaleDict = {
   none: "无",
   noData: "暂无标注",
   noRuby: "暂无注音",
-  noNote: "（无批注）",
   noteContent: "批注内容",
 
   // main.ts — 功能区 & 命令
@@ -161,6 +160,7 @@ export const zhCN: LocaleDict = {
   importComplete: "导入完成",
   importResultImported: (n: number) => `成功导入：${n} 条`,
   importResultSkippedInvalid: (n: number) => `无效跳过：${n} 条`,
+  importResultSkippedDuplicate: (n: number) => `重复跳过：${n} 条`,
   importResultSkippedNotFound: (n: number) => `文件不存在：${n} 条`,
   importResultFailed: (n: number) => `匹配失败：${n} 条`,
   importErrorDetails: "错误详情：",
@@ -183,6 +183,7 @@ export const zhCN: LocaleDict = {
   exportFileNamePlaceholder: "文件名（自动添加 .md 后缀）",
   exportFileNameInvalid: "文件名不能包含以下字符：\\ / : * ? \" < > |",
   exportAutoName: "自动命名",
+  exportAutoNamePrefix: "【导出标注】",
   settingsExportFolder: "导出标注文件夹",
   settingsExportFolderDesc: "设置后，导出时将直接使用该文件夹，无需每次选择。留空则每次手动选择。",
 

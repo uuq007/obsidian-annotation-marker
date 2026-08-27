@@ -1,4 +1,4 @@
-import { App, MarkdownView, Notice, Platform, type EditorPosition } from "obsidian";
+import { App, MarkdownView, Notice, Platform, normalizePath, type EditorPosition } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { AnnotationColor, AnnotationRuby, BlockSegment, AnnotationPluginSettings } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
@@ -29,6 +29,11 @@ export class SelectionMenu {
   private onAddCallback: (() => void) | null = null;
   private pendingNote = "";
   private noteInput: HTMLTextAreaElement | null = null;
+  // 文本预览 span 引用（移动端 updateSelection 原地更新待标注内容用）
+  private textPreviewSpan: HTMLSpanElement | null = null;
+  // createAnnotation 重入门闩：await 文件写入期间菜单仍可见，色点/保存按钮可再次触发，
+  // 会造成 replaceRange 双重执行（mark 嵌套）或文件路径重复插入
+  private creating = false;
   private colorContainer: HTMLElement | null = null;
   private rubyTextEnabled = false;
   private rubyTexts: AnnotationRuby[] = [];
@@ -101,10 +106,11 @@ export class SelectionMenu {
 
     // 文本预览
     const textPreview = scrollableContent.createDiv({ cls: "annotation-menu-preview" });
+    this.textPreviewSpan = textPreview.createSpan();
     const previewText = this.selectedText.length > 80
       ? this.selectedText.substring(0, 80) + "..."
       : this.selectedText;
-    textPreview.createSpan({ text: `"${previewText}"` });
+    this.textPreviewSpan.textContent = `"${previewText}"`;
 
     // 颜色选择
     const colorSection = scrollableContent.createDiv({ cls: "annotation-menu-section" });
@@ -209,29 +215,7 @@ export class SelectionMenu {
     // 定位菜单
     window.requestAnimationFrame(() => {
       if (!this.menuEl) return;
-      // 用真实渲染宽度参与翻转判定（CSS max-width 随视口收缩，写死常量在小屏上会失准）
-      const menuWidth = this.menuEl.offsetWidth || 280;
-      const menuHeight = this.menuEl.offsetHeight || 200;
-
-      let menuX = params.x + 10;
-      let menuY = params.y + 10;
-
-      if (menuX + menuWidth > window.innerWidth) {
-        menuX = params.x - menuWidth - 10;
-      }
-
-      const threshold = window.innerHeight * 0.4;
-      if (params.y > threshold) {
-        menuY = params.y - menuHeight - 10;
-      }
-      if (menuY + menuHeight > window.innerHeight) {
-        menuY = window.innerHeight - menuHeight - 10;
-      }
-
-      this.menuEl.setCssStyles({
-        left: `${Math.max(10, menuX)}px`,
-        top: `${Math.max(10, menuY)}px`,
-      });
+      this.positionMenuAt(params.x, params.y);
 
       // 克隆 DOM 选区并用高亮层渲染临时背景——一旦后续聚焦输入框，浏览器会把原生
       // 选区移进输入框内，笔记区原选区的视觉就只剩这份克隆高亮（移动端尤其依赖它）
@@ -252,6 +236,34 @@ export class SelectionMenu {
         this.vvResizeHandler = () => this.handleVisualViewportResize();
         window.visualViewport.addEventListener("resize", this.vvResizeHandler);
       }
+    });
+  }
+
+  // 按锚点坐标定位菜单：左右翻转 + 视口边界钳制（show 与移动端 updateSelection 共用）
+  private positionMenuAt(x: number, y: number): void {
+    if (!this.menuEl) return;
+    // 用真实渲染宽度参与翻转判定（CSS max-width 随视口收缩，写死常量在小屏上会失准）
+    const menuWidth = this.menuEl.offsetWidth || 280;
+    const menuHeight = this.menuEl.offsetHeight || 200;
+
+    let menuX = x + 10;
+    let menuY = y + 10;
+
+    if (menuX + menuWidth > window.innerWidth) {
+      menuX = x - menuWidth - 10;
+    }
+
+    const threshold = window.innerHeight * 0.4;
+    if (y > threshold) {
+      menuY = y - menuHeight - 10;
+    }
+    if (menuY + menuHeight > window.innerHeight) {
+      menuY = window.innerHeight - menuHeight - 10;
+    }
+
+    this.menuEl.setCssStyles({
+      left: `${Math.max(10, menuX)}px`,
+      top: `${Math.max(10, menuY)}px`,
     });
   }
 
@@ -416,11 +428,21 @@ export class SelectionMenu {
     let rubyStart = 0;
 
     if (sel && !sel.isCollapsed) {
-      selectedRubyText = sel.toString();
+      // 实时选区必须完全落在注音预览内：用户若在批注框/正文里划选后点"添加"，
+      // 直接计算会得到相对预览的错误锚点
       const range = sel.getRangeAt(0);
-      const offset = calculateRangeOffsetInElement(range, this.rubyTextPreview!);
-      if (offset) rubyStart = offset.start;
-    } else if (this.selectedRubyRange) {
+      const preview = this.rubyTextPreview;
+      const insidePreview = !!preview &&
+        preview.contains(range.startContainer) &&
+        preview.contains(range.endContainer);
+      if (insidePreview) {
+        selectedRubyText = sel.toString();
+        const offset = calculateRangeOffsetInElement(range, preview!);
+        if (offset) rubyStart = offset.start;
+      }
+    }
+
+    if (!selectedRubyText && this.selectedRubyRange) {
       selectedRubyText = this.selectedText.substring(
         this.selectedRubyRange.start,
         this.selectedRubyRange.end
@@ -450,8 +472,9 @@ export class SelectionMenu {
   }
 
   private async createAnnotation(note: string, isFullText = false): Promise<void> {
-    if (!this.currentNotePath) return;
+    if (!this.currentNotePath || this.creating) return;
     const loc = t();
+    this.creating = true;
 
     try {
       // 全文标注不支持注音
@@ -459,10 +482,13 @@ export class SelectionMenu {
         ? this.rubyTexts
         : undefined;
 
-      // 编辑模式 + 普通标注（非全文/跨段）：直接用 replaceRange 局部替换
+      // 编辑模式 + 普通标注（非全文/跨段）：直接用 replaceRange 局部替换。
+      // 菜单挂在 body 上，切换到其他 md 标签页并不会关闭菜单——必须校验活动视图
+      // 确实是当前标注文件的视图，否则 getValue/写回会把别的笔记内容写进本笔记的标注文件
       if (this.editorRange && !isFullText && !(this.blockSegments && this.blockSegments.length > 0)) {
         const view = this.app?.workspace.getActiveViewOfType(MarkdownView);
-        if (view) {
+        const expectedAnnotationPath = normalizePath(this.fileManager.getAnnotationFilePath(this.currentNotePath));
+        if (view && view.file?.path === expectedAnnotationPath) {
           const id = generateId();
           const markTag = buildMarkTag(id, this.selectedText, this.selectedColor, note || undefined, rubyTexts);
 
@@ -543,6 +569,8 @@ export class SelectionMenu {
       }
       console.error("添加标注失败:", e);
       new Notice(loc.noticeAddFailed);
+    } finally {
+      this.creating = false;
     }
   }
 
@@ -561,6 +589,11 @@ export class SelectionMenu {
     }
     // 菜单关闭时清除原选区的临时高亮
     clearSelectionHighlight();
+    // 移动端关闭时同时塌陷原生选区：所有关闭路径（点 × / 标注成功 / 切文件 / 卸载）
+    // 都不留蓝紫选区残影（对 createAnnotation 成功路径幂等；标注写入不依赖实时选区）
+    if (Platform.isMobile) {
+      activeDocument.getSelection()?.removeAllRanges();
+    }
     // 菜单关闭后恢复编辑器焦点
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (view) restoreEditorFocus(view);
@@ -568,6 +601,67 @@ export class SelectionMenu {
 
   isOpened(): boolean {
     return this.menuEl !== null;
+  }
+
+  // 当前菜单正在展示的选区文本（移动端 handleMobileSelectionStable 判断"内容未变则不刷新"用）
+  getSelectedText(): string {
+    return this.selectedText;
+  }
+
+  // 移动端：菜单打开期间拖动选择手柄 / 二次划选后，原地更新待标注内容。
+  // 只替换选区相关状态（文本预览、选区参数、克隆高亮、菜单位置）；
+  // 已输入的批注（noteInput/pendingNote）与所选颜色保留；
+  // 注音数据锚定旧选区的字符偏移，随选区变化作废重置（注音开关勾选态保留）
+  updateSelection(params: {
+    x: number;
+    y: number;
+    selectedText: string;
+    contextBefore: string;
+    contextAfter: string;
+    startLine?: number;
+    endLine?: number;
+    occurrence?: number;
+    blockSegments?: BlockSegment[];
+    editorRange?: { from: EditorPosition; to: EditorPosition };
+  }): void {
+    if (!this.menuEl) return;
+
+    this.selectedText = params.selectedText;
+    this.contextBefore = params.contextBefore;
+    this.contextAfter = params.contextAfter;
+    this.startLine = params.startLine;
+    this.endLine = params.endLine;
+    this.occurrence = params.occurrence;
+    this.blockSegments = params.blockSegments ?? null;
+    this.editorRange = params.editorRange ?? null;
+
+    // 文本预览原地更新
+    const previewText = this.selectedText.length > 80
+      ? this.selectedText.substring(0, 80) + "..."
+      : this.selectedText;
+    if (this.textPreviewSpan) {
+      this.textPreviewSpan.textContent = `"${previewText}"`;
+    }
+
+    // 注音重置
+    this.rubyTexts = [];
+    this.selectedRubyRange = null;
+    if (this.rubyTextPreview) {
+      this.rubyTextPreview.textContent = this.selectedText;
+      this.rubyTextPreview.setAttribute("data-selected-text", this.selectedText);
+    }
+    this.updateRubyList?.();
+
+    // 克隆高亮跟随新选区（此刻原生选区就是手柄调整后的新选区；同名 set 直接覆盖旧高亮）
+    const selection = activeDocument.getSelection();
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+      showSelectionHighlight(selection.getRangeAt(0).cloneRange());
+    } else {
+      clearSelectionHighlight();
+    }
+
+    // 菜单重新锚定到新选区旁
+    window.requestAnimationFrame(() => this.positionMenuAt(params.x, params.y));
   }
 
   getCurrentNotePath(): string | null {

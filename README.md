@@ -58,9 +58,9 @@ Annotation data is stored in separate annotation files without modifying the ori
 
 ### Mobile Support / 移动端支持
 
-- 手机上长按选词或拖动选择手柄，选区稳定后自动弹出添加标注菜单
+- 手机上长按选词或拖动选择手柄，选区稳定后自动弹出添加标注菜单；拖动手柄期间菜单不会弹出，弹出后仍可继续拖手柄调整选区，菜单原地跟随更新（已输入的批注与所选颜色保留）
 
-  On mobile, long-press to select a word or drag the selection handles; once the selection is stable, the add-annotation menu pops up automatically
+  On mobile, long-press to select a word or drag the selection handles; once the selection is stable, the add-annotation menu pops up automatically. The menu stays out of the way while you drag the handles, and keeps updating in place if you adjust the selection afterwards — your note text and chosen color are preserved
 
 - 点击已有标注打开操作菜单 — 移动端查看/编辑批注的入口
 

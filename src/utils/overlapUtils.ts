@@ -3,6 +3,7 @@
 
 import type { AnnotationColor } from "../types";
 import { COLOR_BG_VARS, COLOR_ACCENT_VARS } from "../constants";
+import { encodeAttr } from "./helpers";
 
 export interface Interval {
   id: string;
@@ -90,7 +91,7 @@ export function buildSegmentHtml(
       const before = enrichedText.substring(0, sr.localStart);
       const target = enrichedText.substring(sr.localStart, sr.localEnd);
       const after = enrichedText.substring(sr.localEnd);
-      enrichedText = `${before}<ruby data-annotation-id="${sr.annId}">${target}<rt data-annotation-id="${sr.annId}">${sr.ruby}</rt></ruby>${after}`;
+      enrichedText = `${before}<ruby data-annotation-id="${sr.annId}">${target}<rt data-annotation-id="${sr.annId}">${encodeAttr(sr.ruby)}</rt></ruby>${after}`;
     }
 
     // 按 ID 排序确保一致的嵌套顺序
@@ -104,7 +105,8 @@ export function buildSegmentHtml(
       const color = ann?.annotationColor ?? "3";
       const bgVar = COLOR_BG_VARS[color];
       const accentVar = COLOR_ACCENT_VARS[color] || "transparent";
-      const noteAttr = ann?.note ? ` data-annotation-note="${ann.note}"` : "";
+      // note 在本函数内统一转义（调用方传入原文即可，不再依赖调用方预转义的隐式契约）
+      const noteAttr = ann?.note ? ` data-annotation-note="${encodeAttr(ann.note)}"` : "";
 
       wrapped = `<mark style="background:${bgVar};--annotation-accent:${accentVar}" data-annotation-id="${id}"${noteAttr}>${wrapped}</mark>`;
     }
@@ -118,28 +120,4 @@ export function buildSegmentHtml(
   }
 
   return parts.join("");
-}
-
-// 判断两个区间是否重叠
-export function isOverlapping(a: { start: number; end: number }, b: { start: number; end: number }): boolean {
-  return a.start < b.end && b.start < a.end;
-}
-
-// 找到与目标区间重叠的所有标注
-export function findOverlappingAnnotations(
-  target: { start: number; end: number },
-  annotations: Array<{ id: string; positions: Array<{ start: number; end: number }> }>
-): string[] {
-  const result: string[] = [];
-  for (const ann of annotations) {
-    for (const pos of ann.positions) {
-      if (isOverlapping(target, pos)) {
-        if (!result.includes(ann.id)) {
-          result.push(ann.id);
-        }
-        break;
-      }
-    }
-  }
-  return result;
 }

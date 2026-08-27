@@ -28,9 +28,12 @@ import { initLocale, t } from "./i18n";
 import { FolderSuggestModal, FileNameModal, ConfirmOverwriteModal } from "./ui/ExportModal";
 import { sortAnnotations, buildExportContent } from "./utils/exporter";
 import { restoreEditorFocus } from "./utils/focusManager";
+import { clearSelectionHighlight } from "./utils/selectionHighlight";
 
-// 移动端选区稳定防抖时长（ms）：拖手柄停手后需持续稳定该时长才弹菜单，可在 250-600 间微调手感
-const MOBILE_SELECTION_DEBOUNCE_MS = 400;
+// 移动端选区稳定防抖时长（ms）：兼作"选择手柄缓冲窗口"——
+// 选中后在此时间内拖动起点/终点手柄调整选区，菜单不会弹出（拖动中 selectionchange
+// 连发会不断重置计时器）；停手稳定该时长后才弹。可在 500-1000 间按手感微调
+const MOBILE_SELECTION_DEBOUNCE_MS = 600;
 
 export default class AnnotationPlugin extends Plugin {
   settings: AnnotationPluginSettings;
@@ -50,6 +53,9 @@ export default class AnnotationPlugin extends Plugin {
 
   // 实时同步防抖定时器
   private syncToOriginalTimers: Map<string, number> = new Map();
+
+  // 原文件外部修改的合并防抖定时器（按文件路径）
+  private externalSyncTimers: Map<string, number> = new Map();
 
   // 移动端选区稳定检测：selectionchange 防抖定时器（触摸选词不触发 mouseup，改由选区稳定后弹菜单）
   private mobileSelectionTimer: number | null = null;
@@ -417,8 +423,19 @@ export default class AnnotationPlugin extends Plugin {
     }
 
     if (originalCache) {
-      this.app.metadataCache.trigger("changed", fakeTFile, "", originalCache);
+      this.debouncedMetadataTrigger(fakeTFile, originalCache);
     }
+  }
+
+  // metadataCache "changed" 广播防抖：Dataview/graph 等重索引型订阅者开销大，
+  // 不应随每次击键唤醒（上方字典再注入本身是纯赋值，保留逐次执行）
+  private metadataTriggerTimer: number | null = null;
+  private debouncedMetadataTrigger(fakeTFile: TFile, cache: unknown): void {
+    if (this.metadataTriggerTimer) window.clearTimeout(this.metadataTriggerTimer);
+    this.metadataTriggerTimer = window.setTimeout(() => {
+      this.metadataTriggerTimer = null;
+      this.app.metadataCache.trigger("changed", fakeTFile, "", cache);
+    }, 800);
   }
 
   private removeMetadataCache(annotationPath: string) {
@@ -739,11 +756,18 @@ export default class AnnotationPlugin extends Plugin {
     const notePath = this.getActiveAnnotationNotePath();
     if (!notePath) return;
 
-    // 菜单已打开时不重建（如正在批注输入框打字）；创建标注成功后会清空原生选区，isCollapsed 兜底
-    if (this.selectionMenu.isOpened()) return;
-
+    const menuOpened = this.selectionMenu.isOpened();
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+
+    // 选区塌陷/为空（tap 空白处塌陷、tap 进了批注输入框等）：
+    // 菜单开着时只擦除克隆的紫色临时高亮并保留菜单——用户仍可点颜色圆点完成标注
+    // （annotateWithColor 使用菜单内存字段，不依赖实时选区），修复 iPad 选区高亮残留
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      if (menuOpened) {
+        clearSelectionHighlight();
+      }
+      return;
+    }
 
     // 选区起止元素都必须落在当前笔记的预览容器或编辑器容器内（排除侧栏、标签栏、本插件菜单等）
     const range = selection.getRangeAt(0);
@@ -780,7 +804,41 @@ export default class AnnotationPlugin extends Plugin {
     if (rect.width === 0 && rect.height === 0) return;
     if (rect.bottom < 0 || rect.top > window.innerHeight) return;
 
+    const selectionInfo = this.collectSelectionParams(selection);
+    if (!selectionInfo) return;
+
+    if (menuOpened) {
+      // 待标注内容没变（零星 selectionchange / 同段重复触发）时跳过，避免菜单闪烁重建
+      if (
+        this.selectionMenu.getCurrentNotePath() === notePath &&
+        this.selectionMenu.getSelectedText() === selectionInfo.selectedText
+      ) {
+        return;
+      }
+
+      // 拖动手柄调整选区 / 二次划选：原地更新待标注内容，保留已输入批注与所选颜色
+      if (this.selectionMenu.getCurrentNotePath() === notePath) {
+        this.selectionMenu.updateSelection({
+          x: rect.left + rect.width / 2,
+          y: rect.bottom,
+          ...selectionInfo,
+          editorRange: this.collectEditorRange(),
+        });
+        return;
+      }
+      // notePath 不同（旧会话残留菜单的边角情形）→ 走下方整体重建
+    }
+
     this.tryShowSelectionMenu(rect.left + rect.width / 2, rect.bottom, notePath);
+  }
+
+  // 编辑模式（source/Live Preview）下保存编辑器选区位置，供 replaceRange 局部替换路径使用
+  private collectEditorRange(): { from: EditorPosition; to: EditorPosition } | undefined {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view?.getMode?.() === "source" && view.editor) {
+      return { from: view.editor.getCursor("from"), to: view.editor.getCursor("to") };
+    }
+    return undefined;
   }
 
   // 从当前 DOM 选区弹出「添加标注」菜单（桌面 mouseup 与移动端 selectionchange 共用）
@@ -793,22 +851,12 @@ export default class AnnotationPlugin extends Plugin {
 
     this.annotationMenu.hide();
 
-    // 编辑模式下保存编辑器选区位置
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    let editorRange: { from: EditorPosition; to: EditorPosition } | undefined;
-    if (view?.getMode?.() === "source" && view.editor) {
-      editorRange = {
-        from: view.editor.getCursor("from"),
-        to: view.editor.getCursor("to"),
-      };
-    }
-
     this.selectionMenu.show({
       x,
       y,
       ...selectionInfo,
       notePath,
-      editorRange,
+      editorRange: this.collectEditorRange(),
       onAdd: () => { void this.refreshAnnotationView(notePath); },
     });
   }
@@ -1278,6 +1326,26 @@ export default class AnnotationPlugin extends Plugin {
         if (view?.file?.path === file.path) {
           await this.openAnnotationView(this.app.workspace.getLeaf(false), file.path);
         }
+      })
+    );
+
+    // 原文件被外部修改时（分屏直接编辑原文件、同步盘更新等），把变更经 diffSync
+    // 合并进对应的标注文件——否则会话关闭回写时会用旧内容覆盖外部修改。
+    // 按文件防抖，避免连续保存期间反复全量 diff；合并后刷新展示中的标注视图
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (!(file instanceof TFile) || file.extension !== "md") return;
+        const notePath = file.path;
+        if (!this.activeAnnotationSessions.has(notePath)) return;
+
+        const timer = this.externalSyncTimers.get(notePath);
+        if (timer) window.clearTimeout(timer);
+        this.externalSyncTimers.set(notePath, window.setTimeout(() => {
+          this.externalSyncTimers.delete(notePath);
+          void this.fileManager.syncFromOriginal(notePath)
+            .then(() => this.refreshAnnotationView(notePath))
+            .catch((e) => console.error("合并原文件外部修改失败:", e));
+        }, 1500));
       })
     );
 

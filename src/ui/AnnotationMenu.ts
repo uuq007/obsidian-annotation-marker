@@ -13,6 +13,9 @@ export class AnnotationMenu {
   private fileManager: AnnotationFileManager;
   private getSettings: () => AnnotationPluginSettings;
   private menuEl: HTMLElement | null = null;
+  // 外点关闭监听：存字段以便 hide() 在所有关闭路径上统一回收
+  // （此前只在"外点"分支自注销，经 × / hide() 关闭后残留，会导致下次详情菜单弹出即被关）
+  private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
 
   constructor(private app: App, fileManager: AnnotationFileManager, getSettings: () => AnnotationPluginSettings) {
     this.fileManager = fileManager;
@@ -172,13 +175,25 @@ export class AnnotationMenu {
       top: `${Math.max(10, menuY)}px`,
     });
 
-    const clickHandler = (e: MouseEvent) => {
+    // 先回收旧监听再注册新的，防止 show 复用时叠加
+    this.detachOutsideClickHandler();
+    this.outsideClickHandler = (e: MouseEvent) => {
       if (this.menuEl && !this.menuEl.contains(e.target as Node)) {
         this.hide();
-        activeDocument.removeEventListener("click", clickHandler);
       }
     };
-    window.setTimeout(() => activeDocument.addEventListener("click", clickHandler), 10);
+    window.setTimeout(() => {
+      if (this.outsideClickHandler) {
+        activeDocument.addEventListener("click", this.outsideClickHandler);
+      }
+    }, 10);
+  }
+
+  private detachOutsideClickHandler(): void {
+    if (this.outsideClickHandler) {
+      activeDocument.removeEventListener("click", this.outsideClickHandler);
+      this.outsideClickHandler = null;
+    }
   }
 
   private showEditModal(
@@ -222,6 +237,7 @@ export class AnnotationMenu {
   }
 
   hide(): void {
+    this.detachOutsideClickHandler();
     if (this.menuEl) {
       this.menuEl.remove();
       this.menuEl = null;

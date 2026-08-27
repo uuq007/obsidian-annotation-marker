@@ -4,10 +4,12 @@ import { scanAnnotationTags } from "../view/annotationTagParser";
 import { buildMarkTag } from "../annotationFile/annotationSerializer";
 import { AnnotationFileManager } from "../annotationFile/AnnotationFileManager";
 
-// 去掉 <ruby> 标签，保留文本内容
+// 去掉 <ruby> 标签，保留文本内容。
+// 不要求标签带属性：用户手写/第三方的裸 <ruby>字<rt>注</rt></ruby> 落在标注内时，
+// 旧正则会把它当纯文本保留，产生嵌套脏标签
 function stripRubyTags(text: string): string {
 	return text
-		.replace(/<ruby\s+[^>]*>([\s\S]*?)<rt\s+[^>]*>[\s\S]*?<\/rt><\/ruby>/g, "$1");
+		.replace(/<ruby[^>]*>([\s\S]*?)<rt[^>]*>[\s\S]*?<\/rt><\/ruby>/g, "$1");
 }
 
 // 编辑模式下用 replaceRange 局部替换标注

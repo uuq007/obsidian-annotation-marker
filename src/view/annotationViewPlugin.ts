@@ -14,12 +14,37 @@ const annotationRangesField = StateField.define<AnnotationBlock[]>({
     return scanAnnotationTags(text, 0, text);
   },
   update(blocks, tr) {
-    if (tr.docChanged) {
-      const text = tr.newDoc.toString();
-      if (!hasAnnotationTags(text)) return [];
-      return scanAnnotationTags(text, 0, text);
+    if (!tr.docChanged) return blocks;
+
+    // 快速路径：插入文本、删除文本及拼接边界窗口均不含 "<" 时，本次变更
+    // 不可能新增或销毁标注标签，直接把旧范围按 changes 映射过去，
+    // 避免大文档下每次击键都全量 toString + 正则扫描
+    const TAG_WINDOW = 7; // 最长标签 token "</mark>" 的长度
+    let boundarySafe = true;
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      if (!boundarySafe) return;
+      const oldDoc = tr.startState.doc;
+      if (inserted.length && inserted.toString().includes("<")) { boundarySafe = false; return; }
+      if (oldDoc.sliceString(fromA, toA).includes("<")) { boundarySafe = false; return; }
+      const before = oldDoc.sliceString(Math.max(0, fromA - TAG_WINDOW), fromA);
+      const after = oldDoc.sliceString(toA, Math.min(oldDoc.length, toA + TAG_WINDOW));
+      if (before.includes("<") || after.includes("<")) boundarySafe = false;
+    });
+    if (boundarySafe) {
+      return blocks
+        .map(b => ({
+          ...b,
+          markOpenFrom: tr.changes.mapPos(b.markOpenFrom),
+          markOpenTo: tr.changes.mapPos(b.markOpenTo),
+          markCloseFrom: tr.changes.mapPos(b.markCloseFrom),
+          markCloseTo: tr.changes.mapPos(b.markCloseTo),
+        }))
+        .filter(b => b.markOpenFrom >= 0 && b.markCloseTo > b.markOpenFrom);
     }
-    return blocks;
+
+    const text = tr.newDoc.toString();
+    if (!hasAnnotationTags(text)) return [];
+    return scanAnnotationTags(text, 0, text);
   }
 });
 

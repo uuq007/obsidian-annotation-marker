@@ -82,6 +82,9 @@ export class ImportConfirmModal extends Modal {
     if (result.skippedInvalid > 0) {
       stats.createEl("p", { text: loc.importResultSkippedInvalid(result.skippedInvalid) });
     }
+    if (result.skippedDuplicate > 0) {
+      stats.createEl("p", { text: loc.importResultSkippedDuplicate(result.skippedDuplicate) });
+    }
     if (result.skippedNotFound > 0) {
       stats.createEl("p", { text: loc.importResultSkippedNotFound(result.skippedNotFound) });
     }
